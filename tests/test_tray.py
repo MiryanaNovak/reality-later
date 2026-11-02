@@ -117,7 +117,7 @@ def test_the_menu_actions():
     actions = tray.Actions(RUNNING, opener=lambda url: opened.append(url) or True, ping=lambda r: True,
                            transport=httpx.MockTransport(server))
     assert [(e.label, e.default) for e in actions.menu()] == [
-        ('Open Roleplay', True), ('This computer', False), (None, False), ('Quit Roleplay', False)]
+        ('Open Reality Later', True), ('This computer', False), (None, False), ('Quit Reality Later', False)]
     actions.open_app()
     actions.open_computer()
     assert opened == ['http://localhost:8091/', 'http://localhost:8091/computer']
@@ -164,7 +164,7 @@ def test_the_pystray_menu(monkeypatch):
     monkeypatch.setattr(actions, 'quit_app', lambda: done.append('quit'))
     icon = tray.pystray_icon(actions)
     items = list(icon.menu.items)
-    assert [item.text for item in items] == ['Open Roleplay', 'This computer', '- - - -', 'Quit Roleplay']
+    assert [item.text for item in items] == ['Open Reality Later', 'This computer', '- - - -', 'Quit Reality Later']
     assert items[0].default and not items[1].default
     items[0](icon)
     items[3](icon)
@@ -236,7 +236,7 @@ async def test_the_linux_tray_icon(session_bus):
     client = await MessageBus(bus_address=session_bus).connect()
     item = client.get_proxy_object(name, ITEM_PATH, await client.introspect(name, ITEM_PATH)) \
         .get_interface('org.kde.StatusNotifierItem')
-    assert await item.get_title() == 'Roleplay' and await item.get_status() == 'Active'
+    assert await item.get_title() == 'Reality Later' and await item.get_status() == 'Active'
     assert await item.get_menu() == MENU_PATH and not await item.get_item_is_menu()
     pixmaps = await item.get_icon_pixmap()
     assert [(w, h) for w, h, _ in pixmaps] == [(s, s) for s in (16, 22, 24, 32, 48, 64)]
@@ -249,7 +249,7 @@ async def test_the_linux_tray_icon(session_bus):
     revision, (root, props, children) = await menu.call_get_layout(0, -1, [])
     entries = [child.value for child in children]
     assert [e[1].get('label', Variant('s', '-')).value for e in entries] == \
-        ['Open Roleplay', 'This computer', '-', 'Quit Roleplay']
+        ['Open Reality Later', 'This computer', '-', 'Quit Reality Later']
     assert entries[2][1]['type'].value == 'separator'
     await menu.call_event(2, 'clicked', Variant('s', ''), 0)  # This computer
     await menu.call_event(4, 'hovered', Variant('s', ''), 0)  # (only clicks do something)

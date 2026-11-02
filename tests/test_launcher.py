@@ -135,7 +135,7 @@ def test_once_it_answers_it_says_so_and_opens_the_page(tmp_path, monkeypatch, ca
     tries = iter([False, False, True])
     launcher.when_ready(info, me, open_browser=True, ping=lambda running: next(tries)).join(5)
     out = capsys.readouterr().out
-    assert 'Roleplay is running. Leave this window open' in out
+    assert 'Reality Later is running. Leave this window open' in out
     assert 'On this computer, open   http://localhost:8091' in out
     assert 'On other devices, open   http://192.168.1.20:8090   (pair each one once, on the page below)' in out
     assert 'depending on the network: http://100.101.1.2:8090' in out

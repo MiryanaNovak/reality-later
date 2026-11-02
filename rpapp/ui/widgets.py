@@ -159,7 +159,7 @@ def page_bar(title: str, *, subtitle: str = '', back: str | None = None, menu: M
     slot = _bars.get(ui.context.client)
     if slot is not None:
         slot.clear()
-        ui.page_title(f'{title} · {APP_NAME}')
+        ui.page_title(title if title == APP_NAME else f'{title} · {APP_NAME}')
     with slot if slot is not None else ui.element('div').classes('app-bar w-full'):
         if back:
             ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to(back)) \

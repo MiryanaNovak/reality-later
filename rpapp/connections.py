@@ -43,6 +43,7 @@ from typing import Any, ClassVar, Literal
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
+from . import APP_NAME
 from .storage import JsonStore, StoredModel
 
 
@@ -413,14 +414,13 @@ class OpenRouterConnection(OpenAIStyleConnection):
     # For models that think before answering. None = the model's default.
     # The thinking text itself isn't passed on by stream(), only the answer.
     reasoning_effort: Literal['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] | None = None
-    # Optional: how your app appears in your OpenRouter activity and its public rankings.
+    # How the app appears in your OpenRouter activity and its public rankings ('' = APP_NAME).
     app_name: str = ''
     app_url: str = ''
 
     def _headers(self) -> dict[str, str]:
         headers = super()._headers()
-        if self.app_name:
-            headers['X-OpenRouter-Title'] = self.app_name
+        headers['X-OpenRouter-Title'] = self.app_name.strip() or APP_NAME
         if self.app_url:
             headers['HTTP-Referer'] = self.app_url
         return headers

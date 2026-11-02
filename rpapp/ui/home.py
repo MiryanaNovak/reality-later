@@ -9,20 +9,24 @@ From top to bottom:
     none chosen for chats, or the one chosen for memories was deleted -> choose (Settings)
     no device ever paired                -> pair one (This computer); only on a network, with pairing on
 - Recent conversations: the last ones you chatted in, as cards (the character's picture, with
-  your persona's in the corner, and Continue), at most two rows; View all opens Conversations.
-- Recently added characters: as on the Characters page, at most two rows; View all opens it.
+  your persona's in the corner; the conversation's title, then who's in it; Continue), at most two
+  rows; View all opens Conversations.
+- Recent characters: the last ones added, as on the Characters page, at most two rows; View all
+  opens it.
+
+The top bar shows the app's name and tagline, rather than "Home".
 
 "At most two rows" is CSS: the grids always hold up to MAX_CARDS cards, and the stylesheet
 hides those past the second row for the width at hand (see theme.py, .home-grid).
 """
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from nicegui import ui
 
+from .. import APP_NAME, TAGLINE
 from ..access import Access
 from ..connections import Connection
 from ..conversations import Conversation, ConversationStore
@@ -61,7 +65,7 @@ class HomePage:
         self.server = server
 
     def page(self) -> None:
-        page_bar('Home')
+        page_bar(APP_NAME, subtitle=TAGLINE)
 
         @ui.refreshable
         def tips() -> None:
@@ -175,23 +179,21 @@ class HomePage:
                 with ui.element('div').classes('conversation-persona').tooltip(f'You, as {persona_title}'):
                     _picture(self.personas.image_url(persona.image) if persona and persona.image else '',
                              persona_title, '')
-            with ui.column().classes('w-full min-w-0 gap-0 px-3 pt-2'):
-                ui.label(character_title).classes('grid-card-title')
+            with ui.column().classes('w-full min-w-0 gap-0 px-3 pt-2 grow'):
+                ui.label(conversation.title).classes('grid-card-title conversation-title').mark('card-title')
+                ui.label(character_title).classes('text-sm truncate w-full').props['title'] = character_title
                 ui.label(f'As {persona_title}').classes('text-sm muted truncate w-full')
                 when = time_ago(conversation.updated_at)
                 ui.label(when[:1].upper() + when[1:]).classes('text-xs muted')
-            excerpt = _last_message(conversation, (character.name if character else '') or character_title,
-                                    (persona.name if persona else '') or persona_title)
-            ui.label(excerpt).classes('grid-card-body conversation-excerpt')
             ui.button('Continue', icon='chat', on_click=open_chat).props('outline dense') \
                 .classes('grid-card-button').on('click.stop', js_handler='() => {}').mark('continue')
 
-    # -- recently added characters -----------------------------------------------------------
+    # -- recent characters: the last ones added ---------------------------------------------
 
     def _characters(self, refresh: Callable[[], None]) -> None:
         store = self.characters.store
         recent = sorted(store.list(), key=store.added_at, reverse=True)[:MAX_CARDS]
-        self._section('Recently added characters', '/characters', 'characters')
+        self._section('Recent characters', '/characters', 'characters')
         if not recent:
             ui.label('No characters yet. Create one, or import a character card, on the Characters page.') \
                 .classes('muted -mt-2').mark('no-characters')
@@ -221,17 +223,3 @@ def _picture(url: str, title: str, initials_class: str) -> None:
             .classes('w-full h-full')
     else:
         ui.label(initials(title)).classes(initials_class)
-
-
-def _last_message(conversation: Conversation, char: str, user: str) -> str:
-    """The last message, as one plain line: 'Mira: Where am I?'."""
-    if not conversation.messages:
-        return ''
-    message = conversation.messages[-1]
-    text = re.sub(r'(?is)<(script|style)\b.*?</\1\s*>', ' ', message.content)  # code and styles: not words
-    text = re.sub(r'<[^>]*>?', ' ', text)  # HTML tags, even a cut-off one
-    text = re.sub(r'!\[[^\]]*\]\([^)]*\)', '', text)  # Markdown pictures
-    text = re.sub(r'[*_~`#>]+', '', text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    speaker = user if message.role == 'user' else char
-    return f'{speaker}: {text[:200]}' if text else ''

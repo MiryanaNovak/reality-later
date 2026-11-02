@@ -12,6 +12,7 @@ from collections.abc import Callable
 
 from nicegui import ui
 
+from .. import APP_NAME
 from ..connections import (
     Connection, ModelError, ModelInfo, OpenAICompatibleConnection, OpenAIStyleConnection, OpenRouterConnection,
 )
@@ -102,7 +103,8 @@ def openrouter_editor(conn: OpenRouterConnection, form: Form) -> None:
                           hint='Empty means any. int4 and fp4 can hurt quality')
 
     with folding_panel('Advanced'):
-        form.text(conn, 'app_name', 'App name', hint='Shown in your OpenRouter activity page')
+        form.text(conn, 'app_name', 'App name', placeholder=APP_NAME,
+                  hint=f'Shown in your OpenRouter activity page. Empty: {APP_NAME}')
         form.text(conn, 'app_url', 'App URL', hint='Optional, sent along with the app name')
         form.text(conn, 'base_url', 'Base URL')
         form.number(conn, 'timeout', 'Timeout (seconds)', min=1, step=10, optional=False,

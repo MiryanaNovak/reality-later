@@ -164,6 +164,15 @@ async def test_openrouter_request_and_streaming():
     }
 
 
+async def test_openrouter_names_the_app_by_default():
+    from rpapp import APP_NAME
+    assert OpenRouterConnection(api_key='k')._headers()['X-OpenRouter-Title'] == APP_NAME == 'Reality Later'
+    assert OpenRouterConnection(api_key='k', app_name='  ')._headers()['X-OpenRouter-Title'] == APP_NAME
+    assert OpenRouterConnection(api_key='k', app_name='Mine')._headers()['X-OpenRouter-Title'] == 'Mine'
+    assert 'HTTP-Referer' not in OpenRouterConnection(api_key='k')._headers()  # (the URL: only if set)
+    assert 'X-OpenRouter-Title' not in OpenAICompatibleConnection()._headers()  # (OpenRouter's alone)
+
+
 async def test_local_server_sends_only_what_is_set():
     seen = {}
 

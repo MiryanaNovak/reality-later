@@ -14,7 +14,7 @@ start. To tell that what answers at the URL is that copy, it answers GET
 /local/instance with its id.
 
 The tray icon (tray.py) quits the app with POST /local/quit, from this computer only, with that
-id in an X-Roleplay-Instance header: a web page can't send that header to the app (the browser
+id in an X-Reality-Later-Instance header: a web page can't send that header to the app (the browser
 would have to ask the app first, and it says no), so no page can quit the app behind your back.
 """
 from __future__ import annotations
@@ -39,7 +39,7 @@ LOCK_FILE = 'app.lock'
 INFO_FILE = 'running.json'
 PATH = '/local/instance'
 QUIT_PATH = '/local/quit'
-HEADER = 'X-Roleplay-Instance'
+HEADER = 'X-Reality-Later-Instance'
 ENV = 'RPAPP_INSTANCE'  # the running copy's id, for the process NiceGUI starts in --reload mode
 
 

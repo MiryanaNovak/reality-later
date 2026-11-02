@@ -53,7 +53,7 @@ class Item(ServiceInterface):
 
     @dbus_property(access=PropertyAccess.READ)
     def Id(self) -> 's':
-        return 'roleplay'
+        return 'reality-later'
 
     @dbus_property(access=PropertyAccess.READ)
     def Title(self) -> 's':

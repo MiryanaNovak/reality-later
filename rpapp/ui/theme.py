@@ -309,10 +309,8 @@ HEAD = f'''
     box-shadow: 0 1px 4px rgba(0, 0, 0, .25); display: flex; align-items: center; justify-content: center;
     font-family: 'Literata', Georgia, serif; font-weight: 600; font-size: .95rem; color: var(--q-primary);
   }}
-  .conversation-excerpt {{
-    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
-    white-space: normal; padding-top: 6px;
-  }}
+  /* A conversation's title, on its card: two lines at most, then "…" */
+  .conversation-title {{ display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }}
   /* Two rows at most: the cards past the second row of .item-grid are hidden. A row holds
      floor((width + 14) / 164) cards, from .item-grid's minmax(150px, 1fr) and 14px gap: keep in step. */
   .home-grid {{ container: home-grid / inline-size; width: 100%; }}

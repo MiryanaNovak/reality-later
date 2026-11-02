@@ -29,6 +29,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
+from . import APP_NAME
+
 CERT_FILE = 'self-signed.pem'
 KEY_FILE = 'self-signed-key.pem'
 VALID_DAYS = 825      # Apple's limit for certificates you choose to trust
@@ -107,8 +109,8 @@ def _make(cert_path: Path, key_path: Path, now: datetime, extra: list[str]) -> x
     key = ec.generate_private_key(ec.SECP256R1())
     host = socket.gethostname() or 'this computer'
     subject = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, f'Roleplay on {host}'[:64]),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, 'Roleplay app (self-signed)'),
+        x509.NameAttribute(NameOID.COMMON_NAME, f'{APP_NAME} on {host}'[:64]),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, f'{APP_NAME} app (self-signed)'),
     ])
     cert = (
         x509.CertificateBuilder()

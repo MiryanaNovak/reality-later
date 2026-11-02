@@ -207,4 +207,4 @@ async def test_page_titles_live_in_the_top_bar(setup):
         await user.should_see('Settings')
         await user.should_not_see(marker='bar-back')
         await user.should_not_see('Laptop')
-    await user.should_not_see('Roleplay')  # the app's name is only in the browser tab's title
+    await user.should_not_see('Reality Later')  # the app's name is in the bar on Home only, and in the tab's title

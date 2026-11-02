@@ -1,8 +1,8 @@
 """The tray icon: the app's icon in the system tray (the menu bar on a Mac), with a menu.
 
-    Open Roleplay      the app in the browser (also a click on the icon, where the desktop allows)
-    This computer      its "This computer" page: addresses, pairing, settings file, data folder
-    Quit Roleplay      stops it, as the Quit button on that page does
+    Open Reality Later    the app in the browser (also a click on the icon, where the desktop allows)
+    This computer         its "This computer" page: addresses, pairing, settings file, data folder
+    Quit Reality Later    stops it, as the Quit button on that page does
 
 It runs in a process of its own, started by main.py once the app runs (launcher.start_tray), as
 `main.py tray <data folder>`: a tray icon wants its process's main thread (macOS insists), which the
@@ -146,7 +146,7 @@ def pystray_icon(actions: Actions):
             options['nsapplication'] = application
         except Exception:
             pass
-    return pystray.Icon('roleplay', icon_image(64), APP_NAME, menu=pystray.Menu(*items), **options)
+    return pystray.Icon('reality-later', icon_image(64), APP_NAME, menu=pystray.Menu(*items), **options)
 
 
 def run_pystray(actions: Actions) -> None:

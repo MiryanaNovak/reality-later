@@ -1,4 +1,4 @@
-# Configuration of the Roleplay app.
+# Configuration of the Reality Later app.
 #
 # The app reads it from "config.toml", in the same folder as the app (next to main.py).
 # To make one, copy this file under that name (the app's "This computer" page does it

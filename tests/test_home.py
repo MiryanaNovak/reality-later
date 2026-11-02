@@ -115,8 +115,9 @@ async def test_recent_conversations_and_characters(home):
     old.add('user', '*Waves.* Hello?')
     conversations.save(old)
     new = conversations.start(cast[1], mira)
-    new.add('assistant', '**Ahoy**, <style>p {}</style><img src="x">stowaway.')
+    new.add('assistant', '**Ahoy**, stowaway.')
     conversations.save(new)
+    conversations.rename(new.id, 'The storm')
 
     async with user_simulation(build_root(tmp_path, access=access)) as user:
         await user.open('/')
@@ -124,8 +125,14 @@ async def test_recent_conversations_and_characters(home):
         cards = [m for e in user.find(marker='recent-conversations').elements for c in e.descendants()
                  for m in c._markers if m.startswith('conversation-')]
         assert cards == [f'conversation-{new.id}', f'conversation-{old.id}']  # the latest first
-        await user.should_see('Hale: Ahoy, stowaway.')  # the last message, as plain text
-        await user.should_see('Mira: Waves. Hello?')
+        with user.scope(marker=f'conversation-{new.id}'):
+            await user.should_see('The storm')  # its title, renamed
+            await user.should_see('Hale')       # who's in it
+            await user.should_see('As Mira, wandering healer')
+            await user.should_not_see('stowaway')  # not its last message
+        with user.scope(marker=f'conversation-{old.id}'):
+            await user.should_see(old.title)  # (the date and time it started, until renamed)
+        await user.should_see('Recent characters')
 
         cards = [m for e in user.find(marker='recent-characters').elements for c in e.descendants()
                  for m in c._markers if m.startswith('row-')]
@@ -142,6 +149,18 @@ async def test_recent_conversations_and_characters(home):
         await user.open('/')
         user.find(marker='view-all-conversations').click()
         await user.should_see(marker=f'row-{new.id}')
+
+
+async def test_the_app_name_is_the_title(home):
+    from rpapp import APP_NAME, TAGLINE
+    tmp_path, access = home
+    async with user_simulation(build_root(tmp_path, access=access)) as user:
+        await user.open('/')
+        with user.scope(marker='app-bar'):
+            await user.should_see(APP_NAME)
+            await user.should_see(TAGLINE)
+            await user.should_not_see('Home')
+    assert (APP_NAME, TAGLINE) == ('Reality Later', 'The real world can wait.')
 
 
 async def test_empty_home(home):

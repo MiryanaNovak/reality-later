@@ -47,7 +47,7 @@ async def test_what_it_says(setup):
     tmp_path, info, access, _ = setup
     async with user_simulation(build_root(info.data_dir, access=access, server=info)) as user:
         await user.open('/computer')
-        await user.should_see('Roleplay is running')
+        await user.should_see('Reality Later is running')
         await user.should_see('This browser tab is only a window onto it', retries=5)
         with user.scope(marker='local-address'):
             await user.should_see('http://localhost:8091')
@@ -141,7 +141,7 @@ async def test_only_on_the_computer(setup, monkeypatch):
     async with user_simulation(build_root(info.data_dir, access=access, server=info)) as user:
         await user.open('/computer')
         await user.should_see(marker='computer-elsewhere')
-        await user.should_not_see('Roleplay is running')
+        await user.should_not_see('Reality Later is running')
         await user.should_not_see(marker='quit-app')
         await user.should_not_see(marker='nav-this-computer')
 
