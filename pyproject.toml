@@ -11,6 +11,20 @@ dependencies = [
     "nh3",                                  # cleans the HTML of chat messages (see rpapp/safe_html.py)
 ]
 
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+# The package is the rpapp folder alone: next to it are main.py, tools/, tests/, and your own data/ and
+# certificates/, which setuptools would otherwise take for packages too ("Multiple top-level packages").
+[tool.setuptools.packages.find]
+include = ["rpapp", "rpapp.*"]
+
+# Files the app needs besides its Python code (setuptools only takes .py files unless told):
+# the picture framing tool, the fonts, and the starter set (see rpapp/starter.py)
+[tool.setuptools.package-data]
+rpapp = ["ui/*.js", "ui/fonts/*", "starter/**/*"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
