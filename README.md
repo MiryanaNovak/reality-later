@@ -46,6 +46,8 @@ Reality Later runs on your own computer and supports HTTPS out of the box.
 
 Self-signed certificates are generated automatically and will require a one-time trust or browser exception on devices connecting to the application.
 
+External devices must be paired before they can connect.
+
 External content, including imported character cards and lore books, is treated as untrusted. Inputs are validated and sanitized to limit the risks of malformed or malicious data.
 
 HTTPS and input validation alone do not make an application safe to expose directly to the public internet. If you want to access Reality Later from outside your home network, consider using a secure networking solution such as Tailscale instead of exposing the application directly.
@@ -58,4 +60,4 @@ HTTPS and input validation alone do not make an application safe to expose direc
 
 ## Contributing
 
-Bug reports and suggestions are welcome.
+Bug reports and suggestions are welcome. I do not accept contributions.

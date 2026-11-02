@@ -422,15 +422,15 @@ A virtual environment is specific to its installation directory; don't move or c
 
 ## 7. Troubleshooting
 
-**`error: externally-managed-environment`** — You are probably using your distribution's system Python instead of the virtual environment's Python. Use the `.venv` executable shown in the installation instructions.
+- **error: externally-managed-environment** — You are probably using your distribution's system Python instead of the virtual environment's Python. Use the `.venv` executable shown in the installation instructions.
 
-**`Permission denied` when writing data or certificates (systemd)** — Recheck ownership of `/opt/reality-later/data` and `/opt/reality-later/certificates`, along with `ReadWritePaths` in the unit.
+- **Permission denied when writing data or certificates (systemd)** — Recheck ownership of `/opt/reality-later/data` and `/opt/reality-later/certificates`, along with `ReadWritePaths` in the unit.
 
-**Port 8090 or 8091 is already in use** — Stop any manually running Reality Later instance before starting the service, or adjust its port configuration.
+- **Port 8090 or 8091 is already in use** — Stop any manually running Reality Later instance before starting the service, or adjust its port configuration.
 
-**HTTP 403 Forbidden over Tailscale** — Reality Later's default `allowed_networks = ["private"]` does not include Tailscale's `100.64.0.0/10` addresses. In `config.toml` under `[server]`, change the existing setting to `allowed_networks = ["private", "100.64.0.0/10"]`, then restart Reality Later. Pairing may still be required.
+- **HTTP 403 Forbidden over Tailscale** — Reality Later's default `allowed_networks = ["private"]` does not include Tailscale's `100.64.0.0/10` addresses. In `config.toml` under `[server]`, change the existing setting to `allowed_networks = ["private", "100.64.0.0/10"]`, then restart Reality Later. Pairing may still be required.
 
-**A remote device cannot connect** — Check the listening address, `allowed_networks`, firewall rules, device pairing, and (if used) Tailscale connectivity. Do not expose the app directly to the public internet to solve this.
+- **A remote device cannot connect** — Check the listening address, `allowed_networks`, firewall rules, device pairing, and (if used) Tailscale connectivity. Do not expose the app directly to the public internet to solve this.
 
 ## 8. Data, configuration, and security
 
