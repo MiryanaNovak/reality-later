@@ -21,6 +21,7 @@ import errno
 import logging
 import os
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -203,6 +204,42 @@ def browser_wanted(config: Config, *, no_browser: bool = False) -> str | None:
     if config.server.local_url is None:
         return 'this computer can\'t reach the app'
     return desktop.why_no_browser()
+
+
+def tray_wanted(config: Config, *, no_tray: bool = False, reload: bool = False) -> str | None:
+    """Why not to show the tray icon, or None to show it (see tray.py)."""
+    if no_tray:
+        return '--no-tray'
+    if not config.server.tray:
+        return 'tray = false'
+    if reload:
+        return '--reload'  # (the process holding the icon would outlive each restart)
+    if config.server.local_url is None:
+        return 'this computer can\'t reach the app'
+    return desktop.why_no_browser()  # no desktop to show it on
+
+
+def start_tray(data_dir: Path, *, script: Path | None = None) -> subprocess.Popen | None:
+    """Start the tray icon's process: this program again, as `tray <data folder>` (see tray.py).
+    `script`: main.py, when running from the source (not packaged). None if it can't be started."""
+    program = [sys.executable] if getattr(sys, 'frozen', False) or script is None else [sys.executable, str(script)]
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0  # (no console window of its own)
+    try:
+        return subprocess.Popen([*program, 'tray', str(data_dir)], stdin=subprocess.DEVNULL, creationflags=flags)
+    except OSError as e:
+        print(f'No tray icon: it couldn\'t be started ({e}).', flush=True)
+        return None
+
+
+def stop_tray(process: subprocess.Popen | None) -> None:
+    """When the app stops (the tray process also sees it by itself, within seconds)."""
+    if process is None or process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        process.kill()
 
 
 def starting_lines(info: ServerInfo) -> list[str]:

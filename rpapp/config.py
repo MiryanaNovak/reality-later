@@ -10,6 +10,7 @@
     key = ""
     local_port = 8091        (by default, port + 1)
     open_browser = true
+    tray = true
 
 The file is looked for next to the executable when the app is packaged as one,
 otherwise next to the main script (main.py). Without the file, or for anything
@@ -88,6 +89,7 @@ class ServerConfig(BaseModel):
     key: str = ''
     local_port: int | None = Field(None, ge=0, le=65535)  # this computer's plain-HTTP address; None: port + 1, 0: none
     open_browser: bool = True  # open the app's "This computer" page in the browser at startup (on a desktop)
+    tray: bool = True  # an icon in the system tray, to open the app or quit it (on a desktop, see tray.py)
 
     @field_validator('address')
     @classmethod

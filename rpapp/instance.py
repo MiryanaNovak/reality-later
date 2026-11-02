@@ -12,6 +12,10 @@ The lock is the operating system's (flock on Linux and macOS, msvcrt on Windows)
 goes away with the process, even after a crash, so a left-over file never stops a
 start. To tell that what answers at the URL is that copy, it answers GET
 /local/instance with its id.
+
+The tray icon (tray.py) quits the app with POST /local/quit, from this computer only, with that
+id in an X-Roleplay-Instance header: a web page can't send that header to the app (the browser
+would have to ask the app first, and it says no), so no page can quit the app behind your back.
 """
 from __future__ import annotations
 
@@ -19,6 +23,7 @@ import json
 import os
 import secrets
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,6 +38,8 @@ from . import APP_NAME
 LOCK_FILE = 'app.lock'
 INFO_FILE = 'running.json'
 PATH = '/local/instance'
+QUIT_PATH = '/local/quit'
+HEADER = 'X-Roleplay-Instance'
 ENV = 'RPAPP_INSTANCE'  # the running copy's id, for the process NiceGUI starts in --reload mode
 
 
@@ -123,17 +130,31 @@ def answers(running: Running, *, timeout: float = 2) -> bool:
         return False
 
 
-def add_route(app: Any) -> None:
-    """GET /local/instance: which copy of the app this is (only to this computer)."""
+def add_route(app: Any, *, quit_app: Callable[[], Any] | None = None) -> None:
+    """GET /local/instance: which copy of the app this is (only to this computer). With `quit_app`,
+    POST /local/quit too, which calls it (see the module's notes)."""
     from .access import is_local
 
-    async def instance(request: Request) -> JSONResponse:
+    def local(request: Request) -> bool:
         headers = {k.lower(): v for k, v in request.headers.items()}
-        if not is_local(request.client.host if request.client else None, headers):
+        return is_local(request.client.host if request.client else None, headers)
+
+    async def instance(request: Request) -> JSONResponse:
+        if not local(request):
             return JSONResponse({'error': 'Only from this computer itself.'}, status_code=403)
         return JSONResponse({'app': APP_NAME, 'id': os.environ.get(ENV, '')})
 
+    async def quit_route(request: Request) -> JSONResponse:
+        me = os.environ.get(ENV, '')
+        if not local(request) or not me or not secrets.compare_digest(request.headers.get(HEADER, ''), me):
+            return JSONResponse({'error': 'Only from this computer itself, by the app\'s own tray icon.'},
+                                status_code=403)
+        quit_app()
+        return JSONResponse({'quitting': True})
+
     app.add_api_route(PATH, instance, methods=['GET'], include_in_schema=False)
+    if quit_app is not None:
+        app.add_api_route(QUIT_PATH, quit_route, methods=['POST'], include_in_schema=False)
 
 
 # -- the operating system's file locks ----------------------------------------------------------

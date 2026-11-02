@@ -17,7 +17,7 @@ from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
 
-from nicegui import app, background_tasks, run, ui
+from nicegui import Client, app, background_tasks, run, ui
 
 from .. import APP_NAME, desktop
 from ..access import Access, is_local
@@ -45,6 +45,22 @@ STOPPED_PAGE = f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <body><main><h1>{APP_NAME} has stopped</h1>
 <p>It doesn't answer any more, here or on your other devices.</p>
 <p>To use it again, start it again: it opens this page by itself. You can close this tab.</p></main></body></html>'''
+
+
+def quit_everywhere(quit_app: Callable[[], None] | None = None) -> None:
+    """Quit the app: every tab open on it, here and on other devices, says it stopped (once it's gone, it
+    couldn't update them), then it stops. The Quit button below and the tray icon's Quit (tray.py) do this."""
+    code = (f'window.socket && window.socket.disconnect(); document.open(); '
+            f'document.write({json.dumps(STOPPED_PAGE)}); document.close();')
+    for client in list(Client.instances.values()):
+        if client.has_socket_connection:
+            client.run_javascript(code)
+
+    async def stop() -> None:
+        await asyncio.sleep(0.5)  # for the pages to change first
+        (quit_app or app.shutdown)()
+
+    background_tasks.create(stop(), name='quit the app')
 
 
 def on_this_computer() -> bool:
@@ -218,19 +234,11 @@ class ComputerPage:
             if not await confirm(f'Quit {APP_NAME}?', 'It stops answering, here and on your other devices, until you '
                                  'start it again.', 'Quit'):
                 return
-            # Show that it stopped, as a plain page: once the app is gone, it can't update this one.
-            ui.run_javascript(f'window.socket && window.socket.disconnect(); document.open(); '
-                              f'document.write({json.dumps(STOPPED_PAGE)}); document.close();')
-
-            async def stop() -> None:
-                await asyncio.sleep(0.5)  # for the page to change first
-                self.quit_app()
-
-            background_tasks.create(stop(), name='quit the app')
+            quit_everywhere(self.quit_app)
 
         with panel('Quit'):
             ui.label('Quitting stops the app, here and on your other devices, until you start it again. Closing the '
-                     'window it runs in stops it too.').classes('text-sm')
+                     'window it runs in stops it too, and so does Quit in its tray icon\'s menu.').classes('text-sm')
             ui.button('Quit the app', icon='power_settings_new', color='negative', on_click=quit_app) \
                 .props('outline').classes('self-start').mark('quit-app')
 

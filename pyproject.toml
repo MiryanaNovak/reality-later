@@ -9,6 +9,9 @@ dependencies = [
     "cryptography",                         # makes the self-signed certificate for HTTPS
     "segno",                                # draws the QR codes for pairing devices
     "nh3",                                  # cleans the HTML of chat messages (see rpapp/safe_html.py)
+    # the tray icon (see rpapp/tray.py): pystray on Windows and macOS, D-Bus on Linux
+    "pystray; sys_platform == 'win32' or sys_platform == 'darwin'",
+    "dbus-fast; sys_platform == 'linux'",
 ]
 
 [build-system]

@@ -9,6 +9,7 @@ again. Other devices use this computer's address on your network, over HTTPS:
 https://192.168.1.20:8090 for instance (the page and this window show it).
 
     python main.py --no-browser    don't open the browser (also: open_browser = false)
+    python main.py --no-tray       no icon in the system tray (also: tray = false)
     python main.py --reload        restart by itself when the code changes (for development)
 
 The port, the addresses the app listens on, the networks allowed to connect, HTTPS
@@ -31,6 +32,12 @@ import os
 import sys
 from pathlib import Path
 
+if __name__ == '__main__' and sys.argv[1:2] == ['tray']:  # the tray icon's own process (see rpapp/tray.py)
+    if len(sys.argv) != 3:
+        sys.exit('The app starts this itself: main.py tray <data folder>')
+    from rpapp import tray
+    sys.exit(tray.run(sys.argv[2]))
+
 from nicegui import app, ui
 
 from rpapp import APP_NAME, cli, instance, launcher, starter
@@ -38,9 +45,10 @@ from rpapp.access import Access, AccessGuard, SecurityHeaders
 from rpapp.config import ConfigError, NetworkFilter, app_dir, https_setup, load_config
 from rpapp.devices import DeviceRegistry
 from rpapp.ui.app import build_root
+from rpapp.ui.computer_page import quit_everywhere
 
 DATA_DIR = Path(os.environ.get('RPAPP_DATA') or app_dir() / 'data')
-OPTIONS = {'--no-browser', '--reload'}
+OPTIONS = {'--no-browser', '--no-tray', '--reload'}
 
 if __name__ == '__main__' and sys.argv[1:2] and sys.argv[1] in cli.COMMANDS:
     try:
@@ -63,6 +71,7 @@ if __name__ in {'__main__', '__mp_main__'}:
     server = config.server
 
     why_no_browser = launcher.browser_wanted(config, no_browser='--no-browser' in options)
+    why_no_tray = launcher.tray_wanted(config, no_tray='--no-tray' in options, reload='--reload' in options)
 
     if __name__ == '__main__':  # (not again in the process NiceGUI starts with --reload)
         running_copy = instance.Instance(DATA_DIR)
@@ -83,12 +92,15 @@ if __name__ in {'__main__', '__mp_main__'}:
         atexit.register(running_copy.release)  # (with --reload: this process doesn't run the app)
         print('\n'.join(launcher.starting_lines(info)), flush=True)
         launcher.when_ready(info, me, open_browser=why_no_browser is None)
+        # (it waits for the app to answer, and goes away by itself when it stops)
+        tray_process = launcher.start_tray(DATA_DIR, script=Path(__file__).resolve()) if why_no_tray is None else None
+        atexit.register(launcher.stop_tray, tray_process)
 
     access = Access(devices, scheme=info.scheme, port=server.port, enabled=server.pairing, listen=server.address)
     if server.pairing:
         access.register_routes(app)
         app.add_middleware(AccessGuard, access=access)
-    instance.add_route(app)
+    instance.add_route(app, quit_app=quit_everywhere)  # (Quit, from the tray icon's menu)
     if (local_port := server.local_http_port) is not None:  # http://localhost:<local_port>, for this computer
         listener = launcher.LocalListener(app, local_port)
         app.on_startup(listener.start)
@@ -101,6 +113,7 @@ if __name__ in {'__main__', '__mp_main__'}:
     if __name__ == '__main__' and '--reload' not in options:
         # Once everything is saved. (Stopped by a signal, uvicorn ends the process before atexit would run.)
         app.on_shutdown(running_copy.release)
+        app.on_shutdown(lambda: launcher.stop_tray(tray_process))
 
     try:
         ui.run(
