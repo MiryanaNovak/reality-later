@@ -49,7 +49,8 @@ log = logging.getLogger(__name__)
 COOKIE = 'rp_device'
 JOIN_COOKIE = 'rp_join'
 COOKIE_DAYS = 400  # the most browsers keep a cookie
-OPEN_PATHS = {'/pair', '/join', '/join/status'}
+OPEN_PATHS = {'/pair', '/join', '/join/status', '/favicon.ico'}
+OPEN_FOLDERS = ('/icons/',)  # the app's icons: so the pairing pages have theirs (they tell nothing)
 LOCAL_NAMES = {'localhost', '127.0.0.1', '[::1]'}
 PROXY_HEADERS = {'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'forwarded', 'x-real-ip',
                  'tailscale-user-login', 'tailscale-user-name', 'cf-connecting-ip', 'true-client-ip'}
@@ -262,7 +263,7 @@ class AccessGuard:
         client = scope.get('client')
         host = client[0] if client else None
         who = self.access.who(host, headers)
-        if who.allowed or scope.get('path') in OPEN_PATHS:
+        if who.allowed or is_open(scope.get('path', '')):
             if who.device:
                 self.access.devices.seen(who.device, host or '')
             await self.app(scope, receive, send)
@@ -426,10 +427,16 @@ def _js(value: str) -> str:
     return json.dumps(value).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
 
 
+def is_open(path: str) -> bool:
+    """Whether any device may ask for it, paired or not."""
+    return path in OPEN_PATHS or (path.startswith(OPEN_FOLDERS) and '..' not in path)
+
+
 def _page(title: str, body: str, *, status: int = 200) -> HTMLResponse:
     return HTMLResponse(f'<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
                         f'<meta name="viewport" content="width=device-width, initial-scale=1">'
-                        f'<title>{escape(title)}</title><style>{STYLE}</style></head>'
+                        f'<title>{escape(title)}</title><link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">'
+                        f'<link rel="icon" href="/favicon.ico" sizes="any"><style>{STYLE}</style></head>'
                         f'<body><main><h1>{escape(title)}</h1>{body}</main></body></html>', status_code=status)
 
 

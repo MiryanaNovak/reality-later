@@ -13,9 +13,14 @@ goes away by itself once the app stops answering, however it stopped.
 On Windows and macOS it's pystray's; on Linux, the StatusNotifierItem standard over D-Bus, which
 the desktops' trays understand (see tray_linux.py). Turned off with --no-tray or tray = false in
 config.toml, and never shown without a desktop (started over SSH, or a server).
+
+The icon is rpapp/icons/tray/: white on dark panels and taskbars, black on light ones. Windows says
+which its taskbar is; on a Mac it's black, as a "template" the menu bar recolors itself; on Linux,
+see tray_linux.py.
 """
 from __future__ import annotations
 
+import io
 import sys
 import threading
 from collections.abc import Callable
@@ -23,14 +28,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
-from PIL import Image, ImageDraw
+from PIL import Image
 
-from . import APP_NAME, desktop
+from . import APP_NAME, ICONS, desktop
 from .instance import HEADER, QUIT_PATH, Instance, Running, answers
 
 PAGE = '/computer'  # (launcher.PAGE, without importing the server's side)
 WATCH_EVERY = 2.0  # seconds between checks that the app still runs
-ACCENT, ACCENT_DARK = (31, 122, 112), (21, 92, 84)  # the default accent (ui/theme.py)
+TRAY_SIZES = (16, 20, 22, 24, 32, 44, 48, 64)  # the sizes in icons/tray/, made for each
 
 
 class NoTray(Exception):
@@ -94,17 +99,26 @@ def watch(actions: Actions, stop: Callable[[], None], *, every: float = WATCH_EV
 
 # --- the icon -----------------------------------------------------------------------------------
 
-def icon_image(size: int = 64) -> Image.Image:
-    """The app's icon: a speech bubble on the accent color, drawn large then shrunk (smooth at any size)."""
-    big = 256
-    image = Image.new('RGBA', (big, big), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((8, 8, big - 8, big - 8), radius=56, fill=ACCENT)
-    draw.rounded_rectangle((44, 56, 212, 172), radius=44, fill='white')  # the bubble
-    draw.polygon([(76, 160), (124, 166), (68, 214)], fill='white')       # its tail
-    for x in (88, 128, 168):                                             # the "…" of someone writing
-        draw.ellipse((x - 13, 101, x + 13, 127), fill=ACCENT_DARK)
-    return image.resize((size, size), Image.Resampling.LANCZOS)
+def tray_image(size: int = 64, variant: str = 'white') -> Image.Image:
+    """The tray icon, 'white' (for dark panels) or 'black' (light ones): the file made for that size, or
+    the next bigger one, shrunk."""
+    made = min((s for s in TRAY_SIZES if s >= size), default=max(TRAY_SIZES))
+    with Image.open(ICONS / 'tray' / f'{variant}-{made}.png') as image:
+        image = image.convert('RGBA')
+    return image if made == size else image.resize((size, size), Image.Resampling.LANCZOS)
+
+
+def windows_taskbar_is_light(read: Callable[[], int] | None = None) -> bool:
+    """Whether Windows' taskbar is light (Settings › Personalization › Colors: "Windows mode"). Dark if unknown."""
+    def from_registry() -> int:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize') as key:
+            return winreg.QueryValueEx(key, 'SystemUsesLightTheme')[0]
+    try:
+        return bool((read or from_registry)())
+    except Exception:  # (not Windows, or an older one without the setting)
+        return False
 
 
 # --- running it -----------------------------------------------------------------------------------
@@ -138,6 +152,7 @@ def pystray_icon(actions: Actions):
              pystray.MenuItem(entry.label, _calling(entry.action), default=entry.default)
              for entry in actions.menu()]
     options = {}
+    icon_class = pystray.Icon
     if sys.platform == 'darwin':  # in the menu bar only, not the Dock as well
         try:
             import AppKit
@@ -146,7 +161,34 @@ def pystray_icon(actions: Actions):
             options['nsapplication'] = application
         except Exception:
             pass
-    return pystray.Icon('reality-later', icon_image(64), APP_NAME, menu=pystray.Menu(*items), **options)
+        icon_class = _menu_bar_icon(pystray.Icon)
+        variant = 'black'
+    else:
+        variant = 'black' if sys.platform == 'win32' and windows_taskbar_is_light() else 'white'
+    return icon_class('reality-later', tray_image(64, variant), APP_NAME, menu=pystray.Menu(*items), **options)
+
+
+def _menu_bar_icon(base: type) -> type:
+    """pystray's Mac icon, sharp on Retina screens (the 44-pixel picture at 22 points, where pystray would
+    shrink it to 22 pixels) and a "template": the menu bar colors it for its light or dark look."""
+    class MenuBarIcon(base):
+        def _assert_image(self) -> None:
+            try:
+                import AppKit
+                import Foundation
+                points = int(self._status_bar.thickness())
+                if self._icon_image is not None and tuple(self._icon_image.size()) == (points, points):
+                    return
+                data = io.BytesIO()
+                tray_image(points * 2, 'black').save(data, 'png')
+                image = AppKit.NSImage.alloc().initWithData_(Foundation.NSData(data.getvalue()))
+                image.setSize_((points, points))
+                image.setTemplate_(True)
+                self._icon_image = image
+                self._status_item.button().setImage_(image)
+            except Exception:  # (whatever it is, pystray's own way still shows an icon)
+                super()._assert_image()
+    return MenuBarIcon
 
 
 def run_pystray(actions: Actions) -> None:

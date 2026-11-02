@@ -24,9 +24,10 @@ build-backend = "setuptools.build_meta"
 include = ["rpapp", "rpapp.*"]
 
 # Files the app needs besides its Python code (setuptools only takes .py files unless told):
-# the picture framing tool, the fonts, and the starter set (see rpapp/starter.py)
+# the picture framing tool, the fonts, the icons (the browser's and the tray's), and the starter set
+# (see rpapp/starter.py). The programs' icons are in packaging/icons, for the builds.
 [tool.setuptools.package-data]
-rpapp = ["ui/*.js", "ui/fonts/*", "starter/**/*"]
+rpapp = ["ui/*.js", "ui/fonts/*", "icons/**/*", "starter/**/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

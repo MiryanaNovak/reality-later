@@ -40,7 +40,7 @@ if __name__ == '__main__' and sys.argv[1:2] == ['tray']:  # the tray icon's own 
 
 from nicegui import app, ui
 
-from rpapp import APP_NAME, cli, instance, launcher, starter
+from rpapp import APP_NAME, ICONS, cli, instance, launcher, starter
 from rpapp.access import Access, AccessGuard, SecurityHeaders
 from rpapp.config import ConfigError, NetworkFilter, app_dir, https_setup, load_config
 from rpapp.devices import DeviceRegistry
@@ -124,7 +124,7 @@ if __name__ in {'__main__', '__mp_main__'}:
             ssl_certfile=str(https.cert) if https else None,
             ssl_keyfile=str(https.key) if https else None,
             dark=None,        # follow the device's light/dark setting
-            favicon='🎭',
+            favicon=ICONS / 'web' / 'favicon.ico',  # (and the others: ui/theme.py, ICON_LINKS)
             reload='--reload' in options,
             show=False,       # the browser is opened by launcher.when_ready, on this computer's own address
             show_welcome_message=False,  # launcher's messages say where to open it

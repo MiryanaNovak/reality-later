@@ -6,6 +6,10 @@ org.kde.StatusNotifierWatcher). The tray (the "watcher") is told about the icon;
 properties (title, picture, menu) and calls it back on a click. Plain GNOME shows no tray icons at
 all without its AppIndicator extension: then there's no watcher, and no icon (tray.NoTray says so).
 
+White or black (see tray.py)? GNOME's top bar is dark, even in light mode: white. Elsewhere, panels
+follow the desktop's light or dark style, which the desktop portal tells (org.freedesktop.appearance
+color-scheme): black for light, white for dark or unknown. When that changes, so does the icon.
+
 Specifications: https://www.freedesktop.org/wiki/Specifications/StatusNotifierItem/ and
 libdbusmenu's com.canonical.dbusmenu interface.
 
@@ -21,18 +25,22 @@ from dbus_fast.service import ServiceInterface, dbus_property, method, signal
 from PIL import Image
 
 from . import APP_NAME
-from .tray import WATCH_EVERY, Actions, NoTray, icon_image
+from .tray import TRAY_SIZES, WATCH_EVERY, Actions, NoTray, tray_image
 
 WATCHER = 'org.kde.StatusNotifierWatcher'
 WATCHER_PATH = '/StatusNotifierWatcher'
 ITEM_PATH = '/StatusNotifierItem'
 MENU_PATH = '/MenuBar'
-SIZES = (16, 22, 24, 32, 48, 64)  # the tray picks the one that fits
+PORTAL = 'org.freedesktop.portal.Desktop'
+PORTAL_PATH = '/org/freedesktop/portal/desktop'
+SETTINGS = 'org.freedesktop.portal.Settings'
+LIGHT = 2  # color-scheme: 0 no preference, 1 dark, 2 light
 
 
-def pixmaps() -> list:
-    """The icon as the specification wants it: (width, height, ARGB32 pixels in network byte order)."""
-    return [[size, size, argb(icon_image(size))] for size in SIZES]
+def pixmaps(variant: str = 'white') -> list:
+    """The icon as the specification wants it: (width, height, ARGB32 pixels in network byte order), in each
+    size it was made for (the tray picks the one that fits)."""
+    return [[size, size, argb(tray_image(size, variant))] for size in TRAY_SIZES]
 
 
 def argb(image: Image.Image) -> bytes:
@@ -42,10 +50,17 @@ def argb(image: Image.Image) -> bytes:
 
 
 class Item(ServiceInterface):
-    def __init__(self, activate: Callable[[], None]) -> None:
+    def __init__(self, activate: Callable[[], None], variant: str = 'white') -> None:
         super().__init__('org.kde.StatusNotifierItem')
         self._activate = activate
-        self._pixmaps = pixmaps()
+        self.variant = variant
+        self._pixmaps = pixmaps(variant)
+
+    def set_variant(self, variant: str) -> None:
+        """White or black, and tell the tray to show it again."""
+        if variant != self.variant:
+            self.variant, self._pixmaps = variant, pixmaps(variant)
+            self.NewIcon()
 
     @dbus_property(access=PropertyAccess.READ)
     def Category(self) -> 's':
@@ -240,7 +255,8 @@ async def show(actions: Actions, *, bus_address: str | None = None, on_shown: Ca
         raise NoTray(f'no session bus to reach the desktop\'s tray ({e})') from e
     try:
         default = next((entry.action for entry in actions.menu() if entry.default), None)
-        bus.export(ITEM_PATH, Item(lambda: default and run(default)))
+        item = Item(lambda: default and run(default), await panel_variant(bus))
+        bus.export(ITEM_PATH, item)
         bus.export(MENU_PATH, Menu(actions.menu(), run))
         name = f'org.kde.StatusNotifierItem-{os.getpid()}-1'
         await bus.request_name(name)
@@ -259,9 +275,18 @@ async def show(actions: Actions, *, bus_address: str | None = None, on_shown: Ca
                                body=[f"type='signal',interface='org.freedesktop.DBus',member='NameOwnerChanged',"
                                      f"arg0='{WATCHER}'"]))
 
+        # The desktop turns light or dark: the icon too
+        await bus.call(Message(destination='org.freedesktop.DBus', path='/org/freedesktop/DBus',
+                               interface='org.freedesktop.DBus', member='AddMatch', signature='s',
+                               body=[f"type='signal',interface='{SETTINGS}',member='SettingChanged',"
+                                     f"arg0='org.freedesktop.appearance'"]))
+
         def watcher_changed(message: Message) -> None:
             if message.member == 'NameOwnerChanged' and message.body[:1] == [WATCHER] and message.body[2]:
                 loop.create_task(_quietly(register()))
+            elif message.member == 'SettingChanged' and message.body[:2] == ['org.freedesktop.appearance',
+                                                                              'color-scheme']:
+                item.set_variant(variant_for(_unwrap(message.body[2])))
 
         bus.add_message_handler(watcher_changed)
         if on_shown:
@@ -280,6 +305,38 @@ def run_sni(actions: Actions) -> None:
     """The tray icon's process on Linux (see tray.run)."""
     asyncio.run(show(actions, on_shown=lambda: print(
         f'Tray icon: in the system tray. Click it to open {APP_NAME}; its menu quits it.', flush=True)))
+
+
+async def panel_variant(bus: MessageBus) -> str:
+    """White or black, for this desktop's panel (see the module's notes)."""
+    if 'gnome' in os.environ.get('XDG_CURRENT_DESKTOP', '').lower():
+        return 'white'  # GNOME's top bar (Ubuntu's, Pop's, Budgie's panel too) is dark, whatever the style
+    return variant_for(await color_scheme(bus))
+
+
+def variant_for(scheme) -> str:
+    return 'black' if scheme == LIGHT else 'white'
+
+
+async def color_scheme(bus: MessageBus) -> int | None:
+    """The desktop's light or dark style, from its portal (None if it has none, or doesn't say)."""
+    for member in ('ReadOne', 'Read'):  # (Read: portals before version 2)
+        try:
+            reply = await asyncio.wait_for(bus.call(Message(
+                destination=PORTAL, path=PORTAL_PATH, interface=SETTINGS, member=member, signature='ss',
+                body=['org.freedesktop.appearance', 'color-scheme'])), 2)
+        except Exception:
+            return None
+        if reply.message_type != MessageType.ERROR:
+            value = _unwrap(reply.body[0]) if reply.body else None
+            return value if isinstance(value, int) else None
+    return None
+
+
+def _unwrap(value):
+    while isinstance(value, Variant):
+        value = value.value
+    return value
 
 
 async def _quietly(task) -> None:

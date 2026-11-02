@@ -144,14 +144,29 @@ def test_without_the_app_there_is_no_icon(tmp_path, capsys):
     assert 'No tray icon' in capsys.readouterr().err
 
 
-def test_the_icon():
-    for size in (16, 22, 32, 64):
-        image = tray.icon_image(size)
-        assert image.size == (size, size) and image.mode == 'RGBA'
-    image = tray.icon_image(64)
-    assert image.getpixel((0, 0))[3] == 0  # rounded corners: transparent
-    assert image.getpixel((32, 6)) == (*tray.ACCENT, 255)  # the accent, around the bubble
-    assert image.getpixel((32, 20))[:3] == (255, 255, 255)  # the bubble
+def test_the_icons_are_the_files_made_for_each_size():
+    for variant in ('white', 'black'):
+        for size in tray.TRAY_SIZES:
+            image = tray.tray_image(size, variant)
+            assert image.size == (size, size) and image.mode == 'RGBA'
+        assert tray.tray_image(18, variant).size == (18, 18)  # (from the next bigger one, 20)
+        assert tray.tray_image(128, variant).size == (128, 128)  # (from the biggest, 64)
+    def drawn(image):
+        data = image.tobytes()
+        return [data[i:i + 3] for i in range(0, len(data), 4) if data[i + 3] == 255]
+    white, black = tray.tray_image(64, 'white'), tray.tray_image(64, 'black')
+    assert drawn(white) and all(rgb == b'\xff\xff\xff' for rgb in drawn(white))  # white where it's drawn...
+    assert drawn(black) and all(rgb == b'\x00\x00\x00' for rgb in drawn(black))  # ...and black
+    assert white.getpixel((0, 0))[3] == 0  # around it: see-through
+
+
+def test_windows_taskbar_light_or_dark():
+    assert tray.windows_taskbar_is_light(lambda: 1) is True
+    assert tray.windows_taskbar_is_light(lambda: 0) is False
+    def no_setting():
+        raise OSError('no such value')
+    assert tray.windows_taskbar_is_light(no_setting) is False  # dark, if unknown: white icon
+    assert tray.windows_taskbar_is_light() is False  # (not Windows: no registry)
 
 
 # --- Windows and macOS: pystray ---------------------------------------------------------------------
@@ -239,7 +254,7 @@ async def test_the_linux_tray_icon(session_bus):
     assert await item.get_title() == 'Reality Later' and await item.get_status() == 'Active'
     assert await item.get_menu() == MENU_PATH and not await item.get_item_is_menu()
     pixmaps = await item.get_icon_pixmap()
-    assert [(w, h) for w, h, _ in pixmaps] == [(s, s) for s in (16, 22, 24, 32, 48, 64)]
+    assert [(w, h) for w, h, _ in pixmaps] == [(s, s) for s in tray.TRAY_SIZES]
     assert all(len(data) == w * h * 4 for w, h, data in pixmaps)
     await item.call_activate(0, 0)
     assert await until(lambda: done == ['http://localhost:8091/'])
@@ -293,3 +308,71 @@ def test_threads_are_daemons():
     call = tray._calling(lambda: actions.append(threading.current_thread().daemon))
     call()
     assert wait_until(lambda: actions) and actions == [True]
+
+
+# --- Linux: white or black, for the panel ------------------------------------------------------------
+
+async def fake_portal(address: str, scheme: int):
+    """A stand-in for the desktop portal, saying whether the desktop is light or dark."""
+    from dbus_fast import Variant
+    from dbus_fast.aio import MessageBus
+    from dbus_fast.service import ServiceInterface, method, signal
+
+    class Settings(ServiceInterface):
+        def __init__(self):
+            super().__init__('org.freedesktop.portal.Settings')
+            self.scheme = scheme
+
+        @method()
+        def ReadOne(self, namespace: 's', key: 's') -> 'v':  # noqa: F821
+            return Variant('u', self.scheme)
+
+        @signal()
+        def SettingChanged(self) -> 'ssv':  # noqa: F821
+            return ['org.freedesktop.appearance', 'color-scheme', Variant('u', self.scheme)]
+
+    bus = await MessageBus(bus_address=address).connect()
+    settings = Settings()
+    bus.export('/org/freedesktop/portal/desktop', settings)
+    await bus.request_name('org.freedesktop.portal.Desktop')
+    return bus, settings
+
+
+async def test_the_icon_suits_the_panel(session_bus, monkeypatch):
+    from dbus_fast.aio import MessageBus
+
+    from rpapp.tray_linux import ITEM_PATH, color_scheme, panel_variant, show
+    monkeypatch.setenv('XDG_CURRENT_DESKTOP', 'KDE')
+    client = await MessageBus(bus_address=session_bus).connect()
+    assert await color_scheme(client) is None and await panel_variant(client) == 'white'  # no portal: white
+    portal_bus, settings = await fake_portal(session_bus, 2)
+    assert await color_scheme(client) == 2 and await panel_variant(client) == 'black'  # a light desktop
+    monkeypatch.setenv('XDG_CURRENT_DESKTOP', 'ubuntu:GNOME')
+    assert await panel_variant(client) == 'white'  # GNOME's top bar is dark, in light mode too
+    monkeypatch.setenv('XDG_CURRENT_DESKTOP', 'KDE')
+
+    tray_bus, watcher = await fake_tray(session_bus)
+    actions = tray.Actions(RUNNING, ping=lambda r: True)
+    stopped = asyncio.Event()
+    task = asyncio.create_task(show(actions, bus_address=session_bus, stopped=stopped, every=0.05))
+    assert await until(lambda: watcher.items)
+    name = watcher.items[0]
+    item = client.get_proxy_object(name, ITEM_PATH, await client.introspect(name, ITEM_PATH)) \
+        .get_interface('org.kde.StatusNotifierItem')
+
+    def is_black(pixmaps) -> bool:
+        w, h, data = pixmaps[-1]
+        drawn = [data[i + 1:i + 4] for i in range(0, len(data), 4) if data[i] == 255]
+        return bool(drawn) and all(rgb == b'\x00\x00\x00' for rgb in drawn)
+
+    assert is_black(await item.get_icon_pixmap())
+    new_icon = []
+    item.on_new_icon(lambda: new_icon.append(True))
+    settings.scheme = 1  # the desktop turns dark
+    settings.SettingChanged()
+    assert await until(lambda: new_icon)  # the tray is told...
+    assert not is_black(await item.get_icon_pixmap())  # ...and gets the white one
+    stopped.set()
+    await asyncio.wait_for(task, 5)
+    for bus in (client, portal_bus, tray_bus):
+        bus.disconnect()

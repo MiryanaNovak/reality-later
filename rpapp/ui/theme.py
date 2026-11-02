@@ -14,6 +14,8 @@ from pathlib import Path
 
 from nicegui import app, ui
 
+from .. import ICONS
+
 FONTS = Path(__file__).parent / 'fonts'
 
 # name -> (label, light mode, dark mode)
@@ -32,7 +34,17 @@ PRIMARY, PRIMARY_DARK = ACCENTS[DEFAULT_ACCENT][1:]
 LIGHT_PAGE, LIGHT_SURFACE, LIGHT_TINT = '#F3F5F7', '#FFFFFF', .10
 DARK_PAGE, DARK_SURFACE, DARK_TINT = '#13161D', '#1B1F28', .16
 
+# The browser's icons (rpapp/icons/web/): the tab's (NiceGUI also links favicon.ico, see main.py), the
+# iPhone's and iPad's home screen, and Android's (manifest.json)
+ICON_LINKS = (
+    '<link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">'
+    '<link rel="icon" href="/icons/favicon-32.png" sizes="32x32" type="image/png">'
+    '<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">'
+    '<link rel="manifest" href="/icons/manifest.json">'
+)
+
 HEAD = f'''
+{ICON_LINKS}
 <link rel="stylesheet" href="/fonts/fonts.css">
 <style>
   :root {{
@@ -391,6 +403,7 @@ def setup() -> None:
     _defaults_set = True
     app.colors(primary=PRIMARY, dark=DARK_SURFACE, dark_page=DARK_PAGE, negative='#C0392B', positive='#2E7D4F')
     app.add_static_files('/fonts', FONTS, max_cache_age=30 * 86400)
+    app.add_static_files('/icons', ICONS / 'web', max_cache_age=86400)
     ui.button.default_props('no-caps unelevated')
     for element in (ui.input, ui.number, ui.select, ui.input_chips):
         element.default_props('outlined')
