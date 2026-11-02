@@ -10,7 +10,7 @@ Create characters, build worlds, and get lost in stories. No platform accounts, 
 
 I made Reality Later because I was tired of AI roleplay platforms.
 
-Tired of having to create accounts. Tired of characters disappearing explanation. Tired of chats being censored. Tired of having no control over prompts and generation parameters. And tired of complicated interfaces where even simple things are difficult to figure out.
+Tired of having to create accounts. Tired of characters begins removed without explanation. Tired of chats being censored. Tired of ads. Tired of having no control over prompts and generation parameters. Tired of waiting for features that'd never be implemented. And tired of complicated interfaces where even simple things are difficult to figure out.
 
 I wanted something that was mine, that worked the way I wanted, and that didn't get in the way. And something that'd let me chat from my phone while lying on the couch. Because, frankly, there's no better place to escape reality than the couch.
 
@@ -28,36 +28,9 @@ I wanted something that was mine, that worked the way I wanted, and that didn't 
 
 - **Hardened.** HTTPS is enabled by default, no reverse proxy needed. Only paired devices can connect. All inputs are strictly validated so you can import character cards from untrusted sources.
 
-## Installation
+## Documentation
 
-### Requirements
-
-- Windows, Mac or Linux
-- An OpenRouter account and API key
-
-### Installing from sources
-
-Clone the repository:
-
-```bash
-git clone https://github.com/MiryanaNovak/reality-later.git
-cd reality-later
-```
-
-Create and activate a Python virtual environment, then install the application:
-
-```bash
-python -m venv .venv
-python -m pip install .
-```
-
-Activate the virtual environment before installing (and replace the startup command below with the actual application entry point):
-
-```bash
-python main.py
-```
-
-Your web browser should open automatically. Otherwise, open the address displayed in the terminal.
+For installation, configuration and troubleshooting, see the [User Manual](UserManual.md).
 
 ## AI providers
 
