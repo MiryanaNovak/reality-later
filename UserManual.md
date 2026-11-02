@@ -235,7 +235,7 @@ Type=simple
 User=reality-later
 Group=reality-later
 WorkingDirectory=/opt/reality-later
-ExecStart=/opt/reality-later/.venv/bin/python main.py --no-browser
+ExecStart=/opt/reality-later/.venv/bin/python main.py --no-browser --no-tray
 
 Restart=on-failure
 RestartSec=5
@@ -282,7 +282,7 @@ UMask=0077
 WantedBy=multi-user.target
 ```
 
-The `--no-browser` option prevents Reality Later from attempting to open a desktop browser when started in the background.
+The `--no-browser` option prevents Reality Later from attempting to open a desktop browser when started in the background. The `--no-tray` option prevents it from attempting to register a system tray icon.
 
 ### 4.7. Enable and start the service
 
