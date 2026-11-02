@@ -1,0 +1,16 @@
+[project]
+name = "rpapp"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "nicegui>=3.0",                         # brings pydantic and httpx along
+    "pillow",                               # resizes pictures
+    "tomli; python_version < '3.11'",       # reads config.toml (built into Python 3.11 and later)
+    "cryptography",                         # makes the self-signed certificate for HTTPS
+    "segno",                                # draws the QR codes for pairing devices
+    "nh3",                                  # cleans the HTML of chat messages (see rpapp/safe_html.py)
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

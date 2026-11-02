@@ -1,0 +1,85 @@
+# Configuration of the Roleplay app.
+#
+# The app reads it from "config.toml", in the same folder as the app (next to main.py).
+# To make one, copy this file under that name (the app's "This computer" page does it
+# for you: "Open the settings file"), and change what you need. Every setting is
+# optional: anything missing, or the whole file, falls back to the default shown here.
+# After a change, quit the app and start it again.
+
+[server]
+
+# The port the app listens on: other devices open https://<this computer's address>:8090
+# (8090 rather than 8080, which llama.cpp's server uses by default.)
+port = 8090
+
+# Which of this computer's network addresses the app listens on:
+#   "0.0.0.0"      all of them, IPv4: reachable from your phone on the same Wi-Fi (default)
+#   "::"           all of them, IPv4 and IPv6
+#   "127.0.0.1"    this computer only
+#   "192.168.1.20" one of this computer's addresses: only the network it's on
+address = "0.0.0.0"
+
+# Who may connect, by the address they connect from. Anyone else gets "Forbidden".
+# This computer itself is always allowed. A list of any of:
+#   "local"            no other device: this computer only
+#   "private"          home or office networks: 192.168.x.x, 10.x.x.x, 172.16.x.x to
+#                      172.31.x.x, and their IPv6 equivalents (default)
+#   "192.168.1.0/24"   a network (here, 192.168.1.0 to 192.168.1.255)
+#   "100.64.0.0/10"    for instance Tailscale's addresses, to reach the app through Tailscale
+#   "192.168.1.42"     a single device
+#   "any"              everyone who can reach the computer. Careful with pairing = false below:
+#                      the app has no password, and your API keys can be read in its Connections page.
+allowed_networks = ["private"]
+
+# Pairing: the computer the app runs on just works. Any other device must be paired once, from that
+# computer: its "This computer" page (or Settings › Devices) shows a QR code to scan with the device,
+# and lists devices asking to join, to allow them. Paired devices stay signed in; remove one in
+# Settings › Devices to sign it out. From a terminal on the computer:
+#     python main.py pair        prints a pairing link and its QR code
+#     python main.py approve     lists the devices waiting; add the code shown on one to allow it
+#   true    (default)
+#   false   no pairing: any browser allowed by allowed_networks can use the app
+pairing = true
+
+# HTTPS: encrypts what goes between other devices and the app (your chats, the API keys on the
+# Connections page...), so others on the same network can't read it.
+#   true    HTTPS (default). Without certificate and key below, the app makes its own "self-signed"
+#           certificate on first start, in a "certificates" folder next to this file.
+#           Browsers can't vouch for it, so each device's browser warns on the first visit: check
+#           that the certificate's SHA-256 fingerprint is the one on the app's "This computer" page
+#           (the app also prints it when it starts), then continue. It's renewed by itself before
+#           it expires, about every 2 years. Delete the folder to make a new one (say, if this
+#           computer's address changed).
+#   false   plain HTTP: other devices open http://... instead
+https = true
+
+# Your own certificate and key files instead, for instance made with mkcert so that devices
+# where you install mkcert's root certificate don't warn. Paths are relative to this file.
+certificate = ""
+key = ""
+
+# This computer's own address for the app: http://localhost:8091, which only this computer can
+# reach. It's plain HTTP, which browsers trust for localhost: no warning on this computer, even
+# with HTTPS on. (With https = false, and the address above "0.0.0.0", this computer simply uses
+# http://localhost:8090 and this one isn't needed.)
+#   (not set)   the port above + 1 (default)
+#   8091        a port of your choice
+#   0           none: open https://localhost:8090 on this computer (and accept the warning)
+# local_port = 8091
+
+# At startup, open the app's "This computer" page in the browser: it says how to use the app from
+# this computer and your other devices. Starting the app while it's already running opens it too.
+# Never opened when there's no desktop to open it on (a server, an SSH session). Starting the app
+# with "python main.py --no-browser" doesn't open it either.
+#   true    (default)
+#   false   don't (say, when the app starts by itself with the computer, as a systemd service)
+open_browser = true
+
+# Using the app away from home, without browser warnings: Tailscale (tailscale.com) links your
+# devices in a private, encrypted network. Install it on this computer and your phone, then run
+# on this computer, once:
+#     tailscale serve --bg http://localhost:8091      (with https = true: the local_port above)
+#     tailscale serve --bg http://localhost:8090      (with https = false)
+# and open https://<this computer's name>.<your tailnet>.ts.net on the phone, from anywhere.
+# Those connections still need pairing: Tailscale tells the app they're relayed, so they don't
+# count as the computer itself.

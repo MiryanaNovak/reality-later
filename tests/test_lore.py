@@ -1,0 +1,152 @@
+"""Lore entry activation: which entries of the books in play go into a prompt."""
+import json
+from pathlib import Path
+
+from rpapp.lore import activate, key_matches
+from rpapp.lorebooks import LoreBook, new_lore_book
+from rpapp.settings import LoreSettings
+
+ELDORIA = Path(__file__).parent / 'eldoria_sillytavern.json'
+
+
+def book(name='World', **entries) -> LoreBook:
+    """A book with entries given as title=dict(fields)."""
+    b = new_lore_book(name)
+    for title, fields in entries.items():
+        b.add_entry(comment=title, **fields)
+    return b
+
+
+def run(books, *messages, settings=None, budget=10_000, texts=None):
+    """The titles of the entries used, and the result. Messages alternate Mira / Seraphina, ending with Mira."""
+    chat = [('Mira' if (len(messages) - 1 - i) % 2 == 0 else 'Seraphina', text) for i, text in enumerate(messages)]
+    result = activate(books if isinstance(books, list) else [books], chat=chat, settings=settings or LoreSettings(),
+                      budget=budget, char='Seraphina', user='Mira', texts=texts)
+    return [a.entry.title for a in result.used], result
+
+
+def test_key_matching():
+    assert key_matches('Sword', 'a sword!')                          # case-insensitive by default
+    assert not key_matches('Sword', 'a sword!', case_sensitive=True)
+    assert key_matches('sword', 'swordsman')
+    assert not key_matches('sword', 'swordsman', whole_words=True)
+    assert key_matches('sword', 'my sword, then', whole_words=True)
+    assert key_matches('forêt', 'la forêt.', whole_words=True)       # accents are part of words
+    assert key_matches('silver tower', 'the silver tower', whole_words=True)  # several words: as written
+    assert key_matches('/silver ?towers?/i', 'The SilverTower')     # a regular expression
+    assert not key_matches('/silver ?towers?/', 'The SilverTower')  # without i, case counts
+    assert not key_matches('/([/', 'anything ([')                   # an invalid pattern matches nothing
+
+
+def test_keywords_scan_depth_and_names():
+    b = book(Forest={'key': ['forest'], 'content': 'The forest is old.'},
+             Glade={'key': ['glade'], 'content': 'The glade is safe.'},
+             Self={'key': ['seraphina'], 'content': 'Seraphina is a guardian.'})
+    used, result = run(b, 'We met in the glade.', 'Hello.', 'Is this forest dangerous?')
+    assert used == ['Forest', 'Self']  # the glade is 3 messages back; names are scanned too ("Seraphina: ...")
+    assert result.activations[0].reason == 'keyword "forest" in the chat'
+
+    used, _ = run(b, 'We met in the glade.', 'Hello.', 'Is this forest dangerous?',
+                  settings=LoreSettings(scan_depth=3))
+    assert 'Glade' in used
+    b.entry(1).scanDepth = 3  # the entry's own setting wins
+    assert 'Glade' in run(b, 'We met in the glade.', 'Hello.', 'Is this forest dangerous?')[0]
+
+
+def test_constant_disabled_and_triggers():
+    b = book(Always={'constant': True, 'content': 'Magic is real.'},
+             Off={'key': ['forest'], 'content': 'x', 'disable': True},
+             Swipes={'key': ['forest'], 'content': 'y', 'triggers': ['swipe']},
+             Normal={'key': ['forest'], 'content': 'z', 'triggers': ['normal', 'swipe']})
+    used, result = run(b, 'The forest.')
+    assert used == ['Always', 'Normal']
+    assert result.activations[0].reason == 'always included'
+
+
+def test_secondary_keywords():
+    def used(logic, text):
+        b = book(E={'key': ['tower'], 'keysecondary': ['silver', 'night'], 'selectiveLogic': logic,
+                    'content': 'The tower.'})
+        return run(b, text)[0] == ['E']
+    AND_ANY, NOT_ALL, NOT_ANY, AND_ALL = 0, 1, 2, 3
+    assert used(AND_ANY, 'the silver tower') and not used(AND_ANY, 'the tower')
+    assert used(AND_ALL, 'the silver tower at night') and not used(AND_ALL, 'the silver tower')
+    assert used(NOT_ANY, 'the tower') and not used(NOT_ANY, 'the tower at night')
+    assert used(NOT_ALL, 'the silver tower') and not used(NOT_ALL, 'the silver tower at night')
+
+    b = book(E={'key': ['tower'], 'keysecondary': ['silver'], 'selective': False, 'content': 'The tower.'})
+    assert run(b, 'the tower')[0] == ['E']  # not selective: the secondary keywords don't count
+
+
+def test_macros_in_keywords_and_content():
+    b = book(E={'key': ['{{user}}\'s staff'], 'content': '{{user}} carries it for {{char}}.'})
+    used, result = run(b, "Mira's staff glows.")
+    assert used == ['E'] and result.used[0].content == 'Mira carries it for Seraphina.'
+
+
+def test_recursion():
+    b = book(Forest={'key': ['forest'], 'content': 'Shadowfangs roam the forest.'},
+             Shadowfang={'key': ['shadowfang'], 'content': 'Beasts of the dark.'},
+             Hidden={'key': ['shadowfang'], 'content': 'Only from the chat.', 'excludeRecursion': True})
+    used, result = run(b, 'Is this forest dangerous?')
+    assert used == ['Forest', 'Shadowfang']
+    assert result.activations[1].reason == 'keyword "shadowfang" in entry "Forest"'
+    assert run(b, 'Is this forest dangerous?', settings=LoreSettings(recursive=False))[0] == ['Forest']
+
+    b.entry(0).preventRecursion = True
+    assert run(b, 'Is this forest dangerous?')[0] == ['Forest']
+
+    delayed = book(Forest={'key': ['forest'], 'content': 'Shadowfangs roam the forest.'},
+                   Late={'key': ['forest'], 'content': 'Only on recursion.', 'delayUntilRecursion': True})
+    used, result = run(delayed, 'The forest.')
+    assert used == ['Forest', 'Late']  # it waits for the second pass, then the chat counts too
+    assert run(delayed, 'The forest.', settings=LoreSettings(recursive=False))[0] == ['Forest']
+
+
+def test_other_texts_can_be_scanned():
+    b = book(E={'key': ['wounded'], 'content': 'Healing takes time.', 'matchScenario': True},
+             F={'key': ['wounded'], 'content': 'Not this one.'})
+    used, result = run(b, 'Hello.', texts={'scenario': 'Mira wakes up wounded.'})
+    assert used == ['E'] and result.used[0].reason == 'keyword "wounded" in the scenario'
+
+
+def test_the_characters_description_and_personality_are_its_scenario():
+    """SillyTavern books may look in the character's description or personality: here, both are in the scenario."""
+    b = book(D={'key': ['guardian'], 'content': 'Guardians are sworn.', 'matchCharacterDescription': True},
+             P={'key': ['kind'], 'content': 'Kindness is rare.', 'matchCharacterPersonality': True},
+             All={'key': ['glade'], 'content': 'The glade.', 'matchCharacterDescription': True,
+                  'matchScenario': True})
+    used, result = run(b, 'Hello.', texts={'scenario': 'Seraphina, a kind guardian of the glade.'})
+    assert sorted(used) == ['All', 'D', 'P']
+    assert {a.reason for a in result.used} == {f'keyword "{k}" in the scenario' for k in ('guardian', 'kind', 'glade')}
+
+
+def test_budget_and_order():
+    long = 'word ' * 70  # 350 characters: 100 tokens
+    b = book(Low={'key': ['forest'], 'content': long, 'order': 10},
+             High={'key': ['forest'], 'content': long, 'order': 200},
+             Free={'key': ['forest'], 'content': long, 'order': 1, 'ignoreBudget': True})
+    used, result = run(b, 'The forest.', budget=150)
+    assert used == ['High', 'Free']  # the higher order wins the room left
+    assert [(a.entry.title, a.status) for a in result.activations if a.status != 'used'] == [('Low', 'over_budget')]
+    assert result.tokens == 200
+
+
+def test_outlet_entries_are_skipped_and_unsupported_features_noted():
+    b = book(Outlet={'key': ['forest'], 'content': 'x', 'position': 7},
+             Chance={'key': ['forest'], 'content': 'y', 'probability': 30},
+             Group={'key': ['forest'], 'content': 'z', 'group': 'weather'})
+    used, result = run(b, 'The forest.')
+    assert used == ['Chance', 'Group']
+    assert result.activations[0].status == 'skipped' and 'macro' in result.activations[0].note
+    assert result.notes == [
+        "1 entry has a trigger chance, which isn't applied yet: it triggers as if it weren't set.",
+        "1 entry has an inclusion group, which isn't applied yet: it triggers as if it weren't set.",
+    ]
+
+
+def test_eldoria():
+    eldoria = LoreBook.model_validate({**json.loads(ELDORIA.read_text()), 'name': 'Eldoria'})
+    used, result = run(eldoria, 'Is this forest dangerous?', settings=LoreSettings(recursive=False))
+    assert used == ['eldoria']  # "forest" is one of its keywords
+    assert result.notes == []
