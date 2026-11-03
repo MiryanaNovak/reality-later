@@ -96,7 +96,7 @@ class DeviceRegistry:
 
     def _load(self) -> list[Device]:
         try:
-            data = json.loads(self.path.read_text())
+            data = json.loads(self.path.read_text(encoding='utf-8'))
         except FileNotFoundError:
             return []
         except (OSError, ValueError) as e:
@@ -113,7 +113,7 @@ class DeviceRegistry:
         try:
             if hasattr(os, 'fchmod'):
                 os.fchmod(fd, 0o600)  # hashes only, but still nobody else's business
-            with os.fdopen(fd, 'w') as f:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
                 f.write(text)
             os.replace(tmp, self.path)
         except BaseException:

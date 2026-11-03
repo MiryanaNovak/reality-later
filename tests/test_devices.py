@@ -1,6 +1,7 @@
 """Pairing devices: the registry, who counts as the computer itself, the guard and its pages, the commands."""
 import asyncio
 import json
+import os
 import stat
 from datetime import datetime, timedelta, timezone
 
@@ -17,6 +18,8 @@ from rpapp.config import load_config
 from rpapp.devices import DeviceRegistry, TooManyRequests, describe_agent, normalize_code
 from rpapp.instance import Instance
 from rpapp.ui.app import build_root
+
+ON_WINDOWS = os.name == 'nt'  # (file permissions below are Unix's: on Windows, a user's folder is theirs alone)
 
 PHONE = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36'
 LAPTOP = 'Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0'
@@ -40,7 +43,7 @@ def test_pairing_links_work_once(tmp_path):
     # Saved: only a hash of the token, in a file for you only.
     data = json.loads(devices.path.read_text())
     assert token not in devices.path.read_text() and data['devices'][0]['name'] == 'Chrome on Android'
-    assert stat.S_IMODE(devices.path.stat().st_mode) == 0o600
+    assert ON_WINDOWS or stat.S_IMODE(devices.path.stat().st_mode) == 0o600
     again = DeviceRegistry(tmp_path)
     assert again.find(token).id == device.id and again.find('wrong') is None and again.find('') is None
 

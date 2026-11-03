@@ -9,7 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.responses import PlainTextResponse
 
-from rpapp import access, desktop, instance, launcher
+from rpapp import access, cli, desktop, instance, launcher
 from rpapp.config import Config, load_config
 from rpapp.instance import Instance, Running
 
@@ -75,6 +75,65 @@ async def test_the_running_copy_answers_on_this_computers_address(tmp_path):
     finally:
         await listener.stop()
     assert launcher.port_problem('127.0.0.1', port) is None  # let go of the port
+
+
+async def test_the_quit_command_stops_the_running_copy(tmp_path, capsys):
+    held = Instance(tmp_path)
+    app = FastAPI()
+    instance.add_route(app, quit_app=held.release)  # (as the app does: it stops, and lets go of the lock)
+    port = free_port()
+    listener = launcher.LocalListener(app, port)
+    await listener.start()
+    try:
+        assert held.acquire()
+        held.publish(f'http://localhost:{port}')
+        assert Instance(tmp_path).in_use()
+        assert await asyncio.to_thread(cli.run, ['quit'], None, data_dir=tmp_path) == 0
+        assert 'Reality Later has stopped.' in capsys.readouterr().out
+        assert not Instance(tmp_path).in_use()
+    finally:
+        held.release()
+        await listener.stop()
+
+
+async def test_quit_waits_for_it_to_stop(tmp_path):
+    held = Instance(tmp_path)
+    app = FastAPI()
+    instance.add_route(app, quit_app=lambda: None)  # it says yes, but keeps running
+    port = free_port()
+    listener = launcher.LocalListener(app, port)
+    await listener.start()
+    try:
+        held.acquire()
+        held.publish(f'http://localhost:{port}')
+        result = await asyncio.to_thread(instance.stop_running, tmp_path, timeout=0.6, step=0.1)
+        assert result == instance.STILL_RUNNING
+    finally:
+        held.release()
+        await listener.stop()
+
+
+def test_quit_when_its_not_running(tmp_path, capsys):
+    assert instance.stop_running(tmp_path / 'never started') == instance.NOT_RUNNING
+    assert not (tmp_path / 'never started').exists()  # (it doesn't make the data folder)
+    left_over = Instance(tmp_path)
+    left_over.acquire()
+    left_over.publish(f'http://localhost:{free_port()}')
+    left_over.release()  # (as a copy that crashed: its files stay, but not its lock)
+    (tmp_path / 'running.json').write_text('{"id": "old", "pid": 99999, "url": "http://localhost:1", '
+                                           '"started": "2026-10-01T10:00:00+00:00"}')
+    assert cli.run(['quit'], None, data_dir=tmp_path) == 0
+    assert 'Reality Later isn\'t running.' in capsys.readouterr().out
+
+
+def test_quit_when_it_doesnt_answer(tmp_path, capsys):
+    stuck = Instance(tmp_path)
+    stuck.acquire()
+    stuck.publish(f'http://localhost:{free_port()}')  # (nothing answers there)
+    try:
+        assert instance.stop_running(tmp_path, timeout=0.5, step=0.1) == instance.NO_ANSWER
+    finally:
+        stuck.release()
 
 
 def test_nothing_answering(tmp_path):

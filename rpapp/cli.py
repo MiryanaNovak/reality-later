@@ -1,9 +1,11 @@
-"""Terminal commands, for pairing devices without a screen on the computer:
+"""Terminal commands, for pairing devices without a screen on the computer, and to stop the app
+(`python main.py` from the source folder; installed, `reality-later`):
 
     python main.py pair [address]   a pairing link and its QR code, for another device to open
     python main.py approve          the devices waiting to be allowed, with their codes
     python main.py approve CODE     allow the device showing that code
     python main.py deny CODE        refuse it
+    python main.py quit             stop the app, if it runs (the Windows installer does, first)
 
 They talk to the running app over this computer's own address (http://localhost:8091
 by default), which counts as the computer itself (see access.py). The app must be
@@ -16,15 +18,23 @@ from pathlib import Path
 
 import httpx
 
+from . import APP_NAME, paths
 from .config import Config
-from .instance import Instance
+from .instance import NO_ANSWER, NOT_RUNNING, STILL_RUNNING, Instance, stop_running
 
-COMMANDS = {'pair', 'approve', 'deny'}
+COMMANDS = {'pair', 'approve', 'deny', 'quit'}
 
 
-def run(args: list[str], config: Config, *, data_dir: str | Path | None = None,
-        transport: httpx.BaseTransport | None = None) -> int:
-    """Run a command; returns the exit code. (`transport`: for tests.)"""
+def run(args: list[str], config: Config | None, *, data_dir: str | Path | None = None,
+        prog: str | None = None, transport: httpx.BaseTransport | None = None) -> int:
+    """Run a command; returns the exit code. `config`: the settings (quit needs none, so that it works
+    even when the settings file has a mistake). `prog`: how the app is started, for the messages.
+    (`transport`: for tests.)"""
+    if args[0] == 'quit':
+        return _quit(data_dir, transport=transport) if data_dir is not None else 1
+    if config is None:
+        return 1
+    prog = prog or paths.command()
     server = config.server
     if not server.pairing:
         print('Pairing is off (pairing = false in config.toml): any allowed browser can use the app already.')
@@ -42,11 +52,11 @@ def run(args: list[str], config: Config, *, data_dir: str | Path | None = None,
     with httpx.Client(base_url=base, verify=False, trust_env=False, timeout=10, transport=transport) as http:
         try:
             if command == 'pair':
-                return _pair(http, rest)
+                return _pair(http, rest, prog)
             if command in ('approve', 'deny'):
-                return _answer(http, rest, allow=command == 'approve')
+                return _answer(http, rest, prog, allow=command == 'approve')
         except httpx.ConnectError:
-            print(f'The app isn\'t running at {base}. Start it first: python main.py')
+            print(f'The app isn\'t running at {base}. Start it first: {prog}')
             return 1
         except httpx.HTTPError as e:
             print(f'Couldn\'t reach the app at {base}: {e}')
@@ -55,7 +65,23 @@ def run(args: list[str], config: Config, *, data_dir: str | Path | None = None,
     return 1
 
 
-def _pair(http: httpx.Client, rest: list[str]) -> int:
+def _quit(data_dir: str | Path, *, transport: httpx.BaseTransport | None = None) -> int:
+    result = stop_running(data_dir, transport=transport)
+    if result == NOT_RUNNING:
+        print(f'{APP_NAME} isn\'t running.')
+    elif result == NO_ANSWER:
+        print(f'{APP_NAME} is running, but doesn\'t answer. If it\'s stuck, stop it (Task Manager on Windows, '
+              'Activity Monitor on a Mac, kill on Linux).')
+        return 1
+    elif result == STILL_RUNNING:
+        print(f'{APP_NAME} was asked to quit, but it\'s still running.')
+        return 1
+    else:
+        print(f'{APP_NAME} has stopped.')
+    return 0
+
+
+def _pair(http: httpx.Client, rest: list[str], prog: str) -> int:
     answer = http.post('/local/pair', json={'address': rest[0]} if rest else {})
     if answer.status_code != 200:
         print(answer.json().get('error', answer.text))
@@ -70,11 +96,11 @@ def _pair(http: httpx.Client, rest: list[str]) -> int:
     print(f'Open this link on the device, or scan the code above (works once, until {until:%H:%M}):\n  {data["url"]}')
     others = [a for a in data.get('addresses', []) if a not in data['url']]
     if others:
-        print(f'For another of this computer\'s addresses: python main.py pair {others[0]}')
+        print(f'For another of this computer\'s addresses: {prog} pair {others[0]}')
     return 0
 
 
-def _answer(http: httpx.Client, rest: list[str], *, allow: bool) -> int:
+def _answer(http: httpx.Client, rest: list[str], prog: str, *, allow: bool) -> int:
     if not rest:
         waiting = http.get('/local/requests').json().get('requests', [])
         if not waiting:
@@ -83,7 +109,7 @@ def _answer(http: httpx.Client, rest: list[str], *, allow: bool) -> int:
         print('Waiting to be allowed:')
         for r in waiting:
             print(f'  {r["code"]}   {r["name"]}, from {r["address"]}, {r["minutes"]} min ago')
-        print('Allow one with: python main.py approve CODE   (or refuse it: python main.py deny CODE)')
+        print(f'Allow one with: {prog} approve CODE   (or refuse it: {prog} deny CODE)')
         return 0
     answer = http.post('/local/answer', json={'code': rest[0], 'allow': allow})
     data = answer.json()

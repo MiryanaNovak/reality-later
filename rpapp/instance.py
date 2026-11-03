@@ -13,9 +13,10 @@ goes away with the process, even after a crash, so a left-over file never stops 
 start. To tell that what answers at the URL is that copy, it answers GET
 /local/instance with its id.
 
-The tray icon (tray.py) quits the app with POST /local/quit, from this computer only, with that
-id in an X-Reality-Later-Instance header: a web page can't send that header to the app (the browser
-would have to ask the app first, and it says no), so no page can quit the app behind your back.
+The tray icon (tray.py) and the `quit` command quit the app with POST /local/quit, from this
+computer only, with that id in an X-Reality-Later-Instance header: a web page can't send that header
+to the app (the browser would have to ask the app first, and it says no), so no page can quit the app
+behind your back.
 """
 from __future__ import annotations
 
@@ -116,6 +117,51 @@ class Instance:
                 return None
             time.sleep(step)
 
+    def in_use(self) -> bool:
+        """Whether a copy of the app holds the lock: it runs (or is starting, or stopping)."""
+        if self._file is not None:
+            return True
+        if not self.lock_path.exists():  # (never started with this data folder: don't make it)
+            return False
+        probe = Instance(self.folder)
+        if probe.acquire():
+            probe.release()
+            return False
+        return True
+
+
+def ask_to_quit(running: Running, *, transport: httpx.BaseTransport | None = None) -> bool:
+    """Ask that copy of the app to quit (POST /local/quit, with its id): whether it said it would."""
+    if not running.api:
+        return False
+    try:
+        with httpx.Client(timeout=5, verify=False, trust_env=False, transport=transport) as http:
+            return http.post(f'{running.api}{QUIT_PATH}', headers={HEADER: running.id}).status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
+STOPPED, NOT_RUNNING, NO_ANSWER, STILL_RUNNING = 'stopped', 'not running', 'no answer', 'still running'
+
+
+def stop_running(data_dir: str | Path, *, timeout: float = 20, step: float = 0.25,
+                 transport: httpx.BaseTransport | None = None) -> str:
+    """Quit the copy of the app running with that data folder, and wait until it has stopped (`quit`
+    command, which the Windows installer runs before replacing the program). Returns one of STOPPED,
+    NOT_RUNNING, NO_ANSWER (it holds the lock, but doesn't answer) or STILL_RUNNING (after `timeout`)."""
+    instance = Instance(data_dir)
+    if not instance.in_use():
+        return NOT_RUNNING
+    running = instance.wait_for_running(timeout=min(timeout, 10), step=step)  # (it may be starting)
+    if running is None or not ask_to_quit(running, transport=transport):
+        return NOT_RUNNING if not instance.in_use() else NO_ANSWER
+    deadline = time.monotonic() + timeout
+    while instance.in_use():
+        if time.monotonic() >= deadline:
+            return STILL_RUNNING
+        time.sleep(step)
+    return STOPPED
+
 
 def answers(running: Running, *, timeout: float = 2) -> bool:
     """Whether that copy of the app answers at its address."""
@@ -147,8 +193,8 @@ def add_route(app: Any, *, quit_app: Callable[[], Any] | None = None) -> None:
     async def quit_route(request: Request) -> JSONResponse:
         me = os.environ.get(ENV, '')
         if not local(request) or not me or not secrets.compare_digest(request.headers.get(HEADER, ''), me):
-            return JSONResponse({'error': 'Only from this computer itself, by the app\'s own tray icon.'},
-                                status_code=403)
+            return JSONResponse({'error': 'Only from this computer itself, by the app\'s own tray icon or its '
+                                          'quit command.'}, status_code=403)
         quit_app()
         return JSONResponse({'quitting': True})
 

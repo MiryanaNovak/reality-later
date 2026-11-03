@@ -45,3 +45,4 @@ modules:
           - build
           - repo
           - .flatpak-builder
+          - dist  # (the Windows program, if PyInstaller made one here: see packaging/windows)

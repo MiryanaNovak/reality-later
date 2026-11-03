@@ -1,6 +1,7 @@
 """Run with:  pytest -q   (from the project folder; needs `pip install pytest pytest-asyncio`)"""
 import json
 import logging
+import os
 import shutil
 import stat
 
@@ -12,6 +13,8 @@ from rpapp.connections import (
     GenerationParams, Message, ModelError, OpenAICompatibleConnection, OpenRouterConnection,
     connection_from_dict, connection_store,
 )
+
+ON_WINDOWS = os.name == 'nt'  # (file permissions below are Unix's: on Windows, a user's folder is theirs alone)
 
 HELLO = [Message(role='user', content='Hello')]
 
@@ -47,7 +50,7 @@ def test_round_trip_keeps_class_and_values(tmp_path):
     data = json.loads(path.read_text())
     assert list(data)[:3] == ['kind', 'id', 'name']
     assert data['api_key'] == 'sk-or-secret'
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert ON_WINDOWS or stat.S_IMODE(path.stat().st_mode) == 0o600
     assert not list(path.parent.glob('*.tmp'))
 
 

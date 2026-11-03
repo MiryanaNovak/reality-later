@@ -177,7 +177,8 @@ def freeze(source: str | Path, starter: str | Path = STARTER_DIR) -> Report:
             report.warnings.append(f'{settings_file} can\'t be read ({e}): no prompt is chosen.')
     if preset and preset.id in {p.id for p in found['presets']}:
         starter.mkdir(parents=True, exist_ok=True)
-        (starter / SETTINGS).write_text(json.dumps({'chat': {'preset': preset.model_dump()}}, indent=2) + '\n')
+        (starter / SETTINGS).write_text(json.dumps({'chat': {'preset': preset.model_dump()}}, indent=2) + '\n',
+                                          encoding='utf-8')
         report.preset = preset.name
     elif found['presets']:
         report.warnings.append('No prompt is chosen in its Settings › Chat: a new install starts with none chosen.')

@@ -43,6 +43,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from .devices import PAIRING_MINUTES, REQUEST_MINUTES, Device, DeviceRegistry, TooManyRequests, hash_token
+from .paths import command
 
 log = logging.getLogger(__name__)
 
@@ -446,7 +447,7 @@ def _join_html(code: str, status: str, after: str = '/') -> HTMLResponse:
 <b>This computer</b> page (starting the app there opens it) and allow the device showing this code:</p>
 <div class="code" id="code">{escape(code)}</div>
 <p class="wait" id="state">Waiting…</p>
-<p>Or, on the computer, scan or open a pairing link from the same place, or run <b>python main.py approve {escape(code)}</b>.</p>
+<p>Or, on the computer, scan or open a pairing link from the same place, or run <b>{escape(command())} approve {escape(code)}</b>.</p>
 <script>
   const state = document.getElementById('state');
   function show(status) {{

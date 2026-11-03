@@ -33,7 +33,7 @@ from typing import Any
 
 import uvicorn
 
-from . import APP_NAME, desktop
+from . import APP_NAME, desktop, windowless
 from .access import network_addresses, url_for
 from .certificates import Certificate
 from .config import Config, HttpsSetup
@@ -270,7 +270,11 @@ def starting_lines(info: ServerInfo) -> list[str]:
 
 def ready_lines(info: ServerInfo, *, opening: bool) -> list[str]:
     server = info.config.server
-    lines = [f'{APP_NAME} is running. Leave this window open: closing it, or Ctrl+C, stops the app.']
+    if windowless.log_path is not None:  # (the Windows program without a console: see windowless.py)
+        lines = [f'{APP_NAME} is running, without a window: quit it from its tray icon\'s menu, or its '
+                 f'"This computer" page.']
+    else:
+        lines = [f'{APP_NAME} is running. Leave this window open: closing it, or Ctrl+C, stops the app.']
     if info.local_url:
         lines.append(f'  On this computer, open   {info.local_url}')
     others = info.network_urls()

@@ -23,8 +23,8 @@ def test_installed_on_linux():
                'XDG_DATA_HOME': '/home/me/.var/app/io.github.MiryanaNovak.RealityLater/data'}
     where = places(flatpak, 'linux')  # (a Flatpak is never "the source folder")
     assert where.installed
-    assert str(where.config) == '/home/me/.var/app/io.github.MiryanaNovak.RealityLater/config/reality-later'
-    assert str(where.data) == '/home/me/.var/app/io.github.MiryanaNovak.RealityLater/data/reality-later'
+    assert where.config == Path('/home/me/.var/app/io.github.MiryanaNovak.RealityLater/config/reality-later')
+    assert where.data == Path('/home/me/.var/app/io.github.MiryanaNovak.RealityLater/data/reality-later')
 
 
 def test_installed_on_windows_and_macos():
@@ -64,3 +64,15 @@ def test_the_example_settings_file(tmp_path, monkeypatch):
     assert example_config(tmp_path / 'elsewhere') == tmp_path / 'share' / 'config.example.toml'
     monkeypatch.delenv('FLATPAK_ID')
     assert example_config(tmp_path / 'elsewhere') == tmp_path / 'elsewhere' / 'config.example.toml'  # (none)
+
+
+def test_the_command_the_messages_give(monkeypatch):
+    assert paths.command({}) == 'python main.py'  # (these tests run from the source folder)
+    assert paths.command({'FLATPAK_ID': 'io.github.MiryanaNovak.RealityLater'}) == \
+        'flatpak run io.github.MiryanaNovak.RealityLater'
+    monkeypatch.setattr(paths, 'source_folder', lambda env=None: None)
+    assert paths.command({}) == 'reality-later'  # pip install
+    monkeypatch.setattr(sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(sys, 'executable', r'C:\Users\nicolas\AppData\Local\Programs\Reality Later\Reality Later.exe')
+    # The Windows program with a console, by its name alone (pages show it to other devices: no user name)
+    assert paths.command({}, 'win32') == 'reality-later.exe'

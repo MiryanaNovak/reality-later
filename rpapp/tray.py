@@ -31,7 +31,7 @@ import httpx
 from PIL import Image
 
 from . import APP_NAME, ICONS, desktop
-from .instance import HEADER, QUIT_PATH, Instance, Running, answers
+from .instance import Instance, Running, answers, ask_to_quit
 
 PAGE = '/computer'  # (launcher.PAGE, without importing the server's side)
 WATCH_EVERY = 2.0  # seconds between checks that the app still runs
@@ -67,11 +67,7 @@ class Actions:
         self._open(PAGE)
 
     def quit_app(self) -> None:
-        try:
-            with httpx.Client(timeout=5, verify=False, trust_env=False, transport=self.transport) as http:
-                http.post(f'{self.running.api}{QUIT_PATH}', headers={HEADER: self.running.id})
-        except httpx.HTTPError:
-            pass  # it's gone already, or about to: the watch notices either way
+        ask_to_quit(self.running, transport=self.transport)  # (if it's gone already, the watch notices)
 
     def alive(self) -> bool:
         return self.ping(self.running)

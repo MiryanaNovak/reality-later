@@ -17,6 +17,7 @@ from nicegui import ui
 
 from ..access import Access, Who
 from ..devices import Device, JoinRequest
+from ..paths import command
 from .widgets import confirm, folding_panel, time_ago
 
 
@@ -68,7 +69,7 @@ class DevicesSection:
             ui.button('Pair a device', icon='qr_code_2', on_click=lambda: self._pair_dialog(access, refresh)) \
                 .props('unelevated').mark('pair-device')
         else:
-            ui.label('To pair another device, use the computer the app runs on (or python main.py pair there).') \
+            ui.label(f'To pair another device, use the computer the app runs on (or {command()} pair there).') \
                 .classes('text-sm muted')
         devices()
         ui.timer(2, lambda: refresh() if access.devices.version != version['seen'] else None)

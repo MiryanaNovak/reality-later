@@ -1,0 +1,98 @@
+# The Windows program, built on GitHub's Windows machines: its installer (reality-later-setup.exe) and
+# the same program in a zip (reality-later-windows.zip, nothing to install). On a version tag
+# (git tag v0.2.0 && git push --tags), both are attached to that version's release, once the tests pass
+# on Windows too. Run it by hand too (Actions › Windows › Run workflow): the files are then in the run's
+# artifacts. See packaging/windows/README.md.
+name: Windows
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write  # to attach the files to the release
+
+jobs:
+  test:
+    name: Tests on Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -e . pytest pytest-asyncio
+      - run: python -m pytest -q
+
+  build:
+    name: Program and installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Version
+        # The tag's (v0.2.0: 0.2.0), else pyproject.toml's; and as Windows wants it in a program's details
+        # (four numbers: 0.2.0.0).
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")"
+          fi
+          numbers="$(echo "$version" | grep -oE '[0-9]+' | head -4 | paste -sd. -)"
+          while [ "$(echo "$numbers" | tr -cd . | wc -c)" -lt 3 ]; do numbers="$numbers.0"; done
+          echo "REALITY_LATER_VERSION=$version" >> "$GITHUB_ENV"
+          echo "FILE_VERSION=$numbers" >> "$GITHUB_ENV"
+          echo "Version $version ($numbers)"
+
+      - name: The program (PyInstaller)
+        shell: bash  # (stops at the first command that fails)
+        run: |
+          pip install . pyinstaller
+          pyinstaller --noconfirm packaging/windows/reality-later.spec
+
+      - name: Check it works
+        run: python packaging/windows/smoke_test.py "dist/Reality Later"
+
+      - name: The zip
+        shell: pwsh
+        run: Compress-Archive -Path "dist/Reality Later" -DestinationPath dist/reality-later-windows.zip
+
+      - name: The installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y }
+          & $iscc "/DVersion=$env:REALITY_LATER_VERSION" "/DFileVersion=$env:FILE_VERSION" packaging/windows/installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Check the installer
+        run: python packaging/windows/installer_test.py dist/reality-later-setup.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reality-later-windows
+          path: |
+            dist/reality-later-setup.exe
+            dist/reality-later-windows.zip
+          if-no-files-found: error
+
+  release:
+    name: Attach to the release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: reality-later-windows
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            reality-later-setup.exe
+            reality-later-windows.zip

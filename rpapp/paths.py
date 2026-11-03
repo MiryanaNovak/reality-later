@@ -29,6 +29,8 @@ PACKAGE = Path(__file__).resolve().parent
 LINUX_NAME = 'reality-later'  # (Linux folders are lowercase, without spaces)
 EXAMPLE_NAME = 'config.example.toml'
 FLATPAK_SHARE = Path('/app/share/reality-later')  # where the Flatpak puts config.example.toml (see packaging/)
+FLATPAK_ID = 'io.github.MiryanaNovak.RealityLater'
+CONSOLE_PROGRAM = 'reality-later.exe'  # the Windows program with a console, for the commands (packaging/windows)
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,21 @@ def places(env: Mapping[str, str] | None = None, platform: str | None = None,
     if env.get('RPAPP_DATA'):
         places_ = Places(config=places_.config, data=Path(env['RPAPP_DATA']), installed=places_.installed)
     return places_
+
+
+def command(env: Mapping[str, str] | None = None, platform: str | None = None) -> str:
+    """How to run the app's commands (pair, approve, quit...) in a terminal, for the messages that say so."""
+    env = os.environ if env is None else env
+    platform = platform or sys.platform
+    if in_flatpak(env):
+        return f'flatpak run {env.get("FLATPAK_ID") or FLATPAK_ID}'
+    if getattr(sys, 'frozen', False):  # a packaged program: on Windows, the one with a console (packaging/windows)
+        # (its name, not its path: the pages show this to other devices too, and a path has the user's name)
+        name = CONSOLE_PROGRAM if platform.startswith('win') else Path(sys.executable).name
+        return f'"{name}"' if ' ' in name else name
+    if source_folder(env) is not None:
+        return 'python main.py'
+    return 'reality-later'
 
 
 def example_config(config_folder: Path) -> Path:

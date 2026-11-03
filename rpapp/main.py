@@ -23,6 +23,7 @@ https://192.168.1.20:8090 for instance (the page and this window show it).
     {prog} --no-browser    don't open the browser (also: open_browser = false)
     {prog} --no-tray       no icon in the system tray (also: tray = false)
     {prog} --reload        restart by itself when the code changes (for development)
+    {prog} quit            stop it, if it's running (as Quit, in its tray icon's menu)
 
 The port, the addresses the app listens on, the networks allowed to connect, HTTPS
 and the rest can be set in its settings file (see config.example.toml), here:
@@ -48,31 +49,36 @@ def main(argv: list[str] | None = None, *, first: bool = True, script: Path | No
     """Run the app (or one of its commands). `first`: this is the process it was started in (False: the one
     NiceGUI starts with --reload). `script`: main.py, when running from the source folder."""
     argv = sys.argv[1:] if argv is None else argv
-    prog = 'python main.py' if script else 'reality-later'
+    from .paths import command
+    prog = command()  # (python main.py, reality-later, reality-later.exe, flatpak run ...: for the messages)
     if first and argv[:1] == ['tray']:  # the tray icon's own process (see tray.py): without the server's weight
         if len(argv) != 2:
             sys.exit(f'The app starts this itself: {prog} tray <data folder>')
         from . import tray
         sys.exit(tray.run(argv[1]))
 
-    from nicegui import app, ui
-
-    from . import APP_NAME, ICONS, cli, instance, launcher, starter
-    from .access import Access, AccessGuard, SecurityHeaders
-    from .config import ConfigError, NetworkFilter, https_setup, load_config
-    from .devices import DeviceRegistry
+    from . import APP_NAME, cli
+    from .config import ConfigError, load_config
     from .paths import places
-    from .ui.app import build_root
-    from .ui.computer_page import quit_everywhere
 
     where = places()
     data_dir = where.data
 
-    if first and argv[:1] and argv[0] in cli.COMMANDS:
+    if first and argv[:1] and argv[0] in cli.COMMANDS:  # (before NiceGUI, which takes a while to load)
         try:
-            sys.exit(cli.run(argv, load_config(), data_dir=data_dir))
+            config = None if argv[0] == 'quit' else load_config()  # (quit: even if the settings file is wrong)
+            sys.exit(cli.run(argv, config, data_dir=data_dir, prog=prog))
         except ConfigError as e:
             sys.exit(str(e))
+
+    from nicegui import app, ui
+
+    from . import ICONS, instance, launcher, starter
+    from .access import Access, AccessGuard, SecurityHeaders
+    from .config import NetworkFilter, https_setup
+    from .devices import DeviceRegistry
+    from .ui.app import build_root
+    from .ui.computer_page import quit_everywhere
 
     if first and {'-h', '--help'} & set(argv):
         print(HELP.format(app=APP_NAME, prog=prog, config=where.config / 'config.toml', data=data_dir))

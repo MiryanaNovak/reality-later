@@ -1,4 +1,5 @@
 """HTTPS: the self-signed certificate, and the https settings of config.toml."""
+import os
 import ssl
 import stat
 from datetime import datetime, timedelta, timezone
@@ -10,6 +11,8 @@ from cryptography import x509
 from rpapp.certificates import CERT_FILE, KEY_FILE, ensure_self_signed
 from rpapp.config import ConfigError, https_setup, load_config
 
+ON_WINDOWS = os.name == 'nt'  # (file permissions below are Unix's: on Windows, a user's folder is theirs alone)
+
 
 def read(path):
     return x509.load_pem_x509_certificate(path.read_bytes())
@@ -18,7 +21,7 @@ def read(path):
 def test_made_once_then_reused(tmp_path):
     made = ensure_self_signed(tmp_path / 'certificates', addresses=['192.168.1.20', '0.0.0.0'])
     assert made.created and made.cert == tmp_path / 'certificates' / CERT_FILE
-    assert stat.S_IMODE(made.key.stat().st_mode) == 0o600  # the key is for you only
+    assert ON_WINDOWS or stat.S_IMODE(made.key.stat().st_mode) == 0o600  # the key is for you only
     assert not list(made.cert.parent.glob('*.tmp'))
 
     cert = read(made.cert)
