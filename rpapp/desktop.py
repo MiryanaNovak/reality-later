@@ -5,6 +5,9 @@
     Linux     the file's usual program, through xdg-open (else a text editor found
               on the computer); the file manager, through xdg-open
 
+In a Flatpak, xdg-open is the desktop's own opener (its "portal"), which opens them outside the
+sandbox, in the programs the user chose: it's used for the browser too.
+
 These run on the computer, so only the computer's own pages offer them (see
 ui/computer_page.py). They raise DesktopError with a message to show when they
 can't do it (no desktop, no program for it...).
@@ -18,6 +21,8 @@ import sys
 import webbrowser
 from collections.abc import Mapping
 from pathlib import Path
+
+from .paths import in_flatpak
 
 # Text editors to try on Linux when xdg-open has no program for the file
 LINUX_EDITORS = ('gnome-text-editor', 'gedit', 'kate', 'kwrite', 'mousepad', 'xed', 'pluma', 'featherpad',
@@ -40,6 +45,8 @@ def why_no_browser(env: Mapping[str, str] | None = None, platform: str | None = 
         return 'started over SSH'
     if platform.startswith(('win', 'cygwin', 'darwin')):
         return None
+    if in_flatpak(env):  # started from the desktop's menu (its sandbox has no display: the app opens no window)
+        return None
     if not (env.get('DISPLAY') or env.get('WAYLAND_DISPLAY')):
         return 'no desktop to open it on'
     return None
@@ -47,8 +54,9 @@ def why_no_browser(env: Mapping[str, str] | None = None, platform: str | None = 
 
 def open_browser(url: str) -> bool:
     """Open the URL in the default browser; False if that didn't work."""
-    if sys.platform.startswith('linux') and _frozen():
-        # A packaged app changes the library path for itself: the browser must not inherit that.
+    if sys.platform.startswith('linux') and (_frozen() or in_flatpak()):
+        # A packaged app changes the library path for itself: the browser must not inherit that. A Flatpak
+        # has no display, so Python's webbrowser wouldn't even look for xdg-open there.
         if _try(['xdg-open', url]):
             return True
     try:

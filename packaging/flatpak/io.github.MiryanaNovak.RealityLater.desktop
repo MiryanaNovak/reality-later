@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Reality Later
+GenericName=AI roleplay chat
+Comment=Chat with AI characters, in your browser. The real world can wait.
+Exec=reality-later
+Icon=io.github.MiryanaNovak.RealityLater
+Terminal=false
+Categories=Network;Chat;
+Keywords=roleplay;AI;chat;characters;persona;LLM;
+StartupNotify=false

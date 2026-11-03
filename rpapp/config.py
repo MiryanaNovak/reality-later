@@ -12,8 +12,8 @@
     open_browser = true
     tray = true
 
-The file is looked for next to the executable when the app is packaged as one,
-otherwise next to the main script (main.py). Without the file, or for anything
+The file is looked for next to main.py when the app runs from its source folder, and in your user
+folder when it's installed (see paths.py). Without the file, or for anything
 it doesn't set, the defaults above apply. A mistake in it (a typo in a name, a
 port out of range...) stops the app with a message saying what and where,
 rather than starting it with settings you didn't mean.
@@ -46,6 +46,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .certificates import Certificate, ensure_self_signed
+from .paths import EXAMPLE_NAME, places  # noqa: F401  (EXAMPLE_NAME: kept importable from here)
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -55,7 +56,6 @@ else:  # pragma: no cover
 log = logging.getLogger(__name__)
 
 FILE_NAME = 'config.toml'
-EXAMPLE_NAME = 'config.example.toml'
 
 # Listening on these, the app is also reachable from this computer as localhost.
 COVERS_LOCALHOST = {'0.0.0.0', '::', '127.0.0.1', '::1', 'localhost'}
@@ -163,20 +163,12 @@ class Config(BaseModel):
         return self.source or self.folder / FILE_NAME
 
 
-def app_dir() -> Path:
-    """The folder of the executable when the app is packaged as one, else of the main script."""
-    if getattr(sys, 'frozen', False):  # PyInstaller and the like
-        return Path(sys.executable).resolve().parent
-    main_file = getattr(sys.modules.get('__main__'), '__file__', None)
-    return Path(main_file).resolve().parent if main_file else Path.cwd()
-
-
 def load_config(folder: str | Path | None = None) -> Config:
-    """Read config.toml from `folder` (by default, next to the program); defaults if there's no file.
+    """Read config.toml from `folder` (by default, where paths.places() says); defaults if there's no file.
 
     Raises ConfigError if the file exists but can't be used.
     """
-    folder = Path(folder if folder is not None else app_dir())
+    folder = Path(folder if folder is not None else places().config)
     path = folder / FILE_NAME
     if not path.is_file():
         return Config(folder=folder)

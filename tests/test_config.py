@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from rpapp.config import ConfigError, NetworkFilter, app_dir, is_allowed, load_config, parse_networks
+from rpapp.config import ConfigError, NetworkFilter, is_allowed, load_config, parse_networks
 
 EXAMPLE = Path(__file__).parent.parent / 'config.example.toml'
 
@@ -92,15 +92,6 @@ def test_network_matching():
     one = parse_networks(['192.168.1.42'])
     assert is_allowed('192.168.1.42', one) and not is_allowed('192.168.1.43', one)
     assert is_allowed('8.8.8.8', parse_networks(['any'])) and is_allowed('2a01::1', parse_networks(['ANY']))
-
-
-def test_app_dir_is_next_to_the_main_script_or_the_executable(monkeypatch, tmp_path):
-    main = sys.modules['__main__']
-    monkeypatch.setattr(main, '__file__', str(tmp_path / 'main.py'), raising=False)
-    assert app_dir() == tmp_path.resolve()
-    monkeypatch.setattr(sys, 'frozen', True, raising=False)
-    monkeypatch.setattr(sys, 'executable', str(tmp_path / 'dist' / 'roleplay'))
-    assert app_dir() == (tmp_path / 'dist').resolve()
 
 
 async def test_filter_turns_away_other_networks():

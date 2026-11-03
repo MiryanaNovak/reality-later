@@ -1,0 +1,44 @@
+# The Flatpak, built on GitHub's machines: for Intel/AMD (x86_64) and ARM (aarch64) computers.
+# On a version tag (git tag v0.2.0 && git push --tags), the two .flatpak files are attached to that
+# version's release. Run it by hand too (Actions › Flatpak › Run workflow): the files are then in the
+# run's artifacts. See packaging/flatpak/README.md.
+name: Flatpak
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write  # to attach the files to the release
+
+jobs:
+  flatpak:
+    name: Flatpak (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm  # GitHub's ARM machines (free for public repositories)
+    runs-on: ${{ matrix.runner }}
+    container:
+      # flatpak-builder, ready to use. (The Freedesktop 25.08 runtime the app needs is downloaded from
+      # Flathub during the build.)
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-48
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: reality-later-${{ matrix.arch }}.flatpak
+          manifest-path: packaging/flatpak/io.github.MiryanaNovak.RealityLater.yml
+          arch: ${{ matrix.arch }}
+          cache-key: flatpak-builder-${{ github.sha }}
+      - name: Attach it to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: reality-later-${{ matrix.arch }}.flatpak

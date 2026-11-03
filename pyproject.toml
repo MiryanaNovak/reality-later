@@ -14,6 +14,9 @@ dependencies = [
     "dbus-fast; sys_platform == 'linux'",
 ]
 
+[project.scripts]
+reality-later = "rpapp.main:main"           # the app, once installed (from the source folder: python main.py)
+
 [build-system]
 requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"

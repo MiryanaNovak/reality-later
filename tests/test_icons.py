@@ -1,5 +1,6 @@
 """The app's icons: in the browser (tab, home screens), open to devices not paired yet, and in the package."""
 import json
+import re
 
 from nicegui.testing import user_simulation
 
@@ -38,6 +39,16 @@ def test_the_files():
     svg = (ICONS / 'web' / 'favicon.svg').read_text()
     assert '<script' not in svg and 'href="http' not in svg  # (served to browsers: nothing that runs, or calls out)
     assert theme.ICON_LINKS in theme.HEAD
+
+
+def test_svgs_say_they_are_svgs():
+    # Desktops (and Flatpak's check of the icons it exports) tell an SVG by a plain <svg tag near the
+    # start: <ns0:svg ...> (as Recraft exports them) is valid XML, but "Format not recognized" there.
+    project = ICONS.parent.parent
+    svgs = [*ICONS.rglob('*.svg'), *(project / 'packaging' / 'icons').rglob('*.svg')]
+    assert svgs
+    for svg in svgs:
+        assert re.search(r'<svg[\s>]', svg.read_text()[:256]), f'{svg}: no plain <svg> tag at the start'
 
 
 def test_unpaired_devices_may_fetch_them():

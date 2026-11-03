@@ -2,6 +2,7 @@
 import asyncio
 import socket
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 import pytest
@@ -189,4 +190,4 @@ def test_network_addresses_likeliest_first(monkeypatch):
 def test_defaults_for_tests_and_the_page(tmp_path):
     info = launcher.ServerInfo(Config(folder=tmp_path), None, tmp_path / 'data')
     assert (info.scheme, info.page_url, info.certificate) == ('http', 'http://localhost:8091/computer', None)
-    assert info.example_path == tmp_path / 'config.example.toml'
+    assert info.example_path == Path(__file__).resolve().parent.parent / 'config.example.toml'  # (the source's)

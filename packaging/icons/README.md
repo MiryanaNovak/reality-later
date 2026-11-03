@@ -11,6 +11,15 @@ browser's and the tray's, are in `rpapp/icons/`.)
 | `linux/reality-later-<size>.png` | Linux and Flatpak: `share/icons/hicolor/<size>x<size>/apps/<app id>.png` |
 | `source/` | The drawings they were all made from |
 
+The SVGs must start with a plain `<svg …>` tag: desktops, and Flatpak's check of the icons it
+installs, look for it to tell an SVG ("is not a valid icon: Format not recognized" otherwise).
+Recraft exports them as `<ns0:svg …>`, `<ns0:path …>`: valid, and browsers show them, but not
+recognized there. To fix a new export (the drawing stays the same):
+
+    sed -i 's/<ns0:/</g; s/<\/ns0:/<\//g; s/xmlns:ns0=/xmlns=/' drawing.svg
+
+`tests/test_icons.py` checks every SVG of the project for it.
+
 In `rpapp/icons/`:
 
 | Folder | For |

@@ -1,9 +1,12 @@
 # Configuration of the Reality Later app.
 #
-# The app reads it from "config.toml", in the same folder as the app (next to main.py).
-# To make one, copy this file under that name (the app's "This computer" page does it
-# for you: "Open the settings file"), and change what you need. Every setting is
-# optional: anything missing, or the whole file, falls back to the default shown here.
+# The app reads it from "config.toml": next to main.py when it runs from its source folder, and
+# in your user folder when it's installed (~/.config/reality-later on Linux, its Flatpak's
+# ~/.var/app/io.github.MiryanaNovak.RealityLater/config/reality-later, Application Support on a
+# Mac, %APPDATA% on Windows). Its "This computer" page says where, and makes it for you:
+# "Open the settings file". Or copy this file under that name, and change what you need.
+# Every setting is optional: anything missing, or the whole file, falls back to the default
+# shown here.
 # After a change, quit the app and start it again.
 
 [server]

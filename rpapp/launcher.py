@@ -36,8 +36,9 @@ import uvicorn
 from . import APP_NAME, desktop
 from .access import network_addresses, url_for
 from .certificates import Certificate
-from .config import EXAMPLE_NAME, Config, HttpsSetup
+from .config import Config, HttpsSetup
 from .instance import Instance, Running, answers
+from .paths import example_config
 
 log = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ class ServerInfo:
 
     @property
     def example_path(self) -> Path:
-        return self.config.folder / EXAMPLE_NAME
+        return example_config(self.config.folder)
 
     def network_urls(self) -> list[str]:
         """The addresses other devices open, likeliest first."""
@@ -221,8 +222,13 @@ def tray_wanted(config: Config, *, no_tray: bool = False, reload: bool = False) 
 
 def start_tray(data_dir: Path, *, script: Path | None = None) -> subprocess.Popen | None:
     """Start the tray icon's process: this program again, as `tray <data folder>` (see tray.py).
-    `script`: main.py, when running from the source (not packaged). None if it can't be started."""
-    program = [sys.executable] if getattr(sys, 'frozen', False) or script is None else [sys.executable, str(script)]
+    `script`: main.py, when running from the source folder. None if it can't be started."""
+    if getattr(sys, 'frozen', False):  # a packaged program: itself
+        program = [sys.executable]
+    elif script is not None:  # the source folder: main.py
+        program = [sys.executable, str(script)]
+    else:  # installed (pip, the Flatpak): the package
+        program = [sys.executable, '-m', 'rpapp']
     flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0  # (no console window of its own)
     try:
         return subprocess.Popen([*program, 'tray', str(data_dir)], stdin=subprocess.DEVNULL, creationflags=flags)
@@ -246,7 +252,7 @@ def starting_lines(info: ServerInfo) -> list[str]:
     server = info.config.server
     lines = [f'Starting {APP_NAME}…',
              f'Settings: {info.config.source}' if info.config.source
-             else f'Settings: the defaults (there\'s no {info.config_path.name} next to the app)',
+             else f'Settings: the defaults (there\'s no {info.config_path})',
              f'Data: {info.data_dir}']
     if info.https and info.https.self_signed:
         made = info.https.self_signed

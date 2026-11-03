@@ -47,10 +47,12 @@ def test_when_the_tray_icon_is_shown(tmp_path, monkeypatch):
 def test_its_process_is_the_app_again(tmp_path, monkeypatch):
     started = []
     monkeypatch.setattr(subprocess, 'Popen', lambda args, **kw: started.append(args) or 'process')
-    assert launcher.start_tray(tmp_path, script=Path('/app/main.py')) == 'process'
-    assert started[-1] == [sys.executable, '/app/main.py', 'tray', str(tmp_path)]
-    monkeypatch.setattr(sys, 'frozen', True, raising=False)  # a packaged app: the program itself
-    launcher.start_tray(tmp_path, script=Path('/app/main.py'))
+    assert launcher.start_tray(tmp_path, script=Path('/src/main.py')) == 'process'  # the source folder
+    assert started[-1] == [sys.executable, '/src/main.py', 'tray', str(tmp_path)]
+    launcher.start_tray(tmp_path)  # installed (pip, the Flatpak): the package
+    assert started[-1] == [sys.executable, '-m', 'rpapp', 'tray', str(tmp_path)]
+    monkeypatch.setattr(sys, 'frozen', True, raising=False)  # a packaged program: itself
+    launcher.start_tray(tmp_path, script=Path('/src/main.py'))
     assert started[-1] == [sys.executable, 'tray', str(tmp_path)]
 
 
@@ -376,3 +378,48 @@ async def test_the_icon_suits_the_panel(session_bus, monkeypatch):
     await asyncio.wait_for(task, 5)
     for bus in (client, portal_bus, tray_bus):
         bus.disconnect()
+
+
+# --- in a Flatpak: the usual name refused -----------------------------------------------------------
+
+async def test_where_the_usual_name_is_refused(tmp_path):
+    """A Flatpak only lets the app talk to the tray: it registers under its connection's own name."""
+    pytest.importorskip('dbus_fast')
+    if not shutil.which('dbus-daemon'):
+        pytest.skip('no dbus-daemon')
+    from rpapp.tray_linux import ITEM_PATH, show
+    config = tmp_path / 'bus.conf'
+    config.write_text(f"""<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig><type>session</type><listen>unix:tmpdir={tmp_path}</listen><auth>EXTERNAL</auth>
+<policy context="default"><allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/><allow own="*"/>
+<deny own="org.kde.StatusNotifierItem-{os.getpid()}-1"/></policy></busconfig>""")
+    daemon = subprocess.Popen(['dbus-daemon', f'--config-file={config}', '--nofork', '--print-address'],
+                              stdout=subprocess.PIPE, text=True)
+    address = daemon.stdout.readline().strip()
+    try:
+        from dbus_fast.aio import MessageBus
+        tray_bus, watcher = await fake_tray(address)
+        stopped = asyncio.Event()
+        task = asyncio.create_task(show(tray.Actions(RUNNING, ping=lambda r: True), bus_address=address,
+                                        stopped=stopped, every=0.05))
+        assert await until(lambda: watcher.items)
+        [name] = watcher.items
+        assert name.startswith(':')  # its connection's own name
+        client = await MessageBus(bus_address=address).connect()
+        item = client.get_proxy_object(name, ITEM_PATH, await client.introspect(name, ITEM_PATH)) \
+            .get_interface('org.kde.StatusNotifierItem')
+        assert await item.get_title() == 'Reality Later'  # the tray reaches it there, as usual
+        stopped.set()
+        await asyncio.wait_for(task, 5)
+        client.disconnect()
+        tray_bus.disconnect()
+    finally:
+        daemon.terminate()
+        daemon.wait(5)
+
+
+def test_a_flatpak_is_a_desktop():
+    assert desktop.why_no_browser({'FLATPAK_ID': 'io.github.MiryanaNovak.RealityLater'}, 'linux') is None
+    assert desktop.why_no_browser({}, 'linux') == 'no desktop to open it on'
+    assert desktop.why_no_browser({'FLATPAK_ID': 'x', 'SSH_CONNECTION': '1 2 3 4'}, 'linux') == 'started over SSH'

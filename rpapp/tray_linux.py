@@ -10,6 +10,10 @@ White or black (see tray.py)? GNOME's top bar is dark, even in light mode: white
 follow the desktop's light or dark style, which the desktop portal tells (org.freedesktop.appearance
 color-scheme): black for light, white for dark or unknown. When that changes, so does the icon.
 
+It registers as org.kde.StatusNotifierItem-<process>-1, as the specification suggests, or, where
+that name isn't allowed (a Flatpak only lets it talk to the tray), as its connection's own name,
+which the specification allows too.
+
 Specifications: https://www.freedesktop.org/wiki/Specifications/StatusNotifierItem/ and
 libdbusmenu's com.canonical.dbusmenu interface.
 
@@ -259,7 +263,10 @@ async def show(actions: Actions, *, bus_address: str | None = None, on_shown: Ca
         bus.export(ITEM_PATH, item)
         bus.export(MENU_PATH, Menu(actions.menu(), run))
         name = f'org.kde.StatusNotifierItem-{os.getpid()}-1'
-        await bus.request_name(name)
+        try:
+            await bus.request_name(name)
+        except Exception:  # (a Flatpak may not let it take that name: its connection's own one does too)
+            name = bus.unique_name
 
         async def register() -> None:
             reply = await bus.call(Message(destination=WATCHER, path=WATCHER_PATH, interface=WATCHER,

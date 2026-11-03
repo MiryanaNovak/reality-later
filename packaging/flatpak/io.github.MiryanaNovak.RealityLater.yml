@@ -1,0 +1,47 @@
+# Reality Later as a Flatpak, for the GitHub releases (not Flathub: pip downloads the Python
+# packages during the build, which Flathub doesn't allow). How to build it: README.md, next to this.
+id: io.github.MiryanaNovak.RealityLater
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+command: reality-later
+
+finish-args:
+  - --share=network                            # the app's server, and the AI services it calls
+  - --talk-name=org.kde.StatusNotifierWatcher  # the tray icon
+  # Nothing else: no access to your files (its own are in ~/.var/app/<this id>), and no window of its
+  # own (it opens your browser, through the desktop's portal).
+
+modules:
+  - name: reality-later
+    buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network                      # for pip
+    build-commands:
+      # The app and the Python packages it needs; this installs the reality-later command too
+      - pip3 install --prefix=/app --no-cache-dir --no-warn-script-location .
+      # Every setting explained, for its "Open the settings file" button (see rpapp/paths.py)
+      - install -Dm644 config.example.toml /app/share/reality-later/config.example.toml
+      # In the desktop's app menu, with its icon
+      - install -Dm644 packaging/flatpak/io.github.MiryanaNovak.RealityLater.desktop
+          /app/share/applications/io.github.MiryanaNovak.RealityLater.desktop
+      - install -Dm644 packaging/icons/linux/reality-later.svg
+          /app/share/icons/hicolor/scalable/apps/io.github.MiryanaNovak.RealityLater.svg
+      - for size in 16 24 32 48 64 128 256 512; do
+          install -Dm644 packaging/icons/linux/reality-later-$size.png
+            /app/share/icons/hicolor/${size}x${size}/apps/io.github.MiryanaNovak.RealityLater.png;
+        done
+    sources:
+      - type: dir
+        path: ../..
+        # Never your own files, if you build from your working folder
+        skip:
+          - data
+          - examples-data
+          - certificates
+          - config.toml
+          - .git
+          - build
+          - repo
+          - .flatpak-builder

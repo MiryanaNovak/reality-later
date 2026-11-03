@@ -214,6 +214,7 @@ class ComputerPage:
                      'again.').classes('text-sm muted')
 
     def _create_settings(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)  # (installed: the user's folder for it may not exist yet)
         example = self.server.example_path
         if example.is_file():
             shutil.copyfile(example, path)
