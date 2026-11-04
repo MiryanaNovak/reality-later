@@ -61,7 +61,10 @@ def install(setup: Path, tasks: str) -> None:
 
 
 def start() -> subprocess.Popen:
-    app = subprocess.Popen([str(APP / 'Reality Later.exe'), '--no-browser'])
+    # As the Start menu starts it: with no input or output at all, so that it writes its log (given
+    # somewhere to print, a program without a console prints there instead, as pythonw does).
+    nowhere = subprocess.STARTUPINFO(dwFlags=subprocess.STARTF_USESTDHANDLES)  # (its handles: none)
+    app = subprocess.Popen([str(APP / 'Reality Later.exe'), '--no-browser'], startupinfo=nowhere)
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
         try:

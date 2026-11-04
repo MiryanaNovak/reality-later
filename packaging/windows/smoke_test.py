@@ -77,19 +77,20 @@ def main() -> int:
     finally:
         stop(app)
 
-    app = start([windowless, '--no-browser'], env, home / 'windowless.log')
+    # As the Start menu starts it: on Windows, with nowhere to print (its messages then go to its log).
+    its_log = config / 'reality-later.log' if WINDOWS else home / 'windowless.log'
+    app = start([windowless, '--no-browser'], env, its_log, as_from_the_start_menu=WINDOWS)
     try:
-        wait_until_it_answers(app, home / 'windowless.log')
+        wait_until_it_answers(app, its_log)
         check('<title>Reality Later</title>' in get(LOCAL + '/'), 'the program without a console starts too')
-        if WINDOWS:
-            written = (config / 'reality-later.log').read_text(encoding='utf-8')
-            check('is running, without a window' in written, 'it writes its messages to its log')
+        if WINDOWS:  # (it says it's running a moment after it answers: once its own check of that is done)
+            check(wait_for_text(its_log, 'is running, without a window'), 'it writes its messages to its log')
         check('has stopped' in run([console, 'quit'], env), '`quit` stops it')
         check(wait_for_exit(app), 'it has ended')
     finally:
         stop(app)
-        if WINDOWS and (config / 'reality-later.log').is_file():
-            print('--- its log:\n' + (config / 'reality-later.log').read_text(encoding='utf-8'))
+        if WINDOWS:
+            print('--- its log:\n' + read(its_log))
     check('isn\'t running' in run([console, 'quit'], env), '`quit` says when it isn\'t running')
     print('All good.')
     return 0
@@ -109,10 +110,33 @@ def run(command: list, env: dict) -> str:
     return result.stdout + result.stderr
 
 
-def start(command: list, env: dict, log: Path) -> subprocess.Popen:
+def start(command: list, env: dict, log: Path, *, as_from_the_start_menu: bool = False) -> subprocess.Popen:
+    """Start it, its output in `log`; or (as_from_the_start_menu, on Windows) as Explorer starts programs,
+    with no input or output at all: a program without a console given somewhere to print prints there,
+    as pythonw does, rather than in its own log."""
+    if as_from_the_start_menu:
+        nowhere = subprocess.STARTUPINFO(dwFlags=subprocess.STARTF_USESTDHANDLES)  # (its handles: none)
+        return subprocess.Popen([str(c) for c in command], env=env, startupinfo=nowhere)
     with open(log, 'w', encoding='utf-8') as out:
         return subprocess.Popen([str(c) for c in command], env=env, stdout=out, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL)
+
+
+def read(path: Path) -> str:
+    try:
+        return path.read_text(encoding='utf-8', errors='replace')
+    except OSError:
+        return f'(no {path.name})'
+
+
+def wait_for_text(path: Path, text: str, timeout: float = 30) -> bool:
+    """Whether the file says `text`, within `timeout` seconds."""
+    deadline = time.monotonic() + timeout
+    while text not in read(path):
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.25)
+    return True
 
 
 def get(url: str) -> str:
@@ -124,13 +148,13 @@ def wait_until_it_answers(app: subprocess.Popen, log: Path) -> None:
     deadline = time.monotonic() + START_TIMEOUT
     while time.monotonic() < deadline:
         if app.poll() is not None:
-            raise SystemExit(f'FAILED: it stopped (exit code {app.returncode}):\n{log.read_text(errors="replace")}')
+            raise SystemExit(f'FAILED: it stopped (exit code {app.returncode}):\n{read(log)}')
         try:
             get(LOCAL + '/local/instance')
             return
         except (OSError, urllib.error.URLError):
             time.sleep(1)
-    raise SystemExit(f'FAILED: no answer after {START_TIMEOUT} s:\n{log.read_text(errors="replace")}')
+    raise SystemExit(f'FAILED: no answer after {START_TIMEOUT} s:\n{read(log)}')
 
 
 def wait_for_exit(app: subprocess.Popen, timeout: float = 30) -> bool:
