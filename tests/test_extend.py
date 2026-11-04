@@ -12,7 +12,7 @@ from rpapp.prompts import build_prompt
 from rpapp.replies import extended
 from rpapp.settings import Settings, SettingsStore
 from rpapp.ui.app import build_root
-from test_chat import mira, save_cast, seraphina, settled, the
+from test_chat import choose, mira, save_cast, seraphina, settled, the
 from test_connections import chunk, fake_server, sse
 
 FIRST = '*Seraphina smiles.* Rest now.'  # the fake model's reply
@@ -169,7 +169,7 @@ async def test_extension_details_and_prompt(chat, fake_model):
     await extend(user)
     reply = reply_of(store, conversation)
     with user.scope(marker=f'message-{reply.id}'):
-        user.find(marker='menu-details').click()
+        choose(user, 'menu-details')
     with user.scope(marker='reply-dialog'):
         await user.should_see('Version 2 of 2')
         await user.should_see('Version 1, extended with a hidden instruction.')

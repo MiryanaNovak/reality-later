@@ -176,6 +176,11 @@ HEAD = f'''
   .app-content:has(.chat-page), .nicegui-content:has(.chat-page) {{ padding-bottom: 0; }}
   .chat-page {{ width: 100%; gap: 16px; }}
   .chat-messages {{ display: flex; flex-direction: column; gap: 14px; width: 100%; }}
+  /* Earlier messages go in above what you read without moving it: the chat page sees to it (chat_page.py,
+     OLDER_JS); the browser's own way, where there's one, would add to it */
+  html:has(.chat-messages), body:has(.chat-messages) {{ overflow-anchor: none; }}
+  .chat-older {{ display: flex; align-items: center; justify-content: center; min-height: 40px; }}
+  .chat-head .chat-actions {{ margin-left: auto; }}
   .chat-row {{ display: flex; gap: 10px; align-items: flex-start; width: 100%; }}
   .chat-row.mine {{ flex-direction: row-reverse; }}
   .chat-avatar {{ flex-shrink: 0; margin-top: 2px; }}

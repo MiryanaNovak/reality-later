@@ -4,6 +4,7 @@ import json
 
 import pytest
 from conftest import FakeConnection
+from test_chat import choose
 from nicegui import ui
 from nicegui.testing import user_simulation
 
@@ -271,7 +272,7 @@ async def test_generate_now_and_undo_by_deleting(tmp_path, fake_model):
         saved = conversations.load(conversation.id)
         mine = saved.messages[1]
         with user.scope(marker=f'message-{mine.id}'):
-            user.find(marker='menu-delete').click()
+            choose(user, 'menu-delete')
         await user.should_see(marker='confirm-dialog')
         with user.scope(marker='confirm-dialog'):
             user.find(kind=ui.button, content='Delete').click()

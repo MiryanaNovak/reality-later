@@ -12,7 +12,7 @@ from rpapp.prompts import build_prompt
 from rpapp.replies import continues_scene
 from rpapp.settings import Settings
 from rpapp.ui.app import build_root
-from test_chat import mira, save_cast, seraphina, settled, the
+from test_chat import choose, mira, save_cast, seraphina, settled, the
 
 FIRST = '*Seraphina smiles.* Rest now.'  # the fake model's reply
 HIDDEN = fill(CONTINUE_INSTRUCTION, char='Seraphina', user='Mira')
@@ -113,7 +113,7 @@ async def test_continue_after_a_reply(tmp_path, fake_model):
 
         # Its details, and its prompt (kept with them: it follows no message of yours)
         with user.scope(marker=f'message-{new.id}'):
-            user.find(marker='menu-details').click()
+            choose(user, 'menu-details')
         with user.scope(marker='reply-dialog'):
             await user.should_see(marker='reply-continues')
             user.find(marker='reply-prompt').click()

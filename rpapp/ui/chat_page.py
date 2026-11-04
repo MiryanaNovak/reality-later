@@ -46,6 +46,13 @@ there (or still on its way).
 
 Messages are drawn one by one into their own box, so sending or editing redraws
 only what changed, even in a long chat.
+
+A long chat opens with its last messages only (FIRST_MESSAGES); earlier ones are drawn as you scroll
+up, MORE_MESSAGES at a time, starting while they're still two screens away (OLDER_JS). What you're
+reading stays in place as they go in above it. What's drawn is always the end of the chat, from
+`shown_from` on: new messages are added at the bottom, and deleting removes the end. Each message's
+⋯ menu is made when it's opened: made ahead for every message, those menus would be most of a long
+chat's page (Copy carries the whole message).
 """
 from __future__ import annotations
 
@@ -93,6 +100,50 @@ RETURN_KEY_JS = '''(e) => {
 BLUR_JS = 'document.activeElement && document.activeElement.blur()'
 FOCUS_JS = 'if (window.matchMedia("(pointer: fine)").matches) runMethod({id}, "focus", [])'
 
+FIRST_MESSAGES = 30  # drawn when the chat opens: the last ones
+MORE_MESSAGES = 30   # drawn each time you scroll up near the first one drawn
+
+# The earlier messages, as you scroll up. The "Earlier messages" control above the first message drawn
+# is clicked by itself once it's within two screens of view (the server then draws MORE_MESSAGES above
+# it, and calls OLDER_DONE_JS, which looks again: still near?).
+#
+# What you're reading stays in place as they go in above it: the first message drawn is noted with its
+# place in the page (not on the screen: scrolling doesn't change that, only what's added above it). When
+# the list's size changes, the page is scrolled by as much as that place moved, before it's shown (a
+# ResizeObserver runs after the browser's layout, before it paints): whatever the change, the messages
+# going in, or their text appearing a moment later. Changes below it (a reply, an edit) don't move it.
+# The browser's own way, overflow-anchor, isn't in every browser: it's off on this page (theme.py), for
+# the two not to add up.
+OLDER_JS = '''setTimeout(() => {
+  const control = document.getElementById("c%(control)s"), list = document.getElementById("c%(list)s");
+  if (!control || !list || control.rpWatch) return;
+  const place = el => el.getBoundingClientRect().top + window.scrollY;
+  const anchor = {};
+  const note = () => { anchor.box = list.querySelector(".chat-box") || control; anchor.at = place(anchor.box); };
+  note();
+  new ResizeObserver(() => {
+    if (!anchor.box.isConnected) return note();  // (deleted: from the next change on, the next one)
+    const moved = place(anchor.box) - anchor.at;
+    if (moved) window.scrollBy(0, moved);
+    anchor.at = place(anchor.box);
+  }).observe(list);
+  control.addEventListener("click", () => { control.rpLoading = true; note(); }, true);  // (also by hand)
+  control.rpWatch = new IntersectionObserver(entries => {
+    const button = control.querySelector("button");
+    if (!entries.some(e => e.isIntersecting) || control.rpLoading || !button || !button.offsetParent) return;
+    button.click();
+  }, {rootMargin: "200%% 0px 0px 0px"});
+  control.rpWatch.observe(control);
+}, 400)'''  # (once the chat is scrolled to its end, as it opens: not from the top, where it starts)
+# Drawn (once the browser has made the changes): ready for more, and look again
+OLDER_DONE_JS = '''requestAnimationFrame(() => requestAnimationFrame(() => {
+  const control = document.getElementById("c%(control)s");
+  if (!control || !control.rpWatch) return;
+  control.rpLoading = false;
+  control.rpWatch.unobserve(control);
+  control.rpWatch.observe(control);
+}))'''
+
 
 @lru_cache(maxsize=1000)
 def message_html(html: str) -> str:
@@ -136,6 +187,9 @@ class ChatPage:
         self.back = back
         self.editing: str | None = None              # id of the message being edited
         self.boxes: dict[str, ui.element] = {}       # message id -> the box it's drawn in
+        self.shown_from = 0                          # the first message drawn: those after it are too
+        self.marker_after: str | None = None         # the message the dashed line follows (drawn or not)
+        self.link_wanted = (False, False)            # the line joining it to the memory bubble (see _link)
         self.busy = False                            # a reply is on its way
         self.rewriting: str | None = None            # id of the reply getting another version
         self.extending = False                       # that version: the one shown, extended
@@ -174,8 +228,15 @@ class ChatPage:
             self.empty_hint = ui.label(f'{self.char_name} has no first message. Write the first one below.') \
                 .classes('muted chat-empty')
             self.list = ui.element('div').classes('chat-messages')
+            self.shown_from = max(0, len(c.messages) - FIRST_MESSAGES)
+            self.had_older = self.shown_from > 0  # (then, once all are drawn: "The start of the chat")
             with self.list:
-                for message in c.messages:
+                with ui.element('div').classes('chat-older').mark('chat-older') as self.older:
+                    self.older_button = ui.button('Earlier messages', icon='expand_less',
+                                                  on_click=lambda: self._load_older()) \
+                        .props('flat dense no-caps').classes('muted').mark('load-older')
+                    self.older_start = ui.label('The start of the chat').classes('text-sm muted')
+                for message in c.messages[self.shown_from:]:
                     self._add_box(message)
                 # How far the memories have read: moved after that message's box (see _place_marker).
                 with ui.element('div').classes('memory-marker').mark('memory-marker') as self.marker:
@@ -187,6 +248,7 @@ class ChatPage:
             self.status = ui.element('div').classes('w-full chat-reply-status')  # "Replying…", or why not
             self.memory_box = ui.element('div').classes('w-full')  # "Writing memories…", or what's new
             self._update_empty_hint()
+            self._update_older()
 
             with ui.element('div').classes('chat-compose'):
                 with ui.row().classes('w-full items-end no-wrap gap-2'):
@@ -214,6 +276,7 @@ class ChatPage:
             self._show_status()
             self._show_memory_box()
         self._scroll_to_bottom()
+        self._js(OLDER_JS % {'control': self.older.id, 'list': self.list.id})
 
     async def _rename(self) -> None:
         name = await ask_name('Rename the conversation', self.conversation.title, max_length=TITLE_MAX)
@@ -252,6 +315,32 @@ class ChatPage:
     def _update_empty_hint(self) -> None:
         self.empty_hint.set_visibility(not self.conversation.messages)
 
+    # -- earlier messages --------------------------------------------------------------
+
+    def _update_older(self) -> None:
+        """Above the first message drawn: "Earlier messages" while there are some, then "The start of the
+        chat" (as high: what's below doesn't move). Nothing for a chat that was drawn whole from the start."""
+        more = self.shown_from > 0
+        self.older.set_visibility(more or self.had_older)
+        self.older_button.set_visibility(more)
+        self.older_start.set_visibility(not more)
+        self.had_older = self.had_older or more
+
+    def _load_older(self, down_to: int | None = None) -> None:
+        """Draw the messages before those drawn: MORE_MESSAGES of them, or all of them from `down_to` on."""
+        start = max(0, self.shown_from - MORE_MESSAGES) if down_to is None else max(0, min(down_to, self.shown_from))
+        older = self.conversation.messages[start:self.shown_from]
+        for i, message in enumerate(older):
+            self._add_box(message)
+            self.boxes[message.id].move(self.list, target_index=1 + i)  # (right after the control)
+        self.shown_from = start
+        self._update_older()
+        if older and self.marker_after and self.marker_after in {m.id for m in older}:
+            self._show_marker()  # its message is here now
+            on, pulsing = self.link_wanted
+            self._link(on, pulsing=pulsing)
+        self._js(OLDER_DONE_JS % {'control': self.older.id})
+
     # -- messages ----------------------------------------------------------------------
 
     def _add_box(self, message: ChatMessage) -> None:
@@ -274,11 +363,10 @@ class ChatPage:
         with box, ui.element('div').classes('chat-row ' + ('mine' if mine else 'theirs')):
             thumbnail(name, image).classes('chat-avatar')
             with ui.element('div').classes('chat-bubble' + (' editing' if editing else '')):
-                with ui.row().classes('w-full items-center no-wrap gap-2'):
+                with ui.row().classes('w-full items-center no-wrap gap-2 chat-head'):
                     ui.label(name).classes('chat-name')
                     ui.label(short_time(message.created_at) + (', edited' if message.edited_at else '')) \
                         .classes('chat-time')
-                    ui.space()
                     if not editing:
                         self._menu(message)
                 if editing:
@@ -304,20 +392,31 @@ class ChatPage:
                        '<span>.</span><span>.</span><span>.</span></span>', sanitize=False).classes('chat-replying')
 
     def _menu(self, message: ChatMessage) -> None:
+        """The ⋯ button. Its menu is filled when it's opened (see the notes at the top)."""
         if self.rewriting == message.id:
             return
-        with ui.button(icon='more_horiz').props('flat round dense size=sm aria-label="Message actions"'):
-            with ui.menu():
-                ui.menu_item('Copy', lambda: ui.notify('Copied')) \
-                    .on('click', js_handler=copy_js(message.content)).mark('menu-copy')
-                ui.menu_item('Edit', lambda: self._start_edit(message.id)).mark('menu-edit')
-                if message.role == 'user':
-                    ui.menu_item('See prompt', lambda: self._show_prompt(message.id)).mark('menu-prompt')
-                elif message.role == 'assistant' and not message.greeting:
-                    ui.menu_item('Details', lambda: self._show_details(message)).mark('menu-details')
-                if not message.greeting:
-                    ui.menu_item('Delete', lambda: self._delete(message.id)) \
-                        .classes('text-negative').mark('menu-delete')
+        with ui.button(icon='more_horiz', on_click=lambda: self._open_menu(menu, message.id)) \
+                .props('flat round dense size=sm aria-label="Message actions"').classes('chat-actions') \
+                .mark('actions'):
+            menu = ui.menu().props('no-parent-event')
+
+    def _open_menu(self, menu: ui.menu, message_id: str) -> None:
+        message = self.conversation.message(message_id)
+        if message is None:
+            return
+        menu.clear()
+        with menu:
+            ui.menu_item('Copy', lambda: ui.notify('Copied')) \
+                .on('click', js_handler=copy_js(message.content)).mark('menu-copy')
+            ui.menu_item('Edit', lambda: self._start_edit(message.id)).mark('menu-edit')
+            if message.role == 'user':
+                ui.menu_item('See prompt', lambda: self._show_prompt(message.id)).mark('menu-prompt')
+            elif message.role == 'assistant' and not message.greeting:
+                ui.menu_item('Details', lambda: self._show_details(message)).mark('menu-details')
+            if not message.greeting:
+                ui.menu_item('Delete', lambda: self._delete(message.id)) \
+                    .classes('text-negative').mark('menu-delete')
+        menu.open()
 
     def _greeting_picker(self, message: ChatMessage) -> None:
         def step(direction: int) -> None:
@@ -425,6 +524,8 @@ class ChatPage:
             box = self.boxes.pop(m.id, None)
             if box is not None:
                 box.delete()
+        self.shown_from = min(self.shown_from, len(c.messages))  # (the first drawn may be gone: earlier ones
+        self._update_older()                                       # come as the control is in view again)
         if self.editing in {m.id for m in deleted}:
             self.editing = None
         if c.messages:
@@ -543,7 +644,8 @@ class ChatPage:
                 self.conversation = fresh
             self.rewriting, self.extending = None, False
             messages = self.conversation.messages
-            added = [m for m in messages if m.id not in self.boxes]
+            self.shown_from = min(self.shown_from, len(messages))
+            added = [m for m in messages[self.shown_from:] if m.id not in self.boxes]  # (not the earlier ones)
             for message in added:
                 self._add_box(message)
             if added:
@@ -595,7 +697,9 @@ class ChatPage:
     # -- the dashed line ---------------------------------------------------------------
 
     def _place_marker(self, message_id: str, text: str) -> None:
-        """Put the dashed line right after this message (or hide it: '' or a message that's not here)."""
+        """Put the dashed line right after this message (or hide it: '' or a message that's not here, or not
+        drawn yet: an earlier one, see _load_older)."""
+        self.marker_after = message_id or None
         box = self.boxes.get(message_id)
         if not self.memory_on or box is None:
             self.marker.set_visibility(False)
@@ -618,15 +722,20 @@ class ChatPage:
             self._place_marker(memories.read_until, 'Remembered up to here')
 
     def _link(self, on: bool, *, pulsing: bool = False) -> None:
-        """Show (or hide) the line on the left joining the dashed line to the memory bubble."""
+        """Show (or hide) the line on the left joining the dashed line to the memory bubble. (Asked for while
+        the dashed line isn't drawn, it's shown once it is: see _load_older.)"""
+        self.link_wanted = (on, pulsing)
         on = on and self.marker.visible
         self.page_column.classes(add='memory-threaded' if on else None, remove=None if on else 'memory-threaded')
         pulse = on and pulsing
         self.page_column.classes(add='memory-pulsing' if pulse else None, remove=None if pulse else 'memory-pulsing')
 
     def _scroll_to_marker(self) -> None:
-        self._js(f'document.getElementById("c{self.marker.id}")'
-                 '?.scrollIntoView({behavior: "smooth", block: "center"})')
+        c, after = self.conversation, self.marker_after
+        if after and after not in self.boxes and (message := c.message(after)) is not None:
+            self._load_older(down_to=max(0, c.messages.index(message) - 1))  # (and the one before it)
+        self._js(f'setTimeout(() => document.getElementById("c{self.marker.id}")'
+                 '?.scrollIntoView({behavior: "smooth", block: "center"}), 150)')  # (once drawn)
 
     def _read_count(self, memories) -> int:
         """How many messages the pending update read."""

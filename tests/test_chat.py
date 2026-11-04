@@ -184,6 +184,12 @@ def the(user, marker: str):
     return user.find(marker=marker).elements.pop()
 
 
+def choose(user, item: str) -> None:
+    """In a message's scope: open its ⋯ menu (made as it opens), and click that item."""
+    user.find(marker='actions').click()
+    user.find(marker=item).click()
+
+
 async def send(user, text: str, *, wait: bool = True) -> None:
     """Type and send; with `wait`, until the reply (or the reason there's none) is in."""
     user.find(marker='chat-input').type(text)
@@ -214,6 +220,8 @@ async def test_greeting_choice_until_the_first_reply(setup):
     await user.should_not_see(marker='greeting-next')  # fixed now
     assert message_ids(user)[0] == f'message-{greeting}'
     with user.scope(marker=f'message-{greeting}'):
+        user.find(marker='actions').click()
+        await user.should_see(marker='menu-edit')
         await user.should_not_see(marker='menu-delete')  # the first message can't be deleted
 
 
@@ -237,7 +245,7 @@ async def test_send_gets_a_reply(setup, fake_model):
     assert details.reply_to == mine.id and details.prompt_estimate == prompt.tokens
 
     with user.scope(marker=f'message-{mine.id}'):
-        user.find(marker='menu-prompt').click()
+        choose(user, 'menu-prompt')
     await user.should_see(marker='prompt-dialog')
     with user.scope(marker='prompt-dialog'):
         await user.should_see('Instructions (Test) · system')
@@ -257,7 +265,7 @@ async def test_locked_while_replying_and_stop(setup, fake_model):
     assert the(user, 'send').props['icon'] == 'stop'
     mine = store.load(conversation.id).messages[1]
     with user.scope(marker=f'message-{mine.id}'):
-        user.find(marker='menu-edit').click()
+        choose(user, 'menu-edit')
     await user.should_see('Wait for the reply, or stop it first.')
 
     user.find(marker='send').click()  # now Stop
@@ -294,6 +302,7 @@ async def test_reply_details(setup, fake_model):
     assert reply.content == '*She smiles.* Rest.'  # without the "Seraphina:" the model added
 
     with user.scope(marker=f'message-{reply.id}'):
+        user.find(marker='actions').click()
         await user.should_not_see(marker='menu-prompt')
         user.find(marker='menu-details').click()
     await user.should_see(marker='reply-dialog')
@@ -347,7 +356,7 @@ async def test_edit_in_place(setup):
     await send(user, 'Where am I?')
     mine = store.load(conversation.id).messages[1]
     with user.scope(marker=f'message-{mine.id}'):
-        user.find(marker='menu-edit').click()
+        choose(user, 'menu-edit')
     await user.should_see(marker='edit-input')
     with user.scope(marker=f'message-{mine.id}'):
         user.find(marker='edit-input').clear().type('Where *exactly* am I?')
@@ -360,7 +369,7 @@ async def test_edit_in_place(setup):
 
     # The prompt dialog says it predates the edit.
     with user.scope(marker=f'message-{mine.id}'):
-        user.find(marker='menu-prompt').click()
+        choose(user, 'menu-prompt')
     await user.should_see('this is the prompt as it was before')
 
 
@@ -370,7 +379,7 @@ async def test_delete_removes_the_message_and_those_after(setup):
         await send(user, text)
     one, r1, two, r2, three, r3 = store.load(conversation.id).messages[1:]
     with user.scope(marker=f'message-{two.id}'):
-        user.find(marker='menu-delete').click()
+        choose(user, 'menu-delete')
     await user.should_see('This message and the 3 messages after it will be deleted.')
     with user.scope(marker='confirm-dialog'):
         user.find(kind=ui.button, content='Delete').click()
@@ -382,7 +391,7 @@ async def test_delete_removes_the_message_and_those_after(setup):
 
     # Delete the last reply: your message waits for one again.
     with user.scope(marker=f'message-{r1.id}'):
-        user.find(marker='menu-delete').click()
+        choose(user, 'menu-delete')
     await user.should_see(marker='confirm-dialog')
     with user.scope(marker='confirm-dialog'):
         await user.should_see('This message will be deleted.')
@@ -395,7 +404,7 @@ async def test_delete_removes_the_message_and_those_after(setup):
 
     # Back to the greeting alone: its choice is available again.
     with user.scope(marker=f'message-{one.id}'):
-        user.find(marker='menu-delete').click()
+        choose(user, 'menu-delete')
     await user.should_see(marker='confirm-dialog')
     with user.scope(marker='confirm-dialog'):
         user.find(kind=ui.button, content='Delete').click()
@@ -405,7 +414,7 @@ async def test_delete_removes_the_message_and_those_after(setup):
 async def test_copy(setup):
     user, _, conversation = setup
     with user.scope(marker=f'message-{conversation.messages[0].id}'):
-        user.find(marker='menu-copy').click()
+        choose(user, 'menu-copy')
     await user.should_see('Copied')
 
 
@@ -438,7 +447,7 @@ async def test_prompt_view_shows_lore_and_what_is_sent(tmp_path, fake_model):
         await send(user, 'Is this forest dangerous?')
         mine = conversations.load(conversation.id).messages[1]
         with user.scope(marker=f'message-{mine.id}'):
-            user.find(marker='menu-prompt').click()
+            choose(user, 'menu-prompt')
         await user.should_see(marker='prompt-dialog')
         with user.scope(marker='prompt-lore'):
             await user.should_see('Eldoria › The forest')
@@ -498,7 +507,7 @@ async def test_other_versions_of_the_last_reply(setup, fake_model):
     assert len(store.replies.get(conversation.id, reply.id).versions) == 3
 
     with user.scope(marker=f'message-{reply.id}'):
-        user.find(marker='menu-details').click()
+        choose(user, 'menu-details')
     await user.should_see('Version 3 of 3')
 
     # Once you answer, the reply is fixed.
@@ -541,7 +550,7 @@ async def test_deleting_brings_the_choice_back(setup, fake_model):
     with user.scope(marker=f'message-{r1.id}'):
         await user.should_not_see(marker='reply-count')
     with user.scope(marker=f'message-{two.id}'):
-        user.find(marker='menu-delete').click()
+        choose(user, 'menu-delete')
     await user.should_see(marker='confirm-dialog')
     with user.scope(marker='confirm-dialog'):
         user.find(kind=ui.button, content='Delete').click()
