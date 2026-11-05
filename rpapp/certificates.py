@@ -84,7 +84,7 @@ def local_names() -> tuple[list[str], list[str]]:
     names = ['localhost', host, f'{host}.local'] if host and host != 'localhost' else ['localhost']
     addresses = ['127.0.0.1', '::1']
     try:
-        import ifaddr  # comes with NiceGUI
+        import ifaddr
         for adapter in ifaddr.get_adapters():
             for ip in adapter.ips:
                 value = ip.ip if isinstance(ip.ip, str) else ip.ip[0]

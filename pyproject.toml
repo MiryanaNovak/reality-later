@@ -2,8 +2,17 @@
 name = "rpapp"
 version = "0.1.0"
 requires-python = ">=3.10"
+# Everything the app imports itself is listed, even what NiceGUI brings along today: what NiceGUI needs can
+# change from one version to the next (NiceGUI 4.0 no longer brings httpx).
 dependencies = [
-    "nicegui>=3.0",                         # brings pydantic and httpx along
+    "nicegui>=3.18",                        # the pages, and the server (tested with 3.18 and 4.0)
+    "fastapi",                              # (NiceGUI's server) the pictures' responses
+    "starlette",                            # (under FastAPI) the device pairing guard, its pages and routes
+    "uvicorn",                              # (NiceGUI's server) this computer's own address, beside it
+    "wsproto",                              # that address's live connection to the browser (launcher.py)
+    "pydantic>=2",                          # the data's models, and checking what's read back
+    "httpx",                                # calls the AI services; the commands and the tray reach the app
+    "ifaddr",                               # this computer's addresses on the network
     "pillow",                               # resizes pictures
     "tomli; python_version < '3.11'",       # reads config.toml (built into Python 3.11 and later)
     "cryptography",                         # makes the self-signed certificate for HTTPS
@@ -34,4 +43,5 @@ rpapp = ["ui/*.js", "ui/fonts/*", "icons/**/*", "starter/**/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]

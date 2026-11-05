@@ -357,7 +357,7 @@ def network_addresses(listen: str = '0.0.0.0') -> list[str]:
 def _cards() -> list[tuple[str, str]]:
     """(network card, IP address) pairs of this computer."""
     try:
-        import ifaddr  # comes with NiceGUI
+        import ifaddr
         return [(adapter.nice_name or adapter.name, ip.ip if isinstance(ip.ip, str) else ip.ip[0])
                 for adapter in ifaddr.get_adapters() for ip in adapter.ips]
     except Exception:  # listing the network cards is a nicety

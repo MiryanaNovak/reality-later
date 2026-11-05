@@ -115,7 +115,7 @@ MORE_MESSAGES = 30   # drawn each time you scroll up near the first one drawn
 # The browser's own way, overflow-anchor, isn't in every browser: it's off on this page (theme.py), for
 # the two not to add up.
 OLDER_JS = '''setTimeout(() => {
-  const control = document.getElementById("c%(control)s"), list = document.getElementById("c%(list)s");
+  const control = getHtmlElement(%(control)s), list = getHtmlElement(%(list)s);  // (NiceGUI's: its ids vary)
   if (!control || !list || control.rpWatch) return;
   const place = el => el.getBoundingClientRect().top + window.scrollY;
   const anchor = {};
@@ -137,7 +137,7 @@ OLDER_JS = '''setTimeout(() => {
 }, 400)'''  # (once the chat is scrolled to its end, as it opens: not from the top, where it starts)
 # Drawn (once the browser has made the changes): ready for more, and look again
 OLDER_DONE_JS = '''requestAnimationFrame(() => requestAnimationFrame(() => {
-  const control = document.getElementById("c%(control)s");
+  const control = getHtmlElement(%(control)s);
   if (!control || !control.rpWatch) return;
   control.rpLoading = false;
   control.rpWatch.unobserve(control);
@@ -734,7 +734,7 @@ class ChatPage:
         c, after = self.conversation, self.marker_after
         if after and after not in self.boxes and (message := c.message(after)) is not None:
             self._load_older(down_to=max(0, c.messages.index(message) - 1))  # (and the one before it)
-        self._js(f'setTimeout(() => document.getElementById("c{self.marker.id}")'
+        self._js(f'setTimeout(() => getHtmlElement({self.marker.id})'
                  '?.scrollIntoView({behavior: "smooth", block: "center"}), 150)')  # (once drawn)
 
     def _read_count(self, memories) -> int:
