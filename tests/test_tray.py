@@ -1,5 +1,6 @@
 """The tray icon: when it's shown, what its menu does, the quit request, and the Linux tray over D-Bus."""
 import asyncio
+import contextlib
 import os
 import shutil
 import subprocess
@@ -175,7 +176,7 @@ def test_windows_taskbar_light_or_dark():
 
 def test_the_pystray_menu(monkeypatch):
     monkeypatch.setenv('PYSTRAY_BACKEND', 'dummy')  # (the menu is the same on every backend)
-    pytest.importorskip('pystray')
+    pytest.importorskip('pystray', reason='pystray is only installed on Windows and macOS (Linux: D-Bus, below)')
     done = []
     actions = tray.Actions(RUNNING, opener=lambda url: done.append(url) or True, ping=lambda r: True)
     monkeypatch.setattr(actions, 'quit_app', lambda: done.append('quit'))
@@ -190,18 +191,34 @@ def test_the_pystray_menu(monkeypatch):
 
 # --- Linux: a StatusNotifierItem on the session bus -------------------------------------------------
 
-@pytest.fixture
-def session_bus():
-    """A D-Bus session bus of the test's own."""
+@contextlib.contextmanager
+def private_bus(folder: Path, *, policy: str = ''):
+    """A D-Bus session bus of the test's own, its address. Without the services the computer's own session
+    bus starts when they're called (its config: none): with them, a test asking for the portal would get
+    the computer's (a KDE desktop's, saying it's dark), not none or the test's own. (Its socket in /tmp: a
+    longer folder's name can be too long for one.)"""
     pytest.importorskip('dbus_fast')
     if not shutil.which('dbus-daemon'):
         pytest.skip('no dbus-daemon')
-    daemon = subprocess.Popen(['dbus-daemon', '--session', '--nofork', '--print-address'], stdout=subprocess.PIPE,
-                              text=True)
-    address = daemon.stdout.readline().strip()
-    yield address
-    daemon.terminate()
-    daemon.wait(5)
+    config = folder / 'bus.conf'
+    config.write_text(f"""<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth>
+<policy context="default"><allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/><allow own="*"/>
+{policy}</policy></busconfig>""")
+    daemon = subprocess.Popen(['dbus-daemon', f'--config-file={config}', '--nofork', '--print-address'],
+                              stdout=subprocess.PIPE, text=True)
+    try:
+        yield daemon.stdout.readline().strip()
+    finally:
+        daemon.terminate()
+        daemon.wait(5)
+
+
+@pytest.fixture
+def session_bus(tmp_path):
+    with private_bus(tmp_path) as address:
+        yield address
 
 
 async def fake_tray(address: str):
@@ -384,21 +401,10 @@ async def test_the_icon_suits_the_panel(session_bus, monkeypatch):
 
 async def test_where_the_usual_name_is_refused(tmp_path):
     """A Flatpak only lets the app talk to the tray: it registers under its connection's own name."""
-    pytest.importorskip('dbus_fast')
-    if not shutil.which('dbus-daemon'):
-        pytest.skip('no dbus-daemon')
-    from rpapp.tray_linux import ITEM_PATH, show
-    config = tmp_path / 'bus.conf'
-    config.write_text(f"""<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
- "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
-<busconfig><type>session</type><listen>unix:tmpdir={tmp_path}</listen><auth>EXTERNAL</auth>
-<policy context="default"><allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/><allow own="*"/>
-<deny own="org.kde.StatusNotifierItem-{os.getpid()}-1"/></policy></busconfig>""")
-    daemon = subprocess.Popen(['dbus-daemon', f'--config-file={config}', '--nofork', '--print-address'],
-                              stdout=subprocess.PIPE, text=True)
-    address = daemon.stdout.readline().strip()
-    try:
+    with private_bus(tmp_path, policy=f'<deny own="org.kde.StatusNotifierItem-{os.getpid()}-1"/>') as address:
         from dbus_fast.aio import MessageBus
+
+        from rpapp.tray_linux import ITEM_PATH, show
         tray_bus, watcher = await fake_tray(address)
         stopped = asyncio.Event()
         task = asyncio.create_task(show(tray.Actions(RUNNING, ping=lambda r: True), bus_address=address,
@@ -414,9 +420,6 @@ async def test_where_the_usual_name_is_refused(tmp_path):
         await asyncio.wait_for(task, 5)
         client.disconnect()
         tray_bus.disconnect()
-    finally:
-        daemon.terminate()
-        daemon.wait(5)
 
 
 def test_a_flatpak_is_a_desktop():
