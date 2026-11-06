@@ -81,6 +81,7 @@ class SettingsSection:
             form.switch(lore, 'whole_words', 'Match whole words')
             ui.label('"sword" then doesn\'t match "swordsman".').classes('text-sm muted -mt-3 ml-12')
             form.switch(lore, 'case_sensitive', 'Case-sensitive')
+            ui.label('Off: "Brann" also matches "brann" and "BRANN".').classes('text-sm muted -mt-3 ml-12')
             ui.label('Entries can override these three settings, and the number of messages to scan.') \
                 .classes('text-sm muted')
 
