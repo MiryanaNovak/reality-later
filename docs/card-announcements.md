@@ -246,19 +246,26 @@ Relays only search the tags with one-letter names: apps find publications by
 | To get | Filter |
 |---|---|
 | New publications | `{"kinds": [2003], "#t": ["ai-roleplay-character-card"], "since": <checkpoint − 24 h>, "limit": 500}` |
-| Older ones (a full discovery) | the same, with `"until": <the oldest created_at received>`, page after page, until a page brings nothing new |
-| Withdrawals | `{"kinds": [5], "#k": ["2003"], "since": <checkpoint − 24 h>}` |
+| Older ones | the same, with `"until": <the oldest created_at received>`, page after page, until a page brings nothing new |
+| Withdrawals | `{"kinds": [5], "#k": ["2003"], "since": <checkpoint − 24 h>, "limit": 500}`, and older ones the same way |
 | One publisher's | `{"kinds": [2003], "authors": [<pubkey>], "#t": ["ai-roleplay-character-card"]}` (after unblocking them, or for their page) |
 | One publication | `{"ids": [<id>]}` |
 
-- The checkpoint is per relay: the newest `created_at` received there. Going back 24 hours each time
-  catches events that reached the relay late, or were dated by a slow clock; duplicates are recognized
-  by their id.
-- `until` includes its second: the page's oldest events come again, recognized by their id.
+- The checkpoint is per relay, and per filter: when its last complete discovery started (the first
+  discovery, and a full one, have none: everything). Going back 24 hours each time catches events that
+  reached the relay late, or were dated by a slow clock; duplicates are recognized by their id.
+- `until` includes its second (NIP-01): the page's oldest events come again, recognized by their id.
+  Some relays leave it out (`created_at < until`): apps notice, as the next page lacks the events of
+  that second it should have, and ask up to the second after instead.
+- A second holding more events than a page can't be gone through (NIP-01 has no other way than dates):
+  apps take a page of it, and go on from the second before.
+- So much at once is refused: apps take so many pages per discovery (Reality Later: 20 per relay and
+  filter), and leave the rest for the next ones.
 - A filter's values are alternatives: `"#t": ["ai-roleplay-character-card", "fantasy"]` means either.
   Filtering on the card's tags or language is done by the app, in its catalog.
-- Publishing, the app sends the event to each relay it writes to; a relay answers `OK` true (or true
-  with `duplicate:`) when it has it.
+- Publishing, the app sends the event to each relay it writes to; a relay answers `OK` true when it
+  has it. One that had it already says `duplicate:`, with true (NIP-01) or, for some, false: it has it
+  either way.
 
 What relays commonly allow (strfry's defaults): events up to 64 KiB, tag values up to 1 KiB, 500
 events per answer; events dated more than 15 minutes ahead are refused, and so are events older than

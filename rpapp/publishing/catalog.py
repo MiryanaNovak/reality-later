@@ -18,6 +18,7 @@ Blocking a publisher deletes all they published, and refuses what comes from the
     versions(), get()           a card's versions; one publication (withdrawn ones too)
     publishers(PublisherQuery), publisher()
     block(), unblock(), blocked()
+    relays(), add_relay(), remove_relay(); save_sync(), sync_failed(): how far discovery is (discovery.py)
 
 Its calls wait for the database (milliseconds; longer when the disk is busy): from asyncio code, they
 run in a thread, as the sharing service will do. A lock makes them safe from several threads.
@@ -38,6 +39,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generic, Literal, TypeVar
+from urllib.parse import urlsplit
 
 from . import announcements as fmt
 from .announcements import Publication, Rejected, Withdrawal
@@ -123,6 +125,27 @@ MIGRATIONS = [
            MAX(created_at) AS last_used
     FROM live_publications GROUP BY publisher_key, published_name;
     """,
+    # 2: the relays, and how far discovery is on each
+    """
+    CREATE TABLE relays (
+        url             TEXT PRIMARY KEY,
+        read            INTEGER NOT NULL DEFAULT 1 CHECK (read IN (0, 1)),     -- discovery asks it
+        write           INTEGER NOT NULL DEFAULT 1 CHECK (write IN (0, 1)),    -- publishing sends to it
+        added_at        INTEGER NOT NULL,
+        last_attempt_at INTEGER,           -- its last discovery
+        last_success_at INTEGER,           -- its last discovery that went to its end
+        last_error      TEXT               -- why its last discovery didn't (NULL: it did)
+    );
+    -- How far discovery is on a relay, for each kind of event asked for (publications, withdrawals).
+    CREATE TABLE relay_sync (
+        relay_url  TEXT NOT NULL REFERENCES relays (url) ON DELETE CASCADE,
+        what       TEXT NOT NULL,
+        checkpoint INTEGER NOT NULL,       -- when its last complete discovery started
+        gap_since  INTEGER,                -- what's left to get, older than what was got: from gap_until
+        gap_until  INTEGER,                -- down to gap_since (NULL: nothing)
+        PRIMARY KEY (relay_url, what)
+    ) WITHOUT ROWID;
+    """,
 ]
 
 
@@ -207,6 +230,40 @@ class Received:
     event_id: str = ''
     code: str = ''                       # why it was rejected (the format's codes)
     withdrawn: tuple[str, ...] = ()      # a withdrawal: the publications it withdraws now
+
+
+@dataclass(frozen=True, slots=True)
+class SyncPoint:
+    """How far discovery is on a relay, for one kind of event."""
+    checkpoint: int                      # when its last complete discovery started
+    gap: tuple[int, int] | None = None   # (since, until): older ones still to get from it
+
+
+@dataclass(frozen=True, slots=True)
+class RelayInfo:
+    """A relay, and how far discovery is on it."""
+    url: str
+    read: bool                           # discovery asks it
+    write: bool                          # publishing sends to it
+    added_at: int
+    last_attempt_at: int | None = None
+    last_success_at: int | None = None
+    last_error: str | None = None
+    points: tuple[tuple[str, SyncPoint], ...] = ()  # ('cards', ...), ('withdrawals', ...)
+
+    def point(self, what: str) -> SyncPoint | None:
+        return dict(self.points).get(what)
+
+    @property
+    def checkpoint(self) -> int | None:
+        """Up to date from then (for everything asked: the oldest of them)."""
+        return min((p.checkpoint for _, p in self.points), default=None)
+
+    @property
+    def gap(self) -> tuple[int, int] | None:
+        """Older ones still to get from it (for everything asked, together)."""
+        gaps = [p.gap for _, p in self.points if p.gap]
+        return (min(g[0] for g in gaps), max(g[1] for g in gaps)) if gaps else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -478,6 +535,60 @@ class Catalog:
     def is_blocked(self, publisher_id: str) -> bool:
         return publisher_id in self._blocked
 
+    # --- relays -------------------------------------------------------------------------------------
+
+    def relays(self) -> tuple[RelayInfo, ...]:
+        with self._lock:
+            rows = self._db.execute('SELECT * FROM relays ORDER BY added_at, url').fetchall()
+            return tuple(self._relay(row) for row in rows)
+
+    def relay(self, url: str) -> RelayInfo | None:
+        with self._lock:
+            row = self._db.execute('SELECT * FROM relays WHERE url = ?', (normalize_relay_url(url),)).fetchone()
+            return self._relay(row) if row else None
+
+    def _relay(self, row: sqlite3.Row) -> RelayInfo:
+        points = tuple((p['what'], SyncPoint(p['checkpoint'], (p['gap_since'], p['gap_until'])
+                                             if p['gap_until'] is not None else None))
+                       for p in self._db.execute('SELECT * FROM relay_sync WHERE relay_url = ? ORDER BY what',
+                                                 (row['url'],)))
+        return RelayInfo(url=row['url'], read=bool(row['read']), write=bool(row['write']), added_at=row['added_at'],
+                         last_attempt_at=row['last_attempt_at'], last_success_at=row['last_success_at'],
+                         last_error=row['last_error'], points=points)
+
+    def add_relay(self, url: str, *, read: bool = True, write: bool = True) -> RelayInfo:
+        """A relay to discover from (read) and publish to (write). Its address as written by
+        normalize_relay_url(); ValueError if it isn't a relay's. Already there: its settings change."""
+        url = normalize_relay_url(url)
+        with self._write():
+            self._db.execute('INSERT INTO relays (url, read, write, added_at) VALUES (?, ?, ?, ?) '
+                             'ON CONFLICT (url) DO UPDATE SET read = excluded.read, write = excluded.write',
+                             (url, int(read), int(write), int(time.time())))
+        return self.relay(url)
+
+    def remove_relay(self, url: str) -> None:
+        """No longer used; what came from it stays. Added again, discovery there starts over."""
+        with self._write():
+            self._db.execute('DELETE FROM relays WHERE url = ?', (normalize_relay_url(url),))
+
+    def save_sync(self, url: str, points: dict[str, SyncPoint], *, at: int) -> None:
+        """A discovery on that relay went to its end: how far it is now, for each kind of event."""
+        with self._write():
+            if not self._db.execute('UPDATE relays SET last_attempt_at = ?, last_success_at = ?, last_error = NULL '
+                                    'WHERE url = ?', (at, at, url)).rowcount:
+                return  # (removed meanwhile)
+            self._db.executemany(
+                'INSERT INTO relay_sync (relay_url, what, checkpoint, gap_since, gap_until) VALUES (?, ?, ?, ?, ?) '
+                'ON CONFLICT (relay_url, what) DO UPDATE SET checkpoint = excluded.checkpoint, '
+                'gap_since = excluded.gap_since, gap_until = excluded.gap_until',
+                [(url, what, p.checkpoint, *(p.gap or (None, None))) for what, p in points.items()])
+
+    def sync_failed(self, url: str, error: str, *, at: int) -> None:
+        """A discovery on that relay didn't finish: how far it is doesn't change."""
+        with self._write():
+            self._db.execute('UPDATE relays SET last_attempt_at = ?, last_error = ? WHERE url = ?',
+                             (at, error[:500], url))
+
     # --- the database -------------------------------------------------------------------------------
 
     @contextmanager
@@ -519,6 +630,26 @@ _ENTRY_FROM = """
         SELECT d.event_id FROM withdrawn_events x JOIN withdrawals d ON d.event_id = x.withdrawal_id
         WHERE x.event_id = p.event_id AND d.publisher_key = p.publisher_key
         ORDER BY d.created_at, d.event_id LIMIT 1)"""
+
+
+def normalize_relay_url(url: str) -> str:
+    """A relay's address, written one way: wss://relay.example.com (ws:// too, for a relay on this computer
+    or network). ValueError if it isn't one."""
+    parts = urlsplit(url.strip())
+    scheme = parts.scheme.lower()
+    if scheme not in ('wss', 'ws') or not parts.hostname or parts.username or parts.password or parts.fragment:
+        raise ValueError(f'not a relay\'s address (wss://...): {url!r}')
+    try:
+        port = parts.port
+    except ValueError:
+        raise ValueError(f'not a relay\'s address (its port): {url!r}') from None
+    host = parts.hostname.lower()
+    host = f'[{host}]' if ':' in host else host
+    path = parts.path.rstrip('/')
+    text = f'{scheme}://{host}{f":{port}" if port else ""}{path}{f"?{parts.query}" if parts.query else ""}'
+    if len(text) > 256 or any(c.isspace() for c in text):
+        raise ValueError(f'not a relay\'s address: {url!r}')
+    return text
 
 
 def fold(text: str) -> str:

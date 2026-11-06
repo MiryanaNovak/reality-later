@@ -25,6 +25,7 @@ dependencies = [
     # sharing cards (see rpapp/publishing/): Nostr's signatures. Its packages stop at Python 3.13 for now:
     # on later ones, the app works without sharing (publishing.runtime_problem() says why)
     "coincurve>=21; python_version < '3.14'",
+    "websockets>=13",                       # talks to Nostr relays (rpapp/publishing/relay.py)
     # the tray icon (see rpapp/tray.py): pystray on Windows and macOS, D-Bus on Linux
     "pystray; sys_platform == 'win32' or sys_platform == 'darwin'",
     "dbus-fast; sys_platform == 'linux'",
