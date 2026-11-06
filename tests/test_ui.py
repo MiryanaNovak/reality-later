@@ -152,8 +152,8 @@ async def test_import_makes_a_copy_and_never_overwrites(setup, tmp_path):
     existing = OpenRouterConnection(name='Kept', model='a/b')
     store.save(existing)
     original_file = tmp_path / 'outside.json'
-    data = json.loads(store.path_for(existing.id).read_text()) | {'name': 'From file'}
-    original_file.write_text(json.dumps(data))
+    data = json.loads(store.path_for(existing.id).read_text(encoding='utf-8')) | {'name': 'From file'}
+    original_file.write_text(json.dumps(data), encoding='utf-8')
     before = original_file.read_bytes()
 
     await user.open('/connections')

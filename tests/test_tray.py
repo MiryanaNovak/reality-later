@@ -39,7 +39,7 @@ def test_when_the_tray_icon_is_shown(tmp_path, monkeypatch):
     assert config.server.tray and launcher.tray_wanted(config) is None
     assert launcher.tray_wanted(config, no_tray=True) == '--no-tray'
     assert launcher.tray_wanted(config, reload=True) == '--reload'
-    (tmp_path / 'config.toml').write_text('[server]\ntray = false\n')
+    (tmp_path / 'config.toml').write_text('[server]\ntray = false\n', encoding='utf-8')
     assert launcher.tray_wanted(load_config(tmp_path)) == 'tray = false'
     monkeypatch.setattr(desktop, 'why_no_browser', lambda: 'started over SSH')
     assert launcher.tray_wanted(config) == 'started over SSH'
@@ -49,7 +49,7 @@ def test_its_process_is_the_app_again(tmp_path, monkeypatch):
     started = []
     monkeypatch.setattr(subprocess, 'Popen', lambda args, **kw: started.append(args) or 'process')
     assert launcher.start_tray(tmp_path, script=Path('/src/main.py')) == 'process'  # the source folder
-    assert started[-1] == [sys.executable, '/src/main.py', 'tray', str(tmp_path)]
+    assert started[-1] == [sys.executable, str(Path('/src/main.py')), 'tray', str(tmp_path)]  # (\src\main.py on Windows)
     launcher.start_tray(tmp_path)  # installed (pip, the Flatpak): the package
     assert started[-1] == [sys.executable, '-m', 'rpapp', 'tray', str(tmp_path)]
     monkeypatch.setattr(sys, 'frozen', True, raising=False)  # a packaged program: itself
@@ -205,7 +205,7 @@ def private_bus(folder: Path, *, policy: str = ''):
  "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
 <busconfig><type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth>
 <policy context="default"><allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/><allow own="*"/>
-{policy}</policy></busconfig>""")
+{policy}</policy></busconfig>""", encoding='utf-8')
     daemon = subprocess.Popen(['dbus-daemon', f'--config-file={config}', '--nofork', '--print-address'],
                               stdout=subprocess.PIPE, text=True)
     try:

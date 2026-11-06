@@ -83,7 +83,7 @@ async def test_settings_file_and_folders(setup):
         user.find(marker='open-settings').click()
         await user.should_see('Made the settings file, and opened it in your text editor.', retries=50)
         config = tmp_path / 'config.toml'
-        assert config.read_text() == EXAMPLE.read_text()  # made from the example, every setting explained
+        assert config.read_text(encoding='utf-8') == EXAMPLE.read_text(encoding='utf-8')  # made from the example, every setting explained
         assert calls == [('edit', config)]
         await user.should_not_see(marker='no-settings-file')
         assert load_config(tmp_path).server == info.config.server  # and it holds the defaults
@@ -147,7 +147,7 @@ async def test_only_on_the_computer(setup, monkeypatch):
 
 
 async def test_plain_http_and_no_pairing(tmp_path, monkeypatch):
-    (tmp_path / 'config.toml').write_text('[server]\nhttps = false\npairing = false\n')
+    (tmp_path / 'config.toml').write_text('[server]\nhttps = false\npairing = false\n', encoding='utf-8')
     config = load_config(tmp_path)
     info = launcher.ServerInfo(config, https_setup(config), tmp_path / 'data')
     monkeypatch.setattr(launcher, 'network_addresses', lambda listen: ['192.168.1.20'])
@@ -166,7 +166,7 @@ async def test_plain_http_and_no_pairing(tmp_path, monkeypatch):
 
 
 async def test_listening_on_this_computer_only(tmp_path, monkeypatch):
-    (tmp_path / 'config.toml').write_text('[server]\naddress = "127.0.0.1"\n')
+    (tmp_path / 'config.toml').write_text('[server]\naddress = "127.0.0.1"\n', encoding='utf-8')
     config = load_config(tmp_path)
     info = launcher.ServerInfo(config, https_setup(config), tmp_path / 'data')
     here(monkeypatch)

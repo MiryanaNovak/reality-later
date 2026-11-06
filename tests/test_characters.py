@@ -39,7 +39,7 @@ def test_saved_file(tmp_path):
     character.name = 'Seraphina'
     character.first_messages = ['*She smiles.* Welcome, {{user}}.', 'Another opening.']
     store.save(character)
-    data = json.loads(store.path_for(character.id).read_text())
+    data = json.loads(store.path_for(character.id).read_text(encoding='utf-8'))
     assert list(data)[:3] == ['id', 'title', 'name']
     assert data['first_messages'] == ['*She smiles.* Welcome, {{user}}.', 'Another opening.']
     assert store.path_for(character.id).parent.name == 'characters'

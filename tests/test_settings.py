@@ -27,7 +27,7 @@ def test_defaults_file_and_lookup(tmp_path):
     store.save(settings)
 
     assert store.path == tmp_path / 'settings.json'
-    assert json.loads(store.path.read_text()) == {
+    assert json.loads(store.path.read_text(encoding='utf-8')) == {
         'id': 'settings', 'format_version': 1,
         'chat': {'connection': {'id': conn.id, 'name': 'DeepSeek'}, 'preset': None,
                  'example_dialogues': 'make_room', 'return_key_desktop': 'send',
@@ -47,7 +47,7 @@ def test_defaults_file_and_lookup(tmp_path):
 
 def test_first_version_file(tmp_path):
     store = SettingsStore(tmp_path)
-    store.path.write_text('{"id": "settings", "chat": {"prompt": "You are {{char}}."}}')
+    store.path.write_text('{"id": "settings", "chat": {"prompt": "You are {{char}}."}}', encoding='utf-8')
     assert store.load().chat.instructions == 'You are {{char}}.'  # "prompt" was its first name
 
 
@@ -122,11 +122,11 @@ async def test_no_connections_yet(setup):
 
 async def test_broken_file_is_left_alone(setup, tmp_path):
     user, store, _ = setup
-    store.path.write_text('{"chat": {"prompt": ["not", "text"]}}')
+    store.path.write_text('{"chat": {"prompt": ["not", "text"]}}', encoding='utf-8')
     await user.open('/settings')
     await user.should_see("The settings file can't be read")
     await user.should_not_see(kind=ui.textarea)
-    assert store.path.read_text() == '{"chat": {"prompt": ["not", "text"]}}'
+    assert store.path.read_text(encoding='utf-8') == '{"chat": {"prompt": ["not", "text"]}}'
 
 
 async def test_return_key_settings(setup):

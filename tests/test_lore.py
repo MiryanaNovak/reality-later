@@ -192,7 +192,7 @@ def test_outlet_entries_are_skipped_and_unsupported_features_noted():
 
 
 def test_eldoria():
-    eldoria = LoreBook.model_validate({**json.loads(ELDORIA.read_text()), 'name': 'Eldoria'})
+    eldoria = LoreBook.model_validate({**json.loads(ELDORIA.read_text(encoding='utf-8')), 'name': 'Eldoria'})
     used, result = run(eldoria, 'Is this forest dangerous?', settings=LoreSettings(recursive=False))
     assert used == ['eldoria']  # "forest" is one of its keywords
     assert result.notes == []

@@ -19,13 +19,13 @@ def by_label(user, kind):
 
 def test_the_instructions_from_settings_become_a_prompt(tmp_path):
     (tmp_path / 'settings.json').write_text(json.dumps({  # as saved before prompts had their page
-        'id': 'settings', 'chat': {'instructions': 'You are {{char}}.', 'final_instructions': 'Be brief.'}}))
+        'id': 'settings', 'chat': {'instructions': 'You are {{char}}.', 'final_instructions': 'Be brief.'}}), encoding='utf-8')
     store = SettingsStore(tmp_path)
     set_up_presets(tmp_path, store)
     [mine] = preset_store(tmp_path).list()
     assert (mine.name, mine.instructions, mine.final_instructions) == ('My prompt', 'You are {{char}}.', 'Be brief.')
     assert store.load().chat.preset == PresetRef(id=mine.id, name='My prompt')  # and chats use it
-    saved = json.loads((tmp_path / 'settings.json').read_text())
+    saved = json.loads((tmp_path / 'settings.json').read_text(encoding='utf-8'))
     assert 'instructions' not in saved['chat'] and 'final_instructions' not in saved['chat']
 
     set_up_presets(tmp_path, store)  # the next start: nothing more
@@ -33,7 +33,7 @@ def test_the_instructions_from_settings_become_a_prompt(tmp_path):
 
 
 def test_the_very_first_version_of_the_file(tmp_path):
-    (tmp_path / 'settings.json').write_text(json.dumps({'id': 'settings', 'chat': {'prompt': 'Old name.'}}))
+    (tmp_path / 'settings.json').write_text(json.dumps({'id': 'settings', 'chat': {'prompt': 'Old name.'}}), encoding='utf-8')
     set_up_presets(tmp_path, SettingsStore(tmp_path))
     assert [p.instructions for p in preset_store(tmp_path).list()] == ['Old name.']
 
@@ -51,9 +51,9 @@ def test_a_starter_prompt_the_first_time_only(tmp_path):
 
 
 def test_a_damaged_settings_file_is_left_alone(tmp_path):
-    (tmp_path / 'settings.json').write_text('{ not json')
+    (tmp_path / 'settings.json').write_text('{ not json', encoding='utf-8')
     set_up_presets(tmp_path, SettingsStore(tmp_path))
-    assert (tmp_path / 'settings.json').read_text() == '{ not json'
+    assert (tmp_path / 'settings.json').read_text(encoding='utf-8') == '{ not json'
 
 
 def test_the_prompt_says_which_one_it_used():

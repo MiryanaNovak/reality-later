@@ -54,13 +54,13 @@ def test_what_counts_as_installed(monkeypatch):
 def test_the_example_settings_file(tmp_path, monkeypatch):
     root = Path(__file__).resolve().parent.parent
     assert example_config(tmp_path) == root / 'config.example.toml'  # (none next to config.toml: the source's)
-    (tmp_path / 'config.example.toml').write_text('# mine')
+    (tmp_path / 'config.example.toml').write_text('# mine', encoding='utf-8')
     assert example_config(tmp_path) == tmp_path / 'config.example.toml'  # next to config.toml first
     monkeypatch.setattr(paths, 'source_folder', lambda env=None: None)
     monkeypatch.setattr(paths, 'FLATPAK_SHARE', tmp_path / 'share')
     monkeypatch.setenv('FLATPAK_ID', 'x')
     (tmp_path / 'share').mkdir()
-    (tmp_path / 'share' / 'config.example.toml').write_text('# the Flatpak\'s')
+    (tmp_path / 'share' / 'config.example.toml').write_text('# the Flatpak\'s', encoding='utf-8')
     assert example_config(tmp_path / 'elsewhere') == tmp_path / 'share' / 'config.example.toml'
     monkeypatch.delenv('FLATPAK_ID')
     assert example_config(tmp_path / 'elsewhere') == tmp_path / 'elsewhere' / 'config.example.toml'  # (none)

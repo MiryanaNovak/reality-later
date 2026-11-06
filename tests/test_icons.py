@@ -34,9 +34,9 @@ def test_the_files():
     web = {p.name for p in (ICONS / 'web').iterdir()}
     assert {'favicon.svg', 'favicon.ico', 'favicon-32.png', 'apple-touch-icon.png', 'manifest.json',
             'icon-192.png', 'icon-512.png', 'icon-maskable-192.png', 'icon-maskable-512.png'} <= web
-    manifest = json.loads((ICONS / 'web' / 'manifest.json').read_text())
+    manifest = json.loads((ICONS / 'web' / 'manifest.json').read_text(encoding='utf-8'))
     assert all((ICONS / 'web' / icon['src'].removeprefix('/icons/')).is_file() for icon in manifest['icons'])
-    svg = (ICONS / 'web' / 'favicon.svg').read_text()
+    svg = (ICONS / 'web' / 'favicon.svg').read_text(encoding='utf-8')
     assert '<script' not in svg and 'href="http' not in svg  # (served to browsers: nothing that runs, or calls out)
     assert theme.ICON_LINKS in theme.HEAD
 
@@ -48,7 +48,7 @@ def test_svgs_say_they_are_svgs():
     svgs = [*ICONS.rglob('*.svg'), *(project / 'packaging' / 'icons').rglob('*.svg')]
     assert svgs
     for svg in svgs:
-        assert re.search(r'<svg[\s>]', svg.read_text()[:256]), f'{svg}: no plain <svg> tag at the start'
+        assert re.search(r'<svg[\s>]', svg.read_text(encoding='utf-8')[:256]), f'{svg}: no plain <svg> tag at the start'
 
 
 def test_unpaired_devices_may_fetch_them():

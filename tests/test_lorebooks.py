@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from rpapp.lorebooks import LoreBook, LoreEntry, lore_book_store, new_lore_book
 from rpapp.ui.collection_page import _file_name
 
-ELDORIA = json.loads((Path(__file__).parent / 'eldoria_sillytavern.json').read_text())
+ELDORIA = json.loads((Path(__file__).parent / 'eldoria_sillytavern.json').read_text(encoding='utf-8'))
 
 
 def test_sillytavern_file_round_trips_unchanged(tmp_path):
@@ -17,7 +17,7 @@ def test_sillytavern_file_round_trips_unchanged(tmp_path):
     book = store.import_data(ELDORIA, file_name='Eldoria.json')
     assert book.name == 'Eldoria' and len(book.entries) == 4
 
-    saved = json.loads(store.path_for(book.id).read_text())
+    saved = json.loads(store.path_for(book.id).read_text(encoding='utf-8'))
     assert saved['entries'] == ELDORIA['entries']  # our own file is a valid SillyTavern file
 
     exported = store.load(book.id).to_sillytavern()
@@ -112,9 +112,9 @@ async def test_delayed_saves(tmp_path):
     for i in range(5):
         book.name = f'name {i}'
         store.save_soon(book, delay=0.2)
-    assert json.loads(store.path_for(book.id).read_text())['name'] == 'Typing test'  # not written yet
+    assert json.loads(store.path_for(book.id).read_text(encoding='utf-8'))['name'] == 'Typing test'  # not written yet
     await asyncio.sleep(0.3)
-    assert json.loads(store.path_for(book.id).read_text())['name'] == 'name 4'
+    assert json.loads(store.path_for(book.id).read_text(encoding='utf-8'))['name'] == 'name 4'
 
     book.name = 'pending'
     store.save_soon(book, delay=10)

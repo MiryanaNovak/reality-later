@@ -41,8 +41,8 @@ def test_pairing_links_work_once(tmp_path):
     assert devices.use_link(expired.code, user_agent=PHONE, address='x') is None
 
     # Saved: only a hash of the token, in a file for you only.
-    data = json.loads(devices.path.read_text())
-    assert token not in devices.path.read_text() and data['devices'][0]['name'] == 'Chrome on Android'
+    data = json.loads(devices.path.read_text(encoding='utf-8'))
+    assert token not in devices.path.read_text(encoding='utf-8') and data['devices'][0]['name'] == 'Chrome on Android'
     assert ON_WINDOWS or stat.S_IMODE(devices.path.stat().st_mode) == 0o600
     again = DeviceRegistry(tmp_path)
     assert again.find(token).id == device.id and again.find('wrong') is None and again.find('') is None
@@ -258,7 +258,7 @@ def test_commands_reach_the_running_copy_where_it_answers(tmp_path, capsys):
     assert bridge.urls[-1] == 'http://127.0.0.1:9191/local/requests'
     held.release()
 
-    (tmp_path / 'config.toml').write_text('[server]\naddress = "192.168.1.20"\nlocal_port = 0\n')
+    (tmp_path / 'config.toml').write_text('[server]\naddress = "192.168.1.20"\nlocal_port = 0\n', encoding='utf-8')
     assert cli.run(['approve'], load_config(tmp_path), transport=bridge) == 1
     assert 'This computer can\'t reach the app' in capsys.readouterr().out
 

@@ -48,7 +48,7 @@ def test_renewed_before_it_expires_or_when_broken(tmp_path):
     renewed = ensure_self_signed(folder, now=later)
     assert renewed.created and renewed.fingerprint != first.fingerprint
 
-    (folder / KEY_FILE).write_text('garbage')
+    (folder / KEY_FILE).write_text('garbage', encoding='utf-8')
     assert ensure_self_signed(folder).created
 
     other = ensure_self_signed(tmp_path / 'other')
@@ -58,7 +58,7 @@ def test_renewed_before_it_expires_or_when_broken(tmp_path):
 
 def test_https_settings(tmp_path):
     def setup(text):
-        (tmp_path / 'config.toml').write_text(text)
+        (tmp_path / 'config.toml').write_text(text, encoding='utf-8')
         return https_setup(load_config(tmp_path))
 
     assert setup('[server]\nhttps = false\n') is None  # plain HTTP

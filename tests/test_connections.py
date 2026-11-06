@@ -47,7 +47,7 @@ def test_round_trip_keeps_class_and_values(tmp_path):
     assert type(loaded) is OpenRouterConnection
     assert loaded == conn
 
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding='utf-8'))
     assert list(data)[:3] == ['kind', 'id', 'name']
     assert data['api_key'] == 'sk-or-secret'
     assert ON_WINDOWS or stat.S_IMODE(path.stat().st_mode) == 0o600
@@ -65,9 +65,9 @@ def test_store_lists_mixed_kinds_sorted_by_name(tmp_path):
 def test_broken_and_unknown_files_are_skipped(tmp_path, caplog):
     store = connection_store(tmp_path)
     store.save(OpenRouterConnection(name='good'))
-    (store.folder / 'broken.json').write_text('{not json')
-    (store.folder / 'future.json').write_text('{"kind": "warp_drive", "name": "x"}')
-    (store.folder / 'bad-value.json').write_text('{"kind": "openrouter", "params": {"temperature": 9}}')
+    (store.folder / 'broken.json').write_text('{not json', encoding='utf-8')
+    (store.folder / 'future.json').write_text('{"kind": "warp_drive", "name": "x"}', encoding='utf-8')
+    (store.folder / 'bad-value.json').write_text('{"kind": "openrouter", "params": {"temperature": 9}}', encoding='utf-8')
     with caplog.at_level(logging.WARNING):
         assert [c.name for c in store.list()] == ['good']
     assert caplog.text.count('Skipping') == 3
@@ -76,7 +76,7 @@ def test_broken_and_unknown_files_are_skipped(tmp_path, caplog):
 def test_old_or_hand_written_files_load(tmp_path):
     store = connection_store(tmp_path)
     # Missing fields get defaults, unknown fields are ignored.
-    (store.folder / 'handmade.json').write_text('{"kind": "openrouter", "model": "x/y", "old_field": 1}')
+    (store.folder / 'handmade.json').write_text('{"kind": "openrouter", "model": "x/y", "old_field": 1}', encoding='utf-8')
     conn = store.load('handmade')
     assert conn.id == 'handmade' and conn.base_url == 'https://openrouter.ai/api/v1' and conn.model == 'x/y'
 

@@ -56,7 +56,7 @@ def install(setup: Path, tasks: str) -> None:
     result = subprocess.run([str(setup), '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', tasks,
                              f'/LOG={Path.cwd() / "install.log"}'], timeout=600)
     if result.returncode != 0:
-        print(Path('install.log').read_text(errors='replace'))
+        print(Path('install.log').read_text(encoding='utf-8', errors='replace'))
     check(result.returncode == 0, f'the installer ran ({tasks})')
 
 
@@ -75,7 +75,7 @@ def start() -> subprocess.Popen:
             if app.poll() is not None:
                 break
             time.sleep(1)
-    print(LOG.read_text(errors='replace') if LOG.is_file() else '(no log)')
+    print(LOG.read_text(encoding='utf-8', errors='replace') if LOG.is_file() else '(no log)')
     raise SystemExit('FAILED: the installed app doesn\'t answer')
 
 

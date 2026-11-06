@@ -42,7 +42,7 @@ def test_saved_file_and_label(tmp_path):
     persona.pronouns = 'she/her'
     persona.add_lorebook('eldoria', 'Eldoria')
     store.save(persona)
-    data = json.loads(store.path_for(persona.id).read_text())
+    data = json.loads(store.path_for(persona.id).read_text(encoding='utf-8'))
     assert list(data)[:3] == ['id', 'title', 'name']
     assert data['lorebooks'] == [{'id': 'eldoria', 'name': 'Eldoria'}]
     assert persona.id.startswith('mira-dark-fantasy-') and persona.label == 'Mira (dark fantasy)'

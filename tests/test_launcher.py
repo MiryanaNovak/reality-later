@@ -40,7 +40,7 @@ def test_one_copy_at_a_time(tmp_path):
 
 def test_a_crashed_copy_does_not_block_the_next_start(tmp_path):
     (tmp_path / 'running.json').write_text('{"id": "old", "pid": 99999, "url": "http://localhost:8091", '
-                                           '"started": "2026-10-01T10:00:00+00:00"}')
+                                           '"started": "2026-10-01T10:00:00+00:00"}', encoding='utf-8')
     fresh = Instance(tmp_path)
     assert fresh.acquire()  # the lock went away with the crashed process; the file is just left over
     assert fresh.publish('http://localhost:8091').id != 'old'
@@ -121,7 +121,7 @@ def test_quit_when_its_not_running(tmp_path, capsys):
     left_over.publish(f'http://localhost:{free_port()}')
     left_over.release()  # (as a copy that crashed: its files stay, but not its lock)
     (tmp_path / 'running.json').write_text('{"id": "old", "pid": 99999, "url": "http://localhost:1", '
-                                           '"started": "2026-10-01T10:00:00+00:00"}')
+                                           '"started": "2026-10-01T10:00:00+00:00"}', encoding='utf-8')
     assert cli.run(['quit'], None, data_dir=tmp_path) == 0
     assert 'Reality Later isn\'t running.' in capsys.readouterr().out
 
@@ -147,17 +147,25 @@ def test_nothing_answering(tmp_path):
 # --- ports ---------------------------------------------------------------------------------------
 
 def test_ports_in_use(tmp_path):
-    with socket.socket() as taken:
+    with socket.socket() as taken:  # on this computer's address
         taken.bind(('127.0.0.1', 0))
         taken.listen()
         port = taken.getsockname()[1]
         assert launcher.port_problem('127.0.0.1', port) == f'port {port} is already used by another program'
-        (tmp_path / 'config.toml').write_text(f'[server]\nport = {port}\n')
+    assert launcher.port_problem('127.0.0.1', port) is None
+
+    # On all addresses, where the app listens for other devices. (Taken on 127.0.0.1 only, the app could
+    # still have it on Windows, which lets the two share a port; not on Linux. Bound without listening:
+    # Windows' firewall asks nothing.)
+    with socket.socket() as taken:
+        taken.bind(('0.0.0.0', 0))
+        port = taken.getsockname()[1]
+        (tmp_path / 'config.toml').write_text(f'[server]\nport = {port}\n', encoding='utf-8')
         info = launcher.ServerInfo(load_config(tmp_path), None, tmp_path / 'data')
         message = launcher.check_ports(info)
         assert f'its address (0.0.0.0): port {port} is already used' in message
         assert 'Set other ports in' in message and str(tmp_path / 'config.toml') in message
-    assert launcher.port_problem('127.0.0.1', port) is None
+    assert launcher.check_ports(info) is None or f'port {port} is' not in launcher.check_ports(info)
 
 
 # --- the browser ---------------------------------------------------------------------------------
@@ -179,10 +187,10 @@ def test_browser_wanted(tmp_path, monkeypatch):
     monkeypatch.setattr(desktop, 'why_no_browser', lambda: None)
     assert launcher.browser_wanted(load_config(tmp_path)) is None
     assert launcher.browser_wanted(load_config(tmp_path), no_browser=True) == '--no-browser'
-    (tmp_path / 'config.toml').write_text('[server]\nopen_browser = false\n')
+    (tmp_path / 'config.toml').write_text('[server]\nopen_browser = false\n', encoding='utf-8')
     assert launcher.browser_wanted(load_config(tmp_path)) == 'open_browser = false'
     monkeypatch.setattr(desktop, 'why_no_browser', lambda: 'no desktop to open it on')
-    (tmp_path / 'config.toml').write_text('[server]\n')
+    (tmp_path / 'config.toml').write_text('[server]\n', encoding='utf-8')
     assert launcher.browser_wanted(load_config(tmp_path)) == 'no desktop to open it on'
 
 
@@ -223,7 +231,7 @@ def test_starting_again_opens_the_running_copy(tmp_path, monkeypatch, capsys):
 
 def test_starting_lines(tmp_path):
     from rpapp.config import https_setup
-    (tmp_path / 'config.toml').write_text('[server]\nallowed_networks = ["any"]\n')
+    (tmp_path / 'config.toml').write_text('[server]\nallowed_networks = ["any"]\n', encoding='utf-8')
     config = load_config(tmp_path)
     info = launcher.ServerInfo(config, https_setup(config), tmp_path / 'data')
     text = '\n'.join(launcher.starting_lines(info))

@@ -29,7 +29,7 @@ def png(color) -> bytes:
 
 
 def files(folder: Path) -> dict[str, bytes]:
-    return {str(p.relative_to(folder)): p.read_bytes() for p in sorted(folder.rglob('*')) if p.is_file()}
+    return {p.relative_to(folder).as_posix(): p.read_bytes() for p in sorted(folder.rglob('*')) if p.is_file()}
 
 
 @pytest.fixture
@@ -64,7 +64,7 @@ def examples(tmp_path) -> Path:
     s.chat.preset = PresetRef(id=chosen.id, name=chosen.name)
     s.appearance.accent = 'rose'
     settings.save(s)
-    (data / 'devices.json').write_text('{"devices": []}')
+    (data / 'devices.json').write_text('{"devices": []}', encoding='utf-8')
     return data
 
 
@@ -73,7 +73,7 @@ def examples(tmp_path) -> Path:
 def test_freeze_takes_the_examples_and_nothing_else(examples, tmp_path):
     starter = tmp_path / 'starter'
     starter.mkdir()
-    (starter / 'README.md').write_text('About the starter set.')
+    (starter / 'README.md').write_text('About the starter set.', encoding='utf-8')
     report = freeze(examples, starter)
 
     assert report.summary() == '2 prompts, 1 persona, 1 character, 1 lore book, 4 pictures'
@@ -85,9 +85,9 @@ def test_freeze_takes_the_examples_and_nothing_else(examples, tmp_path):
     assert f'characters/images/{"a" * 16}.webp' not in names  # (used by nothing)
     assert not any(n.startswith(('connections', 'conversations', 'devices')) for n in names)
     assert all(KEY.encode() not in content for content in files(starter).values())
-    settings = json.loads((starter / 'settings.json').read_text())
+    settings = json.loads((starter / 'settings.json').read_text(encoding='utf-8'))
     assert settings == {'chat': {'preset': {'id': report_preset_id(examples), 'name': 'Slow burn'}}}
-    assert (starter / 'README.md').read_text() == 'About the starter set.'  # untouched
+    assert (starter / 'README.md').read_text(encoding='utf-8') == 'About the starter set.'  # untouched
 
 
 def report_preset_id(data: Path) -> str:
@@ -114,7 +114,7 @@ def test_freeze_refuses_what_it_cant_take(examples, tmp_path):
     starter = tmp_path / 'starter'
     freeze(examples, starter)
     before = files(starter)
-    (examples / 'personas' / 'broken.json').write_text('{"name": ')
+    (examples / 'personas' / 'broken.json').write_text('{"name": ', encoding='utf-8')
     with pytest.raises(ValueError, match='broken.json'):
         freeze(examples, starter)
     assert files(starter) == before  # nothing changed
@@ -158,7 +158,7 @@ def starter(examples, tmp_path) -> Path:
 def test_a_new_install_starts_with_the_examples(starter, tmp_path):
     data = tmp_path / 'data'
     data.mkdir()
-    (data / 'app.lock').write_text('')  # (the app's lock is there before anything else)
+    (data / 'app.lock').write_text('', encoding='utf-8')  # (the app's lock is there before anything else)
     assert is_new(data)
     before = files(starter)
     report = seed(data, starter)

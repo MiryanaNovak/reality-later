@@ -11,7 +11,7 @@ EXAMPLE = Path(__file__).parent.parent / 'config.example.toml'
 
 
 def write(folder: Path, text: str) -> Path:
-    (folder / 'config.toml').write_text(text)
+    (folder / 'config.toml').write_text(text, encoding='utf-8')
     return folder
 
 

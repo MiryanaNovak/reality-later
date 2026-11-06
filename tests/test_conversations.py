@@ -39,7 +39,7 @@ def test_saved_file_and_lookups(tmp_path):
     b = started(store, seraphina, mira, hours=5)
     started(store, kestrel, mira, hours=3)
 
-    data = json.loads(store.path_for(a.id).read_text())
+    data = json.loads(store.path_for(a.id).read_text(encoding='utf-8'))
     assert list(data) == ['id', 'title', 'format_version', 'character', 'persona', 'created_at', 'updated_at',
                           'messages']
     assert data['character'] == {'id': seraphina.id, 'title': 'Seraphina'} and data['title'].startswith('Chat of ')

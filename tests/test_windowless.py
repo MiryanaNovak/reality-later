@@ -30,26 +30,26 @@ def run(main, argv, folder, boxes):
 
 def test_without_a_console_it_writes_to_the_log(tmp_path, no_console):
     run(lambda argv: print('Reality Later is running.'), [], tmp_path / 'Reality Later', no_console)
-    log = (tmp_path / 'Reality Later' / windowless.LOG_NAME).read_text()
+    log = (tmp_path / 'Reality Later' / windowless.LOG_NAME).read_text(encoding='utf-8')
     assert ': started\n' in log and 'Reality Later is running.' in log
     assert windowless.log_path == tmp_path / 'Reality Later' / windowless.LOG_NAME
     assert no_console == []  # all went well: no message box
 
 
 def test_each_start_adds_to_it(tmp_path, no_console):
-    (tmp_path / windowless.LOG_NAME).write_text('the running copy\'s messages\n')
+    (tmp_path / windowless.LOG_NAME).write_text('the running copy\'s messages\n', encoding='utf-8')
     run(lambda argv: print('Reality Later is already running.'), ['--no-browser'], tmp_path, no_console)
-    log = (tmp_path / windowless.LOG_NAME).read_text()
+    log = (tmp_path / windowless.LOG_NAME).read_text(encoding='utf-8')
     assert log.startswith('the running copy\'s messages\n')  # (a second start must not erase it)
     assert ': --no-browser\n' in log and log.endswith('Reality Later is already running.\n')
 
 
 def test_a_big_log_is_put_aside(tmp_path, no_console, monkeypatch):
     monkeypatch.setattr(windowless, 'MAX_LOG', 10)
-    (tmp_path / windowless.LOG_NAME).write_text('older messages, many of them\n')
+    (tmp_path / windowless.LOG_NAME).write_text('older messages, many of them\n', encoding='utf-8')
     run(lambda argv: print('new'), [], tmp_path, no_console)
-    assert (tmp_path / windowless.OLD_LOG_NAME).read_text() == 'older messages, many of them\n'
-    assert 'older' not in (tmp_path / windowless.LOG_NAME).read_text()
+    assert (tmp_path / windowless.OLD_LOG_NAME).read_text(encoding='utf-8') == 'older messages, many of them\n'
+    assert 'older' not in (tmp_path / windowless.LOG_NAME).read_text(encoding='utf-8')
 
 
 def test_a_start_that_fails_says_why(tmp_path, no_console):
@@ -59,11 +59,11 @@ def test_a_start_that_fails_says_why(tmp_path, no_console):
         run(main, [], tmp_path, no_console)
     assert stopped.value.code == 1
     assert no_console == ['Can\'t start: port 8090 is already used by another program.']
-    assert 'port 8090 is already used' in (tmp_path / windowless.LOG_NAME).read_text()
+    assert 'port 8090 is already used' in (tmp_path / windowless.LOG_NAME).read_text(encoding='utf-8')
 
 
 def test_with_only_an_exit_code_the_box_shows_what_it_printed(tmp_path, no_console):
-    (tmp_path / windowless.LOG_NAME).write_text('an earlier start\'s messages\n')
+    (tmp_path / windowless.LOG_NAME).write_text('an earlier start\'s messages\n', encoding='utf-8')
 
     def main(argv):
         print('Reality Later is already running.')
@@ -83,7 +83,7 @@ def test_an_error_says_so_and_where_the_details_are(tmp_path, no_console):
         run(main, [], tmp_path, no_console)
     [box] = no_console
     assert 'ValueError: something unexpected' in box and str(tmp_path / windowless.LOG_NAME) in box
-    log = (tmp_path / windowless.LOG_NAME).read_text()
+    log = (tmp_path / windowless.LOG_NAME).read_text(encoding='utf-8')
     assert 'Traceback (most recent call last)' in log and 'ValueError: something unexpected' in log
 
 
