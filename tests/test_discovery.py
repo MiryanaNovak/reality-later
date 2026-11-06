@@ -258,3 +258,24 @@ async def test_relay_addresses(catalog):
     with pytest.raises(RelayError, match='connect'):
         async with Relay('ws://127.0.0.1:9', timeout=0.5):
             pass
+
+
+# --- tools/try_relays.py ----------------------------------------------------------------------------
+
+async def test_the_relay_trying_tool(monkeypatch, capsys):
+    import importlib.util
+    path = Path(__file__).parent.parent / 'tools' / 'try_relays.py'
+    spec = importlib.util.spec_from_file_location('try_relays', path)
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(tool.asyncio, 'sleep', lambda seconds: real_sleep(0))
+    async with FakeRelay() as relay:
+        relay.add(*valid())
+        report = await tool.try_relay(relay.url, write=True)
+        assert report['cards'] == len(valid()) and report['until'] == 'includes its second (NIP-01)'
+        assert (report['write'], report['kept']) == ('accepted', 'yes')
+        assert report['withdrawal'].startswith('kept the withdrawal')  # (this one doesn't delete)
+        assert report['discovery'].startswith(f'{len(valid())} publications')
+        tool.show(report)
+        assert 'publishing:   accepted' in capsys.readouterr().out
