@@ -18,6 +18,10 @@ dependencies = [
     "cryptography",                         # makes the self-signed certificate for HTTPS
     "segno",                                # draws the QR codes for pairing devices
     "nh3",                                  # cleans the HTML of chat messages (see rpapp/safe_html.py)
+    # vector search (see rpapp/vectors.py): runs the models, reads text the way they do, and the vectors
+    "onnxruntime",
+    "tokenizers",
+    "numpy",
     # the tray icon (see rpapp/tray.py): pystray on Windows and macOS, D-Bus on Linux
     "pystray; sys_platform == 'win32' or sys_platform == 'darwin'",
     "dbus-fast; sys_platform == 'linux'",
@@ -36,10 +40,11 @@ build-backend = "setuptools.build_meta"
 include = ["rpapp", "rpapp.*"]
 
 # Files the app needs besides its Python code (setuptools only takes .py files unless told):
-# the picture framing tool, the fonts, the icons (the browser's and the tray's), and the starter set
-# (see rpapp/starter.py). The programs' icons are in packaging/icons, for the builds.
+# the picture framing tool, the fonts, the icons (the browser's and the tray's), the starter set
+# (see rpapp/starter.py), and the models vector search can download (embedding_models.json). The
+# programs' icons are in packaging/icons, for the builds.
 [tool.setuptools.package-data]
-rpapp = ["ui/*.js", "ui/fonts/*", "icons/**/*", "starter/**/*"]
+rpapp = ["ui/*.js", "ui/fonts/*", "icons/**/*", "starter/**/*", "embedding_models.json"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -11,7 +11,11 @@ persona's) are checked against the end of the chat:
 - with recursion on, the text of the entries that went in is scanned too, so one
   entry can bring in another (unless the entries say otherwise);
 - the entries share a budget of tokens: when more match than fit, the higher
-  Order wins.
+  Order wins;
+- with vector search on (vectors.py), an entry also goes in when it's close enough in meaning to
+  the last messages (the same scan depth): after the keyword matches, the closest first, up to a
+  number (Closeness), in the same budget. Unless it's set to come in only by keyword; and one set
+  to come in only by meaning ignores its keywords (LoreEntry.strategy).
 
 Same rules as SillyTavern 1.19 (public/scripts/world-info.js), with the
 messages scanned as "Name: text" like SillyTavern does by default. Not applied
@@ -62,6 +66,28 @@ class Activation:
 
 
 @dataclass
+class Closeness:
+    """How close in meaning the entries are to the last messages (from vector search, vectors.py)."""
+    scores: dict[tuple[str, int], list[float]]  # (book id, entry uid) -> one per message, oldest first
+    threshold: float                            # what's close enough
+    limit: int                                  # how many entries it may bring in, at most
+
+    def score(self, book_id: str, uid: int, depth: int) -> float | None:
+        """Its closeness to the last `depth` messages: to the closest of them."""
+        values = self.scores.get((book_id, uid))
+        return max(values[-depth:]) if values and depth > 0 else None
+
+
+@dataclass
+class Meaning:
+    """Vector search's part in a prompt: for the lore books, for the memories (None: not used), and why
+    it couldn't be used if it was on ('Vector search is on, but...')."""
+    lore: Closeness | None = None
+    memory: Closeness | None = None
+    note: str = ''
+
+
+@dataclass
 class LoreResult:
     activations: list[Activation] = field(default_factory=list)  # in the order they triggered
     notes: list[str] = field(default_factory=list)               # features of the books not applied yet
@@ -76,15 +102,21 @@ class LoreResult:
 
 
 def activate(books: list[LoreBook], *, chat: list[tuple[str, str]], settings: LoreSettings, budget: int,
-             char: str, user: str, texts: dict[str, str] | None = None) -> LoreResult:
+             char: str, user: str, texts: dict[str, str] | None = None,
+             closeness: Closeness | None = None) -> LoreResult:
     """The entries to put in the prompt.
 
     `chat` is the conversation as (speaker name, text), oldest first. `texts` are the other texts
     some entries can scan too: 'scenario' (the character's), 'persona' (its description).
-    `budget` is in tokens; entries set to ignore it don't count.
+    `budget` is in tokens; entries set to ignore it don't count. `closeness`: from vector search.
     """
     texts = texts or {}
     result = LoreResult(notes=_unsupported(books))
+    if closeness is None and (n := sum(not e.disable and not e.constant and e.onlyBy == 'meaning'
+                                       for b in books for e in b.entries.values())):
+        result.notes.append(f'{n} {"entry is" if n == 1 else "entries are"} set to come in only by meaning, but '
+                            f'vector search isn\'t used for lore books: {"it" if n == 1 else "they"} can\'t come in '
+                            f'(Settings › Vector search).')
     candidates = [(book, entry) for book in books for entry in _by_priority(book.entries.values())
                   if not entry.disable and (not entry.triggers or 'normal' in entry.triggers)]
     candidates.sort(key=lambda be: -be[1].order)  # stable: within one order, books and entries keep their order
@@ -94,6 +126,7 @@ def activate(books: list[LoreBook], *, chat: list[tuple[str, str]], settings: Lo
 
     for pass_no in range(MAX_PASSES):
         found = []
+        near: list[tuple[float, LoreBook, LoreEntry]] = []  # close in meaning, without a keyword (the chat's pass)
         for book, entry in candidates:
             key = (book.id, entry.uid)
             if key in done or not _may_trigger(entry, pass_no):
@@ -102,11 +135,22 @@ def activate(books: list[LoreBook], *, chat: list[tuple[str, str]], settings: Lo
                 reason = 'always included'
             else:
                 sources = _sources(entry, chat, settings, texts) + (recursion if pass_no else [])
-                reason = _match(entry, sources, settings, char=char, user=user)
+                reason = '' if entry.onlyBy == 'meaning' else _match(entry, sources, settings, char=char, user=user)
                 if not reason:
+                    if closeness and pass_no == 0 and entry.onlyBy != 'keywords':
+                        depth = entry.scanDepth if entry.scanDepth is not None else settings.scan_depth
+                        score = closeness.score(book.id, entry.uid, depth)
+                        if score is not None and score >= closeness.threshold:
+                            near.append((score, book, entry))
                     continue
             done.add(key)
             found.append(Activation(book, entry, fill(entry.content, char=char, user=user).strip(), reason))
+        if closeness and near:  # after the keyword matches: the closest first, so many at most
+            near.sort(key=lambda n: -n[0])
+            for score, book, entry in near[:closeness.limit]:
+                done.add((book.id, entry.uid))
+                found.append(Activation(book, entry, fill(entry.content, char=char, user=user).strip(),
+                                        f'close in meaning to the chat ({score:.2f})'))
         if not found:
             break
 

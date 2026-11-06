@@ -36,6 +36,8 @@ def test_defaults_file_and_lookup(tmp_path):
                  'budget_percent': 25},
         'memory': {'enabled': True, 'connection': None, 'instructions': '', 'budget_percent': 15,
                    'temperature': None, 'max_tokens': None},
+        'vectors': {'memories': False, 'lore': False, 'model': 'all-minilm-l6-v2', 'source': 'huggingface',
+                    'thresholds': {}, 'max_entries': 3},  # (vector search: off until it's turned on)
         'appearance': {'accent': 'jade'},
     }
     assert chat_connection(store.load(), connections.get).id == conn.id

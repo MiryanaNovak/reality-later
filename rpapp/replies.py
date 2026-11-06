@@ -42,12 +42,13 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
 from .connections import Connection, GenerationParams, ModelError, Reply, Usage
 from .conversations import ChatMessage, Conversation, ConversationStore
+from .lore import Meaning
 from .lorebooks import LoreBook
 from .memory import (
     DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, MemoryCallError, apply_changes, batches, memory_prompt, parse_changes,
@@ -58,6 +59,9 @@ from .profiles import ProfileStore
 from .prompts import ExtendMethod, Prompt, build_prompt, lore_books_for
 from .settings import Settings, SettingsStore, chat_connection
 from .storage import JsonStore, StoredModel
+
+if TYPE_CHECKING:
+    from .vectors import Vectorizer
 
 log = logging.getLogger(__name__)
 
@@ -127,6 +131,8 @@ class Job:
     details: ReplyDetails | None = None
     summary: str = ''                    # memories: '2 new, 1 changed' ('' for nothing new)
     progress: str = ''                   # memories: '2 / 3' while reading in batches
+    vectorizing: bool = False            # a reply: vector search is vectorizing what isn't yet (vectors.py)
+    note: str = ''                       # a reply: why vector search couldn't be used, if it was on
     error: str = ''
     stopped: bool = False
     _listeners: list[Callable[[Job], None]] = field(default_factory=list)
@@ -144,6 +150,13 @@ class Job:
 
     def _set_progress(self, text: str) -> None:
         self.progress = text
+        self._progressed()
+
+    def _set_vectorizing(self, on: bool) -> None:
+        self.vectorizing = on
+        self._progressed()
+
+    def _progressed(self) -> None:
         for listener in self._progress_listeners:
             try:
                 listener(self)
@@ -154,8 +167,10 @@ class Job:
 class Replies:
     def __init__(self, conversations: ConversationStore, *, characters: ProfileStore, personas: ProfileStore,
                  lore_books: JsonStore[LoreBook], settings: SettingsStore,
-                 connections: JsonStore[Connection], presets: JsonStore[PromptPreset] | None = None) -> None:
+                 connections: JsonStore[Connection], presets: JsonStore[PromptPreset] | None = None,
+                 vectors: Vectorizer | None = None) -> None:
         self.conversations = conversations
+        self.vectors = vectors  # vector search (None: none, in some tests)
         self.presets = presets  # the saved prompts (None: no instructions at all, in some tests)
         self.characters = characters
         self.personas = personas
@@ -279,9 +294,16 @@ class Replies:
         except ValueError:
             return Settings()  # the Settings page says the file is broken
 
+    def books_for(self, conversation: Conversation) -> tuple[list[LoreBook], list[str]]:
+        """The lore books in play in the conversation, and the names of missing ones (see lore_books_for)."""
+        character = self.characters.get(conversation.character.id)
+        persona = self.personas.get(conversation.persona.id)
+        return lore_books_for(character, persona, self.lore_books)
+
     def _prompt(self, conversation: Conversation, settings: Settings, *, extend: ExtendMethod = '',
-                continue_scene: bool = False):
-        """The chat prompt for the conversation as it is (or to extend its last message, or continue the scene)."""
+                continue_scene: bool = False, meaning: Meaning | None = None):
+        """The chat prompt for the conversation as it is (or to extend its last message, or continue the scene).
+        `meaning`: vector search's part (see _meaning)."""
         character = self.characters.get(conversation.character.id)
         persona = self.personas.get(conversation.persona.id)
         books, missing = lore_books_for(character, persona, self.lore_books)
@@ -289,7 +311,22 @@ class Replies:
                             connection=chat_connection(settings, self.connections.get), books=books,
                             missing_books=missing, memories=self.conversations.memories.get(conversation.id).book,
                             preset=chat_preset(settings.chat.preset, self.presets) if self.presets else None,
-                            extend=extend, continue_scene=continue_scene)
+                            extend=extend, continue_scene=continue_scene, meaning=meaning)
+
+    async def _meaning(self, job: Job, conversation: Conversation, settings: Settings) -> Meaning | None:
+        """Vector search's part in the prompt, once what isn't vectorized yet is (see vectors.py)."""
+        if self.vectors is None:
+            return None
+        books, _ = self.books_for(conversation)
+        names = {conversation.character.title, conversation.persona.title}  # (left out of what's compared)
+        for profile in (self.characters.get(conversation.character.id), self.personas.get(conversation.persona.id)):
+            if profile is not None:
+                names |= {profile.name, profile.title}
+        meaning = await self.vectors.prepare(conversation, books=books, settings=settings, names=names,
+                                             memories=self.conversations.memories.get(conversation.id),
+                                             busy=job._set_vectorizing)
+        job.note = meaning.note if meaning else ''
+        return meaning
 
     async def _reply(self, job: Job) -> None:
         conversation = self._still_there(job)
@@ -303,7 +340,9 @@ class Replies:
         elif job.version_of:  # the chat up to the message replied to
             conversation = conversation.model_copy(update={'messages': conversation.messages[:-1]})
         continuing = job.continue_scene and not extend
-        prompt = self._prompt(conversation, settings, extend=extend, continue_scene=continuing)
+        meaning = await self._meaning(job, conversation, settings)
+        conversation = self._still_there(job) if not (extend or job.version_of) else conversation  # (meanwhile?)
+        prompt = self._prompt(conversation, settings, extend=extend, continue_scene=continuing, meaning=meaning)
         if not (extend or continuing):  # (those go with the details, below: they don't follow a message of yours)
             self.conversations.prompts.save(conversation.id, job.reply_to, prompt)
         if connection is None:
@@ -410,6 +449,11 @@ class Replies:
         memories.propose(first=to_read[0].id, last=to_read[-1].id, proposed=working)
         self.conversations.memories.save(memories)
         job.summary = memories.changes().summary
+        if self.vectors is not None:  # the new and changed ones, ready before you post (vectors.py)
+            try:
+                await self.vectors.refresh('memories', conversation.id)
+            except Exception:
+                log.warning('Vectorizing the new memories failed: they will be, before the next reply', exc_info=True)
 
     def details(self, conversation_id: str, message: ChatMessage) -> ReplyDetails | None:
         """The details of the version of this reply that's shown."""

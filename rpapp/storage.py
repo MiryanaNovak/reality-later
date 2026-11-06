@@ -78,6 +78,16 @@ class StoredModel(BaseModel):
 T = TypeVar('T', bound=StoredModel)
 
 _PENDING: dict[Path, dict[str, tuple[asyncio.TimerHandle, Any]]] = {}
+_ON_SAVED: dict[Path, dict[str, Callable[[Any], None]]] = {}
+_ON_DELETED: dict[Path, dict[str, Callable[[str], None]]] = {}
+
+
+def _call(hooks: dict[str, Callable[[Any], None]], arg: Any) -> None:
+    for name, hook in list(hooks.items()):
+        try:
+            hook(arg)
+        except Exception:
+            log.exception('The %s hook failed', name)
 
 
 class JsonStore(Generic[T]):
@@ -97,6 +107,10 @@ class JsonStore(Generic[T]):
         self._loader = loader
         # Saves waiting to happen (see save_soon), shared by every store of the same folder.
         self._pending: dict[str, tuple[asyncio.TimerHandle, T]] = _PENDING.setdefault(self.folder.resolve(), {})
+        # Called after an object is saved, or deleted (by id), whichever store of the folder did it.
+        # By name: registering the same one again replaces it. (Vector search uses them: vectors.py.)
+        self.on_saved: dict[str, Callable[[T], None]] = _ON_SAVED.setdefault(self.folder.resolve(), {})
+        self.on_deleted: dict[str, Callable[[str], None]] = _ON_DELETED.setdefault(self.folder.resolve(), {})
 
     def path_for(self, item_id: str) -> Path:
         if not _ID_RE.fullmatch(item_id):
@@ -150,11 +164,13 @@ class JsonStore(Generic[T]):
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
             raise
+        _call(self.on_saved, item)
         return path
 
     def delete(self, item_id: str) -> None:
         self._cancel_pending(item_id)
         self.path_for(item_id).unlink(missing_ok=True)
+        _call(self.on_deleted, item_id)
 
     def exists(self, item_id: str) -> bool:
         return _ID_RE.fullmatch(item_id) is not None and (item_id in self._pending or self.path_for(item_id).exists())

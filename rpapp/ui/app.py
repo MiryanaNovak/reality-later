@@ -24,6 +24,7 @@ from ..launcher import ServerInfo
 from ..personas import PersonaStore
 from ..presets import preset_store, set_up_presets
 from ..replies import Replies
+from ..vectors import Vectorizer
 from ..settings import SettingsStore
 from . import appearance, media, theme
 from .characters_page import CharactersSection
@@ -54,11 +55,12 @@ COMPUTER = ('/computer', 'This computer', 'computer')  # only on the computer th
 
 
 def build_root(data_dir: str | Path, *, access: Access | None = None,
-               server: ServerInfo | None = None) -> Callable[[], None]:
+               server: ServerInfo | None = None, models: str | Path | None = None) -> Callable[[], None]:
     """Return the function NiceGUI calls to build the page for every browser tab.
 
     `access`: who may use the app (see access.py); None when pairing isn't set up (tests).
     `server`: how the app runs, for the "This computer" page (the defaults if not given: tests).
+    `models`: the folder of vector search's models (paths.Places.models; <data_dir>/models if not given).
     """
     theme.setup()
     server = server or ServerInfo(Config(folder=Path(data_dir)), None, Path(data_dir))
@@ -71,16 +73,23 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
     settings_store = SettingsStore(data_dir)
     set_up_presets(data_dir, settings_store)  # the first time: the instructions from Settings become a prompt
     presets = PresetsSection(preset_store(data_dir), settings_store)
+    vectors = Vectorizer(data_dir, models or Path(data_dir) / 'models', settings=settings_store,
+                         lore_books=lore_books, memories=conversation_store.memories)
+    # Saved (edited, imported, undone): vectorized in the background, a moment later (vectors.py)
+    lore_books.on_saved['vectors'] = lambda book: vectors.soon('lorebooks', book.id)
+    conversation_store.memories.on_saved['vectors'] = lambda memories: vectors.soon('memories', memories.id)
     replies = Replies(conversation_store, characters=characters.store, personas=personas.store,
                       lore_books=lore_books, settings=settings_store, connections=connections.collection.store,
-                      presets=presets.collection.store)
+                      presets=presets.collection.store, vectors=vectors)
     conversations = ConversationsSection(conversation_store, characters, personas, replies)
     lorebooks = LoreBooksSection(lore_books, users=[characters, personas])
-    settings = SettingsSection(settings_store, connections.collection.store, access, presets.collection.store)
+    settings = SettingsSection(settings_store, connections.collection.store, access, presets.collection.store,
+                               vectors=vectors)
     home = HomePage(connections=connections.collection.store, settings=settings_store, home=HomeStore(data_dir),
                     conversations=conversation_store, characters=characters, personas=personas,
                     access=access, server=server)
     app.on_shutdown(replies.stop_all)
+    app.on_shutdown(vectors.stop)
     app.on_shutdown(settings_store.flush)
     app.on_shutdown(conversation_store.memories.flush)
     for store in (connections.collection.store, lorebooks.store, personas.store, characters.store,

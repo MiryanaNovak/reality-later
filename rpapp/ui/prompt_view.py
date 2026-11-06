@@ -127,6 +127,7 @@ def _lore(r: PromptReport) -> None:
                     ui.label(f'{_sentence(use.reason)}. {reason}.').classes('text-sm text-negative')
         for note in r.lore_notes:
             ui.label(note).classes('text-sm muted mt-1')
+        _meaning_note(r)
 
 
 def _memories(r: PromptReport) -> None:
@@ -138,6 +139,7 @@ def _memories(r: PromptReport) -> None:
             ui.label('No memories yet in this chat.').classes('text-sm muted')
         elif not r.memories:
             ui.label('None came into play: none of their keywords is in the last messages.').classes('text-sm muted')
+        _meaning_note(r)
         for use in r.memories:
             with ui.column().classes('w-full gap-0').mark('memory-use'):
                 ui.label(use.entry).classes('text-sm text-weight-medium')
@@ -182,3 +184,9 @@ def _block(label: str, tokens: int, text: str, marker: str) -> None:
             ui.label(label).classes('prompt-role')
             ui.label(f'{tokens:,} tokens').classes('text-xs muted')
         ui.label(text).classes('prompt-text')
+
+
+def _meaning_note(r: PromptReport) -> None:
+    """Vector search was on, but couldn't be used: why (in both sections: it's about both)."""
+    if r.meaning_note:
+        ui.label(r.meaning_note).classes('text-sm text-warning mt-1').mark('meaning-note')

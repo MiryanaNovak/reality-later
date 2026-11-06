@@ -228,6 +228,7 @@ class MemoryStore:
     def __init__(self, folder: str | Path) -> None:
         self._store = JsonStore(Path(folder), Memories.model_validate)
         self.folder = self._store.folder
+        self.on_saved = self._store.on_saved  # (see JsonStore: vector search uses it)
 
     def get(self, conversation_id: str) -> Memories:
         """The conversation's memories (empty ones if there are none yet, or the file is broken)."""

@@ -1,4 +1,5 @@
-"""The Settings page: one folding section per topic (Chat, Lore books, Memory, Appearance, Devices).
+"""The Settings page: one folding section per topic (Chat, Lore books, Memory, Vector search, Appearance,
+Devices).
 
     /settings
 
@@ -7,23 +8,31 @@ To add a section: add a sub-object to Settings (settings.py) and a
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable
-from typing import Any
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
-from nicegui import ui
+from nicegui import background_tasks, ui
 
 from ..access import Access
 from ..connections import Connection
+from ..embeddings import SOURCES, DownloadError, EmbeddingModel, catalog, download, is_installed, runtime_problem, \
+    uninstall
 from ..memory import ANSWER_FORMAT, DEFAULT_INSTRUCTIONS, DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, MATERIAL
 from ..prompts import DEFAULT_CONTEXT
 from ..presets import PromptPreset
 from ..settings import ConnectionRef, MemorySettings, PresetRef, Settings, SettingsStore
 from ..storage import JsonStore
+from ..vector_files import delete_model_vectors
 from . import appearance, theme
 from .devices_page import DevicesSection
 from .form import NOT_SET, Form, error_text, text_stats
-from .widgets import folding_panel, page_bar
+from .widgets import confirm, folding_panel, page_bar
+
+if TYPE_CHECKING:
+    from ..vectors import Vectorizer
 
 EXAMPLE_DIALOGUES = {
     'make_room': 'Send them while the whole chat fits',
@@ -35,13 +44,24 @@ RETURN_KEY = {
 }
 
 
+@dataclass
+class Download:
+    """A model being downloaded (in the background: it goes on if the page is left)."""
+    model: EmbeddingModel
+    done: int = 0
+    total: int = 0
+    task: asyncio.Task | None = field(default=None, repr=False)
+
+
 class SettingsSection:
     def __init__(self, store: SettingsStore, connections: JsonStore[Connection], access: Access | None = None,
-                 presets: JsonStore[PromptPreset] | None = None) -> None:
+                 presets: JsonStore[PromptPreset] | None = None, vectors: Vectorizer | None = None) -> None:
         self.store = store
         self.connections = connections
         self.presets = presets
         self.devices = DevicesSection(access)
+        self.vectors = vectors       # vector search (None: no section, in some tests)
+        self.download: Download | None = None
 
     def page(self) -> None:
         page_bar('Settings')
@@ -87,6 +107,10 @@ class SettingsSection:
 
         with folding_panel('Memory', 'What the AI remembers of old messages, in each chat'):
             self._memory(settings.memory, connections, form)
+
+        if self.vectors is not None:
+            with folding_panel('Vector search', 'Memories and lore entries picked by meaning too'):
+                self._vector_search(settings, form)
 
         with folding_panel('Appearance', 'Light or dark, text size, accent color'):
             self._appearance(settings)
@@ -202,6 +226,151 @@ class SettingsSection:
 
     # -- memory ------------------------------------------------------------------------
 
+    # -- vector search -----------------------------------------------------------------
+
+    def _vector_search(self, settings: Settings, form: Form) -> None:
+        vs = settings.vectors
+        models = catalog()
+        ui.label('An entry then also comes into the prompt when it\'s close in meaning to the last messages, even '
+                 'without its keywords: a memory about Brann the ferryman comes back when the chat talks about "the '
+                 'old man at the river crossing". Keywords work as before. It runs on this computer, with a model '
+                 'you download once.').classes('text-sm muted -mt-2')
+        form.switch(vs, 'memories', 'For memories').mark('vectors-memories')
+        form.switch(vs, 'lore', 'For lore books').mark('vectors-lore')
+        choice = form.select(vs, 'model', 'Model', {key: m.label for key, m in models.items()},
+                             hint='English-only models don\'t understand chats in other languages. Changing the '
+                                  'model vectorizes the memories and lore books again, before the next replies.') \
+            .mark('vectors-model')
+
+        @ui.refreshable
+        def state() -> None:
+            self._model_state(settings, form, models.get(vs.model), state.refresh)
+
+        def chosen() -> None:
+            if self.vectors is not None:
+                self.vectors.unload()  # (the next reply loads the one chosen)
+            state.refresh()
+
+        choice.on_value_change(chosen)
+        state()
+        form.number(vs, 'max_entries', 'At most, by meaning alone', integer=True, min=1, max=20, optional=False,
+                    hint='Entries it may bring in for a reply, closest first: for the memories, and for the lore '
+                         'books. They count in the same budget as those found by keywords, after them.') \
+            .mark('vectors-max')
+
+    def _model_state(self, settings: Settings, form: Form, model: EmbeddingModel | None, refresh: Callable) -> None:
+        """The chosen model: downloaded or not, and how close is close enough with it."""
+        vs = settings.vectors
+        if model is None:
+            ui.label(f'The model "{vs.model}" isn\'t one this version of the app knows: choose another one.') \
+                .classes('text-sm text-negative')
+            return
+        models_dir = self.vectors.models_dir
+        ui.label(f'{model.languages}. {model.about} License: {model.license}.').classes('text-sm muted')
+        problem = runtime_problem()
+        downloading = self.download if self.download and self.download.model.key == model.key else None
+        with ui.column().classes('w-full gap-1').mark('vectors-state'):
+            if problem:
+                ui.label(f'Vector search can\'t run on this computer: {problem}.').classes('text-sm text-negative')
+            elif downloading:
+                self._progress(downloading, refresh)
+            elif is_installed(models_dir, model):
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('check_circle', size='sm').classes('text-positive')
+                    ui.label(f'Downloaded ({model.megabytes} MB)').classes('text-sm').mark('vectors-installed')
+
+                    async def delete() -> None:
+                        if not await confirm(f'Delete {model.name}?', 'Vector search then works again once '
+                                             'it\'s downloaded again.', 'Delete'):
+                            return
+                        if self.vectors is not None:
+                            self.vectors.unload()
+                        uninstall(models_dir, model)
+                        delete_model_vectors(self.vectors.data_dir, model.key)
+                        refresh()
+
+                    ui.button('Delete', icon='delete', on_click=delete).props('flat dense no-caps') \
+                        .mark('vectors-delete')
+            elif not model.pinned:
+                ui.label('This model can\'t be downloaded yet: its files\' fingerprints aren\'t recorded in the app '
+                         '(tools/pin_models.py records them).').classes('text-sm text-negative').mark('vectors-unpinned')
+            else:
+                with ui.row().classes('w-full items-end no-wrap gap-2'):
+                    form.select(vs, 'source', 'Download from', {k: src.name for k, src in SOURCES.items()}) \
+                        .classes('grow').mark('vectors-source')
+                    ui.button(f'Download ({model.megabytes} MB)', icon='download',
+                              on_click=lambda: self._start_download(model, vs.source, refresh)) \
+                        .props('unelevated no-caps').mark('vectors-download')
+                ui.label('Each file is checked before it\'s used: one that isn\'t exactly the expected one is '
+                         'refused, wherever it came from.').classes('text-sm muted')
+                if vs.memories or vs.lore:
+                    ui.label('Until it\'s downloaded, memories and lore entries are picked by their keywords only.') \
+                        .classes('text-sm text-warning').mark('vectors-not-downloaded')
+
+        def set_threshold(value: float | None) -> None:
+            thresholds = dict(vs.thresholds)
+            if value is None or round(value, 2) == model.threshold:
+                thresholds.pop(model.key, None)
+            else:
+                thresholds[model.key] = round(min(1.0, max(0.0, value)), 2)
+            vs.thresholds = thresholds
+
+        form.bind(ui.number('Closeness needed', min=0, max=1, step=0.01, format='%.2f',
+                            placeholder=f'{model.threshold:.2f}'),
+                  lambda: vs.threshold(model.key, model.threshold), set_threshold,
+                  hint=f'From 0 (unrelated) to 1: higher brings in fewer entries. Each model has its own scale: '
+                       f'{model.threshold:.2f} by default for this one. The prompt view shows how close each entry '
+                       f'was.').mark('vectors-threshold')
+
+    def _start_download(self, model: EmbeddingModel, source: str, refresh: Callable) -> None:
+        if self.download is not None:
+            ui.notify(f'{self.download.model.name} is being downloaded: wait for it, or stop it.')
+            return
+        state = self.download = Download(model)
+
+        def progress(done: int, total: int) -> None:
+            state.done, state.total = done, total
+
+        async def run() -> None:
+            try:
+                await download(model, self.vectors.models_dir, source, on_progress=progress)
+                if self.vectors is not None:
+                    self.vectors.unload()
+                _notify_all(f'{model.name} is downloaded: vector search can use it.', 'positive')
+            except asyncio.CancelledError:
+                pass
+            except DownloadError as e:
+                _notify_all(f'Not downloaded: {e}', 'negative')
+            except Exception as e:  # (a disk full...)
+                _notify_all(f'Not downloaded: {e}', 'negative')
+            finally:
+                self.download = None
+
+        state.task = background_tasks.create(run(), name=f'download {model.key}')
+        refresh()
+
+    def _progress(self, state: Download, refresh: Callable) -> None:
+        bar = ui.linear_progress(value=0, show_value=False).props('rounded size=8px').mark('vectors-progress')
+        with ui.row().classes('w-full items-center justify-between'):
+            text = ui.label('Downloading…').classes('text-sm muted')
+
+            def stop() -> None:
+                if state.task:
+                    state.task.cancel()
+
+            ui.button('Stop', icon='close', on_click=stop).props('flat dense no-caps').mark('vectors-stop')
+
+        def update() -> None:
+            if self.download is not state:  # done (or stopped): show what's next
+                timer.cancel()
+                refresh()
+                return
+            if state.total:
+                bar.value = state.done / state.total
+                text.text = f'Downloading… {state.done / 1e6:.0f} / {state.total / 1e6:.0f} MB'
+
+        timer = ui.timer(0.3, update)
+
     def _appearance(self, settings: Settings) -> None:
         look = appearance.device_look()
 
@@ -307,3 +476,12 @@ class SettingsSection:
 
         state()
         editor.on_value_change(lambda: state.refresh())
+
+
+def _notify_all(message: str, kind: str) -> None:
+    """A notice in every tab open on the app (a download finishes in the background, maybe after the page was left)."""
+    from nicegui import Client
+    for client in list(Client.instances.values()):
+        if client.has_socket_connection:
+            with client:
+                ui.notify(message, type=kind)

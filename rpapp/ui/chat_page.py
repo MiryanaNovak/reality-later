@@ -151,6 +151,11 @@ def message_html(html: str) -> str:
     return mark_dialogue(chat_html(html))
 
 
+def waiting(word: str) -> str:
+    """'Replying…', with its dots animated (as HTML)."""
+    return f'{word}<span class="chat-dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>'
+
+
 def _menu_choice(icon: str, title: str, caption: str, on_click: Callable[[], Any], *,
                  enabled: bool = True) -> ui.menu_item:
     """A menu item with an icon, a title, and a line under it saying what it does (or why it can't)."""
@@ -193,6 +198,10 @@ class ChatPage:
         self.busy = False                            # a reply is on its way
         self.rewriting: str | None = None            # id of the reply getting another version
         self.extending = False                       # that version: the one shown, extended
+        self.vectorizing = False                     # the reply's job is vectorizing first (vectors.py)
+        self.reply_label: ui.html | None = None      # "Replying…", "Vectorizing…"
+        self.reply_word = 'Replying'
+        self.notes_shown: set[str] = set()           # why vector search couldn't be used: said once a page
         self.client = ui.context.client
 
         character = characters.store.get(conversation.character.id)
@@ -277,6 +286,9 @@ class ChatPage:
             self._show_memory_box()
         self._scroll_to_bottom()
         self._js(OLDER_JS % {'control': self.older.id, 'list': self.list.id})
+        if self.replies.vectors is not None:  # what isn't vectorized yet, in the background (vectors.py)
+            books, _ = self.replies.books_for(c)
+            self.replies.vectors.chat_opened(c.id, [b.id for b in books])
 
     async def _rename(self) -> None:
         name = await ask_name('Rename the conversation', self.conversation.title, max_length=TITLE_MAX)
@@ -386,10 +398,20 @@ class ChatPage:
                 elif self.conversation.can_change_reply and message is self.conversation.messages[-1]:
                     self._reply_picker(message)
 
-    @staticmethod
-    def _replying_text(word: str = 'Replying') -> ui.html:
-        return ui.html(f'{word}<span class="chat-dots" aria-hidden="true">'
-                       '<span>.</span><span>.</span><span>.</span></span>', sanitize=False).classes('chat-replying')
+    def _replying_text(self, word: str = 'Replying') -> ui.html:
+        """"Replying…" (or `word`), animated; "Vectorizing…" first while vector search prepares (vectors.py)."""
+        self.reply_word = word
+        self.reply_label = ui.html(waiting('Vectorizing' if self.vectorizing else word), sanitize=False) \
+            .classes('chat-replying')
+        return self.reply_label
+
+    def _vectorizing(self, job: Job) -> None:
+        """The reply's job started or stopped vectorizing: say so, in place of "Replying…"."""
+        if self.client.is_deleted or job.vectorizing == self.vectorizing:
+            return
+        self.vectorizing = job.vectorizing
+        if self.reply_label is not None and not self.reply_label.is_deleted:
+            self.reply_label.set_content(waiting('Vectorizing' if self.vectorizing else self.reply_word))
 
     def _menu(self, message: ChatMessage) -> None:
         """The ⋯ button. Its menu is filled when it's opened (see the notes at the top)."""
@@ -624,6 +646,8 @@ class ChatPage:
             return
         self._set_busy(True)
         self.status.clear()
+        self.vectorizing = job.vectorizing
+        job.on_progress(self._vectorizing)
         if job.version_of:  # "Replying…" in the reply itself ("Extending…" under it)
             self.rewriting, self.extending = job.version_of, job.extend
             self._redraw(job.version_of)
@@ -642,7 +666,10 @@ class ChatPage:
             fresh = self.store.get(self.conversation.id)
             if fresh is not None:
                 self.conversation = fresh
-            self.rewriting, self.extending = None, False
+            self.rewriting, self.extending, self.vectorizing = None, False, False
+            if job.note and job.note not in self.notes_shown:  # vector search was on, but couldn't be used
+                self.notes_shown.add(job.note)
+                ui.notify(job.note, type='warning', multi_line=True)
             messages = self.conversation.messages
             self.shown_from = min(self.shown_from, len(messages))
             added = [m for m in messages[self.shown_from:] if m.id not in self.boxes]  # (not the earlier ones)

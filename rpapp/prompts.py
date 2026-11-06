@@ -74,7 +74,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from .connections import Message
-from .lore import Activation, LoreResult, activate
+from .lore import Activation, LoreResult, Meaning, activate
 from .lorebooks import AT_DEPTH, LoreBook
 from .macros import fill
 from .personas import GENDERS, Persona
@@ -161,6 +161,7 @@ class PromptReport(BaseModel):
     memory_tokens: int = 0
     memory_count: int = 0        # how many memories the chat has
     memories: list[LoreUse] = Field(default_factory=list)
+    meaning_note: str = ''       # vector search was on, but couldn't be used: why
     preset: str = ''             # the name of the prompt (presets.py) the instructions come from
     missing_preset: str = ''     # the remembered name of the one chosen, if it was deleted
     examples_total: int = 0      # the character's example dialogues
@@ -225,7 +226,7 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
                  settings: Settings, connection: Connection | None = None,
                  books: list[LoreBook] = (), missing_books: list[str] = (),
                  memories: LoreBook | None = None, preset: PromptPreset | None = None,
-                 extend: ExtendMethod = '', continue_scene: bool = False) -> Prompt:
+                 extend: ExtendMethod = '', continue_scene: bool = False, meaning: Meaning | None = None) -> Prompt:
     """The prompt for the model's next reply in this conversation.
 
     `character` and `persona` can be None if they were deleted: their remembered titles stand in for
@@ -233,6 +234,7 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
     `preset` the prompt chosen in Settings › Chat, with the instructions (None: none chosen, or deleted).
     `extend`: to extend the last message, a reply of the AI, rather than reply to it (see the notes at the top).
     `continue_scene`: for the AI's next message without one from you (the chat may end with the AI's, or be empty).
+    `meaning`: from vector search (vectors.py), for entries close in meaning to the chat, besides their keywords.
     """
     char = (character.name or character.title) if character else conversation.character.title
     user = (persona.name or persona.title) if persona else conversation.persona.title
@@ -287,7 +289,7 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
                 texts={'scenario': character.scenario if character else '',
                        'persona': persona.description if persona else ''})
     lore_budget = available * settings.lore.budget_percent // 100
-    lore = activate(list(books), budget=lore_budget, **scan)
+    lore = activate(list(books), budget=lore_budget, closeness=meaning.lore if meaning else None, **scan)
 
     def lore_parts(position: int | None = None) -> list[PromptPart]:
         """The lore with the background (position None), or at one position around the examples."""
@@ -300,7 +302,8 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
 
     use_memory = settings.memory.enabled and memories is not None and memories.entries
     memory_budget = available * settings.memory.budget_percent // 100 if settings.memory.enabled else 0
-    remembered = activate([memories], budget=memory_budget, **scan) if use_memory else LoreResult()
+    remembered = activate([memories], budget=memory_budget, closeness=meaning.memory if meaning else None,
+                          **scan) if use_memory else LoreResult()
     blocks['memory'] = [PromptPart(role='system', content=a.content, kind='memory',
                                    source=f'Memory: {a.entry.title}')
                         for a in sorted(remembered.used, key=lambda a: a.entry.uid)]
@@ -355,6 +358,7 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
         memory_budget=memory_budget, memory_tokens=remembered.tokens,
         memory_count=len(memories.entries) if memories else 0,
         memories=[_lore_use(a) for a in remembered.activations],
+        meaning_note=meaning.note if meaning else '',
         examples_total=len(dialogues), examples_sent=sent, examples_tokens=examples.tokens if examples else 0,
         preset=preset.name if preset else '',
         missing_preset=chat.preset.name if chat.preset is not None and preset is None else '',

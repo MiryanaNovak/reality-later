@@ -133,7 +133,7 @@ def main(argv: list[str] | None = None, *, first: bool = True, script: Path | No
     app.add_middleware(SecurityHeaders)  # added last: runs first, so even refusals get the headers
     if first and (seeded := starter.seed(data_dir)) and seeded.items:  # the very first start
         print(f'First start: added the examples ({seeded.summary()}).', flush=True)
-    root = build_root(data_dir, access=access, server=info)
+    root = build_root(data_dir, access=access, server=info, models=where.models)
     if first and '--reload' not in options:
         # Once everything is saved. (Stopped by a signal, uvicorn ends the process before atexit would run.)
         app.on_shutdown(running_copy.release)

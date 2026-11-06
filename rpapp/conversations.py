@@ -275,10 +275,12 @@ class ConversationStore(JsonStore[Conversation]):
         return conversation
 
     def delete(self, item_id: str) -> None:
+        from .vector_files import delete_vectors
         super().delete(item_id)
         self.prompts.delete_conversation(item_id)
         self.replies.delete_conversation(item_id)
         self.memories.delete(item_id)
+        delete_vectors(self.folder.parent, 'memories', item_id)  # (vector search: vector_files.py)
 
     def rename(self, conversation_id: str, title: str) -> Conversation:
         """Give the conversation another title, saved right away. It doesn't count as an update: the chat

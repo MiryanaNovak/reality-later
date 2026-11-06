@@ -71,9 +71,9 @@ a = Analysis(
     datas=datas,
     hiddenimports=hiddenimports,
     # Not needed, but taken along if the Python building it has them: Pillow's Tk support, the tests, and
-    # what NiceGUI uses for its charts and tables (only when installed), and for its own windows.
-    excludes=['tkinter', 'pytest', 'numpy', 'pandas', 'polars', 'scipy', 'matplotlib', 'plotly', 'webview',
-              'IPython'],
+    # what NiceGUI uses for its charts and tables (only when installed), and for its own windows. (numpy
+    # stays: vector search needs it.)
+    excludes=['tkinter', 'pytest', 'pandas', 'polars', 'scipy', 'matplotlib', 'plotly', 'webview', 'IPython'],
 )
 pyz = PYZ(a.pure)
 

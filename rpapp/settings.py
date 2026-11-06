@@ -86,6 +86,21 @@ class MemorySettings(BaseModel):
     max_tokens: int | None = Field(None, ge=1)          # None = memory.DEFAULT_MAX_TOKENS
 
 
+class VectorSettings(BaseModel):
+    """Vector search (see vectors.py): memories and lore entries picked by meaning too, not only by keywords."""
+    model_config = ConfigDict(extra='ignore', validate_assignment=True)
+
+    memories: bool = False
+    lore: bool = False
+    model: str = 'all-minilm-l6-v2'                      # a key of embedding_models.json
+    source: str = 'huggingface'                         # where it's downloaded from (embeddings.SOURCES)
+    thresholds: dict[str, float] = Field(default_factory=dict)  # closeness needed, per model (else its default)
+    max_entries: int = Field(3, ge=1, le=20)            # brought in by meaning alone, at most, per reply
+
+    def threshold(self, model_key: str, default: float) -> float:
+        return self.thresholds.get(model_key, default)
+
+
 class AppearanceSettings(BaseModel):
     """How the app looks on every device. (Light or dark, and the text size, are per device: ui/appearance.py.)"""
     model_config = ConfigDict(extra='ignore', validate_assignment=True)
@@ -99,6 +114,7 @@ class Settings(StoredModel):
     chat: ChatSettings = Field(default_factory=ChatSettings)
     lore: LoreSettings = Field(default_factory=LoreSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    vectors: VectorSettings = Field(default_factory=VectorSettings)
     appearance: AppearanceSettings = Field(default_factory=AppearanceSettings)
 
 

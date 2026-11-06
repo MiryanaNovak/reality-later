@@ -1,7 +1,8 @@
 ; The Windows installer, made with Inno Setup 6 (https://jrsoftware.org/isinfo.php) from the program
-; PyInstaller made (reality-later.spec). From the project's folder, on Windows, after PyInstaller:
+; PyInstaller made (reality-later.spec). From the project's folder, on Windows, after PyInstaller (in
+; PowerShell; ISCC.exe isn't on the PATH):
 ;
-;     iscc /DVersion=0.2.0 /DFileVersion=0.2.0.0 packaging\windows\installer.iss
+;     & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=0.2.0 /DFileVersion=0.2.0.0 packaging\windows\installer.iss
 ;
 ; makes dist\reality-later-setup.exe. (The GitHub workflow does all of it: see README.md.)
 ;

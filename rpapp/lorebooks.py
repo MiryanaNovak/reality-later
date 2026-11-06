@@ -20,7 +20,7 @@ https://docs.sillytavern.app/usage/worldinfo/
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
 
@@ -57,10 +57,11 @@ TRIGGERS = {  # generation types an entry can be limited to (empty = all)
     'swipe': 'Swipe', 'regenerate': 'Regenerate', 'quiet': 'Quiet (background)',
 }
 
-STRATEGIES = {
+STRATEGIES = {  # when an entry comes into the prompt (see LoreEntry.strategy)
+    'both': 'When a keyword appears, or by meaning',
+    'keywords': 'Only when a keyword appears',
+    'meaning': 'Only by meaning',
     'constant': 'Always included',
-    'normal': 'When a keyword appears',
-    'vectorized': 'By meaning (Vector Storage)',
 }
 
 
@@ -82,7 +83,8 @@ class LoreEntry(BaseModel):
     comment: str = ''                                      # title / memo, never sent to the model
     content: str = ''
     constant: bool = False
-    vectorized: bool = False
+    vectorized: bool = False  # SillyTavern's: for its Vector Storage (here, kept in step with onlyBy: see strategy)
+    onlyBy: Literal['', 'keywords', 'meaning'] = ''  # this app's: '' = by keyword, or by meaning (vector search)
     selective: bool = True
     selectiveLogic: int = 0
     addMemo: bool = True
@@ -128,11 +130,16 @@ class LoreEntry(BaseModel):
 
     @property
     def strategy(self) -> str:
-        return 'constant' if self.constant else 'vectorized' if self.vectorized else 'normal'
+        """When it comes into the prompt (a key of STRATEGIES). By meaning: with vector search on (vectors.py).
+
+        By default, when a keyword appears or by meaning: SillyTavern's own setting ("vectorized") doesn't say
+        (its entries come by keyword only, unless its Vector Storage takes them all), so onlyBy does."""
+        return 'constant' if self.constant else self.onlyBy or 'both'
 
     def set_strategy(self, value: str) -> None:
         self.constant = value == 'constant'
-        self.vectorized = value == 'vectorized'
+        self.onlyBy = value if value in ('keywords', 'meaning') else ''
+        self.vectorized = value in ('both', 'meaning')  # (SillyTavern's nearest, for exports)
 
     def set_position(self, value: int) -> None:
         """Change the position the way SillyTavern does: a role only goes with 'at depth'."""
@@ -150,6 +157,8 @@ class LoreEntry(BaseModel):
         for name in ('characterFilter', 'displayIndex'):
             if data.get(name) is None:
                 data.pop(name, None)
+        if data.get('onlyBy') == '':  # this app's own: not written while it's the default (files stay SillyTavern's)
+            del data['onlyBy']
         return data
 
 
@@ -200,6 +209,10 @@ def new_lore_book(name: str) -> LoreBook:
 
 
 def lore_book_store(data_dir) -> JsonStore[LoreBook]:
-    """The store for <data_dir>/lorebooks/. Its files are valid SillyTavern lore books too."""
-    return JsonStore(Path(data_dir) / 'lorebooks', LoreBook.model_validate)
+    """The store for <data_dir>/lorebooks/. Its files are valid SillyTavern lore books too.
+    Deleting a book deletes its vectors (vector search: vector_files.py)."""
+    from .vector_files import delete_vectors
+    store = JsonStore(Path(data_dir) / 'lorebooks', LoreBook.model_validate)
+    store.on_deleted['vectors'] = lambda book_id: delete_vectors(data_dir, 'lorebooks', book_id)
+    return store
 

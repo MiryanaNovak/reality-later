@@ -1,8 +1,9 @@
-"""Where the app keeps its files: its settings (config.toml), its certificate, and your data.
+"""Where the app keeps its files: its settings (config.toml), its certificate, your data, and the models
+vector search downloads (big, and downloaded again if deleted: with the system's caches, when installed).
 
 Running from its source folder (python main.py, or installed from it with pip install -e), as before:
 
-    <source folder>/config.toml, <source folder>/certificates/, <source folder>/data/
+    <source folder>/config.toml, <source folder>/certificates/, <source folder>/data/ (the models: data/models/)
 
 Installed (pip install, a packaged program, Flatpak), the folders a user's programs keep their files in,
 since the app's own folder may be read-only, or replaced by the next version:
@@ -13,7 +14,10 @@ since the app's own folder may be read-only, or replaced by the next version:
     macOS    ~/Library/Application Support/Reality Later/   config.toml, certificates/, data/
     Windows  %APPDATA%\\Reality Later\\                      config.toml, certificates\\, data\\
 
-RPAPP_DATA, if set, is the data folder in every case (see main.py).
+    The models: ~/.cache/reality-later/models ($XDG_CACHE_HOME; a Flatpak's, in ~/.var/app/<app id>/),
+    ~/Library/Caches/Reality Later/models, %LOCALAPPDATA%\\Reality Later\\models (not in the roaming profile).
+
+RPAPP_DATA, if set, is the data folder in every case (see main.py); the models stay where they are.
 """
 from __future__ import annotations
 
@@ -38,6 +42,7 @@ class Places:
     config: Path  # the folder of config.toml, and of certificates/
     data: Path
     installed: bool  # False: running from the source folder
+    models: Path     # the models vector search downloads (embeddings.py)
 
 
 def in_flatpak(env: Mapping[str, str] | None = None) -> bool:
@@ -61,19 +66,23 @@ def places(env: Mapping[str, str] | None = None, platform: str | None = None,
     platform = platform or sys.platform
     folder = source_folder(env) if source is True else source
     if folder is not None:
-        places_ = Places(config=folder, data=folder / 'data', installed=False)
+        places_ = Places(config=folder, data=folder / 'data', installed=False, models=folder / 'data' / 'models')
     elif platform.startswith('win'):
         root = Path(env.get('APPDATA') or Path.home() / 'AppData' / 'Roaming') / APP_NAME
-        places_ = Places(config=root, data=root / 'data', installed=True)
+        local = Path(env.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local') / APP_NAME
+        places_ = Places(config=root, data=root / 'data', installed=True, models=local / 'models')
     elif platform == 'darwin':
         root = Path.home() / 'Library' / 'Application Support' / APP_NAME
-        places_ = Places(config=root, data=root / 'data', installed=True)
+        places_ = Places(config=root, data=root / 'data', installed=True,
+                         models=Path.home() / 'Library' / 'Caches' / APP_NAME / 'models')
     else:
         config = Path(env.get('XDG_CONFIG_HOME') or Path.home() / '.config') / LINUX_NAME
         data = Path(env.get('XDG_DATA_HOME') or Path.home() / '.local' / 'share') / LINUX_NAME
-        places_ = Places(config=config, data=data, installed=True)
+        cache = Path(env.get('XDG_CACHE_HOME') or Path.home() / '.cache') / LINUX_NAME
+        places_ = Places(config=config, data=data, installed=True, models=cache / 'models')
     if env.get('RPAPP_DATA'):
-        places_ = Places(config=places_.config, data=Path(env['RPAPP_DATA']), installed=places_.installed)
+        places_ = Places(config=places_.config, data=Path(env['RPAPP_DATA']), installed=places_.installed,
+                         models=places_.models)
     return places_
 
 

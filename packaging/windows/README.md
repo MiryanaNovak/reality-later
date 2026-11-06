@@ -31,14 +31,20 @@ running copy (which it must stop properly first), and uninstalls it (`installer_
 
 ## On a Windows computer
 
-With Python 3.13 and [Inno Setup 6](https://jrsoftware.org/isinfo.php), from the project's folder:
+With Python 3.13 and [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install -e --id
+JRSoftware.InnoSetup`), from the project's folder, in PowerShell:
 
     pip install . pyinstaller
     pyinstaller --noconfirm packaging\windows\reality-later.spec
     python packaging\windows\smoke_test.py "dist\Reality Later"
-    iscc /DVersion=0.2.0 /DFileVersion=0.2.0.0 packaging\windows\installer.iss
+    & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=0.2.0 /DFileVersion=0.2.0.0 packaging\windows\installer.iss
 
-The program is then in `dist\Reality Later\`, and the installer is `dist\reality-later-setup.exe`.
+(Inno Setup's compiler, ISCC.exe, isn't on the PATH: `&` runs it by its full path. Installed for you
+only, it's in `%LOCALAPPDATA%\Programs\Inno Setup 6` instead.) The program is then in
+`dist\Reality Later\`, and the installer is `dist\reality-later-setup.exe`. To try the installer:
+`python packaging\windows\installer_test.py dist\reality-later-setup.exe`, with the app not running;
+it installs the app for your Windows account, then uninstalls it, leaving `%APPDATA%\Reality Later`
+(data kept, as uninstalling does).
 (`build\` and `dist\` are the build's own folders: keep them out of git.)
 
 PyInstaller builds for the system it runs on, so this only makes a Windows program on Windows. But the

@@ -5,7 +5,7 @@
 With folders of its own (as a new user's), it checks that:
   - reality-later --help answers;
   - the app starts (the console program), and its pages, its files, NiceGUI's live connection to the
-    browser and HTTPS for other devices all answer;
+    browser and HTTPS for other devices all answer, and vector search's libraries load;
   - starting it again finds the running copy;
   - `reality-later quit` stops it;
   - the program without a console starts too, writes its log (on Windows), and quits.
@@ -67,6 +67,9 @@ def main() -> int:
             network = e.code  # (an unpaired device gets the pairing page, or a refusal: HTTPS works either way)
         check(network in (200, 401, 403), f'HTTPS for other devices answers ({network})')
         check((config / 'certificates' / 'self-signed.pem').is_file(), 'its certificate is in its settings folder')
+        settings = get(LOCAL + '/settings')
+        check('Vector search' in settings and 'can\'t run on this computer' not in settings,
+              'vector search\'s libraries load (onnxruntime, tokenizers, numpy)')
 
         again = run([console, '--no-browser'], env)
         check('already running' in again, 'starting it again finds the running copy')
