@@ -32,7 +32,7 @@ def test_defaults_file_and_lookup(tmp_path):
         'chat': {'connection': {'id': conn.id, 'name': 'DeepSeek'}, 'preset': None,
                  'example_dialogues': 'make_room', 'return_key_desktop': 'send',
                  'return_key_mobile': 'new_line'},  # (the instructions now live in prompts: presets.py)
-        'lore': {'scan_depth': 2, 'case_sensitive': False, 'whole_words': False, 'recursive': True,
+        'lore': {'scan_depth': 2, 'case_sensitive': False, 'whole_words': True, 'recursive': True,
                  'budget_percent': 25},
         'memory': {'enabled': True, 'connection': None, 'instructions': '', 'budget_percent': 15,
                    'temperature': None, 'max_tokens': None},
@@ -151,10 +151,10 @@ async def test_lore_settings(setup):
     numbers['Lore budget (%)'].set_value(40)
     switches = {e.text: e for e in user.find(ui.switch).elements}
     switches['Entries can trigger other entries'].set_value(False)
-    switches['Match whole words'].set_value(True)
+    switches['Match whole words'].set_value(False)
     lore = store.load().lore
     assert (lore.scan_depth, lore.budget_percent, lore.recursive, lore.whole_words, lore.case_sensitive) == \
-        (4, 40, False, True, False)
+        (4, 40, False, False, False)
 
 
 async def test_context_size_shown(setup):

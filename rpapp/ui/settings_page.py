@@ -99,7 +99,10 @@ class SettingsSection:
             ui.label('The text of the entries that go in is searched for keywords too.') \
                 .classes('text-sm muted -mt-3 ml-12')
             form.switch(lore, 'whole_words', 'Match whole words')
-            ui.label('"sword" then doesn\'t match "swordsman".').classes('text-sm muted -mt-3 ml-12')
+            ui.label('On: "dragon" finds "dragons" and "dragon\'s", not "dragonfly". End a keyword with * to '
+                     'allow any ending: "duel*" finds "dueling". Off: keywords are found even inside words '
+                     '("art" in "start"), except those of 3 letters or fewer.') \
+                .classes('text-sm muted -mt-3 ml-12').mark('whole-words-hint')
             form.switch(lore, 'case_sensitive', 'Case-sensitive')
             ui.label('Off: "Brann" also matches "brann" and "BRANN".').classes('text-sm muted -mt-3 ml-12')
             ui.label('Entries can override these three settings, and the number of messages to scan.') \

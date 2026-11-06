@@ -6,7 +6,8 @@ persona's) are checked against the end of the chat:
 - an entry goes in when one of its keywords appears in the last few messages
   ("scan depth"), or always when it's marked constant;
 - keywords follow the entry's settings, or the global ones in Settings: case
-  sensitivity, whole words; a keyword written /like this/i is a regular expression;
+  sensitivity, whole words (key_matches: with plural endings, and any ending
+  after a *); a keyword written /like this/i is a regular expression;
 - optional secondary keywords filter further (and any / and all / not any / not all);
 - with recursion on, the text of the entries that went in is scanned too, so one
   entry can bring in another (unless the entries say otherwise);
@@ -18,7 +19,11 @@ persona's) are checked against the end of the chat:
   to come in only by meaning ignores its keywords (LoreEntry.strategy).
 
 Same rules as SillyTavern 1.19 (public/scripts/world-info.js), with the
-messages scanned as "Name: text" like SillyTavern does by default. Not applied
+messages scanned as "Name: text" like SillyTavern does by default. But keywords
+are found differently: as whole words by default, plurals included, and a * at
+the end allows any ending; keywords of 3 letters or fewer are whole words even
+with whole words off; and in languages written without spaces, keywords are
+found anywhere (see key_matches). (In SillyTavern, a * is just a *.) Not applied
 yet: trigger chance, inclusion groups, timed effects (sticky, cooldown, delay)
 and character filters; outlet entries are left out (they need a macro). The
 result lists them so the prompt view can say so.
@@ -239,21 +244,57 @@ def _match(entry: LoreEntry, sources: list[Source], settings: LoreSettings, *, c
     return f'keyword "{primary}" in {where}'
 
 
-def key_matches(key: str, text: str, *, case_sensitive: bool = False, whole_words: bool = False) -> bool:
-    """Whether a keyword appears in the text, the way SillyTavern checks it.
+SHORT_KEY = 3  # keywords this short (in letters) are always whole words: inside words, "K" is in "know"
 
-    /pattern/flags is a regular expression (flags i, m, s apply; case and whole-words settings don't).
-    With whole words, a single-word keyword must not be part of a longer word; a keyword of
-    several words is matched as written.
+# Scripts written without spaces between words (Thai, Lao, Myanmar, Khmer, Japanese, Chinese, and Korean,
+# whose words take their endings without a space): there, a keyword is found anywhere.
+_NO_SPACES = re.compile('[฀-໿က-႟ᄀ-ᇿក-៿぀-ヿ㄰-㆏'
+                        'ㇰ-ㇿ㐀-䶿一-鿿가-힯豈-﫿\U00020000-\U0003134f]')
+
+
+def key_matches(key: str, text: str, *, case_sensitive: bool = False, whole_words: bool = True) -> bool:
+    """Whether a keyword appears in the text.
+
+    - /pattern/flags is a regular expression (flags i, m, s apply; case and whole-words settings don't).
+    - With whole words, the keyword must not be part of a longer word, but it can take a plural ending
+      (s, es; x after a u, for French: "château", "châteaux"). A possessive is fine as it is ("K's":
+      the apostrophe ends the word). Written with a * at the end, it can take any ending ("duel*",
+      "dueling"). A keyword of several words is matched as a whole too, with any spaces between them.
+    - Without, it's found anywhere, even inside words, as SillyTavern does ("art" in "start"); except
+      a keyword of SHORT_KEY letters or fewer, which is a whole word anyway.
+    - In scripts written without spaces (_NO_SPACES), it's found anywhere: words have no edges to go by.
     """
     if _REGEX_KEY.match(key):
         regex = _regex(key)
         return regex is not None and regex.search(text) is not None  # an invalid pattern matches nothing
+    pattern = _word_pattern(key, case_sensitive, whole_words)
+    if pattern is not None:
+        return pattern.search(text) is not None
+    key = key.removesuffix('*')
+    if not key:
+        return False
     if not case_sensitive:
         key, text = key.lower(), text.lower()
-    if whole_words and len(key.split()) <= 1:
-        return re.search(rf'(?:^|\W){re.escape(key)}(?:$|\W)', text) is not None
     return key in text
+
+
+@functools.lru_cache(maxsize=4096)
+def _word_pattern(key: str, case_sensitive: bool, whole_words: bool) -> re.Pattern | None:
+    """The regular expression that finds the keyword as a word (see key_matches), or None to look for it
+    anywhere."""
+    any_ending = key.endswith('*')
+    key = key.removesuffix('*').strip()
+    if not key or _NO_SPACES.search(key) or not (whole_words or len(key) <= SHORT_KEY):
+        return None
+    words = r'\s+'.join(re.escape(w) for w in key.split())
+    start = r'(?<!\w)' if re.match(r'\w', key) else ''  # (a keyword starting or ending with "#", "-" or "."
+    if not re.search(r'\w$', key):                       # has its own edge there)
+        end = ''
+    elif any_ending:
+        end = r'\w*'
+    else:
+        end = r'(?i:es|s|x)?(?!\w)' if key[-1] in 'uU' else r'(?i:es|s)?(?!\w)'
+    return re.compile(start + words + end, 0 if case_sensitive else re.IGNORECASE)
 
 
 @functools.lru_cache(maxsize=512)

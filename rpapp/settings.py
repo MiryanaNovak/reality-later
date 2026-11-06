@@ -69,7 +69,7 @@ class LoreSettings(BaseModel):
 
     scan_depth: int = Field(2, ge=0, le=1000)      # how many of the last messages are scanned for keywords
     case_sensitive: bool = False
-    whole_words: bool = False
+    whole_words: bool = True                       # (plurals included, see lore.key_matches)
     recursive: bool = True                         # entries that go in can trigger others
     budget_percent: int = Field(25, ge=1, le=100)  # share of the prompt's space lore may take
 

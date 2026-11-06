@@ -226,6 +226,7 @@ def entry_editor(entry: LoreEntry, form: Form) -> None:
                          'Without it, entries come in by their keywords only.').mark('entry-strategy')
 
     with panel('Keywords', 'The entry is added when one of these appears in the recent messages. '
+                           'End one with * to allow any ending ("duel*" finds "dueling"). '
                            'Write /like this/ for a regular expression.'):
         form.chips(entry, 'key', 'Keywords', hint='Press Enter after each')
         form.select(entry, 'selectiveLogic', 'Optional filter', SELECTIVE_LOGIC)

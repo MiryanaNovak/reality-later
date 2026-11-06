@@ -28,14 +28,60 @@ def run(books, *messages, settings=None, budget=10_000, texts=None):
 def test_key_matching():
     assert key_matches('Sword', 'a sword!')                          # case-insensitive by default
     assert not key_matches('Sword', 'a sword!', case_sensitive=True)
-    assert key_matches('sword', 'swordsman')
-    assert not key_matches('sword', 'swordsman', whole_words=True)
-    assert key_matches('sword', 'my sword, then', whole_words=True)
-    assert key_matches('forêt', 'la forêt.', whole_words=True)       # accents are part of words
-    assert key_matches('silver tower', 'the silver tower', whole_words=True)  # several words: as written
+    assert key_matches('sword', 'my sword, then')
+    assert not key_matches('sword', 'swordsman')                     # whole words by default
+    assert key_matches('sword', 'swordsman', whole_words=False)      # anywhere, as SillyTavern does
+    assert key_matches('forêt', 'la forêt.')                         # accents are part of words
     assert key_matches('/silver ?towers?/i', 'The SilverTower')     # a regular expression
     assert not key_matches('/silver ?towers?/', 'The SilverTower')  # without i, case counts
     assert not key_matches('/([/', 'anything ([')                   # an invalid pattern matches nothing
+
+
+def test_whole_words_take_plurals_and_possessives():
+    for text in ('Dragons!', "the dragon's egg", 'dragons’ eggs', 'two DRAGONS'):
+        assert key_matches('dragon', text), text
+    assert not key_matches('dragon', 'a dragonfly')
+    assert key_matches('witch', 'the witches')
+    assert key_matches('château', 'les châteaux') and key_matches('Académie', "l'Académie, les académies")
+    assert not key_matches('Ma', 'Max')                              # (x only after a u: French plurals)
+    assert key_matches('DRAGON', 'DRAGONS', case_sensitive=True)    # (the ending in either case)
+    assert not key_matches('Brann', 'brann', case_sensitive=True)
+
+
+def test_star_allows_any_ending():
+    assert not key_matches('duel', 'they were dueling')
+    assert key_matches('duel*', 'they were dueling') and key_matches('duel*', 'a duel')
+    assert not key_matches('duel*', 'an aduelist')                    # still the start of a word
+    assert key_matches('duel*', 'the duelist', whole_words=False)
+    assert not key_matches('*', 'anything')
+
+
+def test_short_keywords_are_whole_words():
+    for whole in (True, False):
+        assert not key_matches('K', 'I know you think so', whole_words=whole)
+        assert not key_matches('K', 'Kate and the king', whole_words=whole)
+        assert key_matches('K', "K's blade", whole_words=whole) and key_matches('K', 'Then K nods.', whole_words=whole)
+        assert not key_matches('Eve', 'every evening, even so', whole_words=whole)
+        assert key_matches('cat', 'two cats', whole_words=whole)
+    assert key_matches('Mira', 'a miracle', whole_words=False)       # (4 letters: anywhere, with it off)
+    assert key_matches('K*', 'Kate', whole_words=False)
+
+
+def test_several_words():
+    assert key_matches('main hall', 'in the Main Halls')
+    assert key_matches('main hall', 'the main\n  hall')               # any spaces between the words
+    assert not key_matches('main hall', 'the domain hallway')
+    assert key_matches('main hall', 'the domain hallway', whole_words=False)
+
+
+def test_keywords_with_punctuation_at_an_edge():
+    assert key_matches('Dr.', 'Dr.Venn') and key_matches('#oath', 'the #oath') and key_matches('K-9', 'K-9s')
+    assert not key_matches('Dr.', 'Adr.')
+
+
+def test_languages_without_spaces():
+    assert key_matches('東京', '東京に行く') and key_matches('剣', '剣を抜いた')  # (no word edges: anywhere)
+    assert key_matches('서울', '서울에서 만나')
 
 
 def test_keywords_scan_depth_and_names():
