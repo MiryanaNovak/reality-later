@@ -7,6 +7,7 @@ So far (no network yet):
     torrents.py       a card file's torrent, made the same way every time (so, the same infohash)
     announcements.py  the format: building publications and withdrawals, and checking those received
     identity.py       the publisher's key, in a file of its own
+    catalog.py        the publications this computer knows of (SQLite): versions, names, withdrawals, blocking
 
 It needs coincurve (secp256k1's signatures): packages exist for Python 3.13 and earlier. Without it, the
 app works as before, and runtime_problem() says why sharing can't.

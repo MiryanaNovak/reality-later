@@ -4,6 +4,8 @@
     build_withdrawal()    a withdrawal of publications
     check_publication()   a publication received: what it says, or Rejected with the reason's code
     check_withdrawal()    the same, for a withdrawal
+    read_publication()    what an event already checked says (the catalog's), without checking it again
+    read_withdrawal()     the same, for a withdrawal
 
 What's built is checked like what's received: a publication this app would refuse is never made (the
 error says which rule it breaks, with the same codes). tests/card_announcements.json has the cases.
@@ -11,6 +13,7 @@ error says which rule it breaks, with the same codes). tests/card_announcements.
 from __future__ import annotations
 
 import re
+import sys
 import time
 import unicodedata
 import uuid
@@ -171,7 +174,17 @@ def check_publication(data: Any, *, now: int | None = None, size_limit: int = DE
     if schema[0][:1] != (SCHEMA,):
         raise Rejected('unsupported_schema', ' '.join(schema[0]))
     _signed(event, now=now, blocked=blocked)
+    return _read(event, size_limit)
 
+
+def read_publication(event: Event) -> Publication:
+    """What a publication checked before says (the catalog's events): its signature isn't checked again,
+    nor its date or the size limit (both may have changed since)."""
+    return _read(event, sys.maxsize)
+
+
+def _read(event: Event, size_limit: int) -> Publication:
+    """Steps 11 and 12 of the checks, and what the publication says."""
     one: dict[str, tuple[str, ...]] = {}
     for name in REQUIRED:
         values = event.tag_values(name)
@@ -228,6 +241,11 @@ def check_withdrawal(data: Any, *, now: int | None = None, blocked: Container[st
     event = _event(data)
     _common(event, KIND_WITHDRAWAL)
     _signed(event, now=now, blocked=blocked)
+    return read_withdrawal(event)
+
+
+def read_withdrawal(event: Event) -> Withdrawal:
+    """What a withdrawal says (for one checked before: the catalog's)."""
     withdrawn = tuple(dict.fromkeys(v[0] for v in event.tag_values('e')
                                     if v and len(v[0]) == 64 and _HEX.fullmatch(v[0])))
     if not withdrawn:
