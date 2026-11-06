@@ -375,6 +375,7 @@ HEAD = f'''
     background: var(--page); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%;
   }}
   .step-title {{ font-weight: 600; margin-top: 4px; }}
+  .shared-text {{ white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }}
   .browser-steps {{ margin: 0; padding-left: 1.2em; }}
   .browser-steps li {{ margin: 3px 0; }}
   .prompt-card {{ width: min(760px, calc(100vw - 24px)); max-height: 88vh; }}

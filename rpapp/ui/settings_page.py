@@ -1,5 +1,5 @@
-"""The Settings page: one folding section per topic (Chat, Lore books, Memory, Vector search, Appearance,
-Devices).
+"""The Settings page: one folding section per topic (Chat, Lore books, Memory, Vector search, Sharing cards,
+Appearance, Devices).
 
     /settings
 
@@ -32,6 +32,7 @@ from .form import NOT_SET, Form, error_text, text_stats
 from .widgets import confirm, folding_panel, page_bar
 
 if TYPE_CHECKING:
+    from .sharing_page import SharingSection
     from ..vectors import Vectorizer
 
 EXAMPLE_DIALOGUES = {
@@ -55,12 +56,14 @@ class Download:
 
 class SettingsSection:
     def __init__(self, store: SettingsStore, connections: JsonStore[Connection], access: Access | None = None,
-                 presets: JsonStore[PromptPreset] | None = None, vectors: Vectorizer | None = None) -> None:
+                 presets: JsonStore[PromptPreset] | None = None, vectors: Vectorizer | None = None,
+                 sharing: SharingSection | None = None) -> None:
         self.store = store
         self.connections = connections
         self.presets = presets
         self.devices = DevicesSection(access)
         self.vectors = vectors       # vector search (None: no section, in some tests)
+        self.sharing = sharing       # sharing cards (None: no section, in some tests)
         self.download: Download | None = None
 
     def page(self) -> None:
@@ -114,6 +117,10 @@ class SettingsSection:
         if self.vectors is not None:
             with folding_panel('Vector search', 'Memories and lore entries picked by meaning too'):
                 self._vector_search(settings, form)
+
+        if self.sharing is not None:
+            with folding_panel('Sharing cards', 'Which shared cards show, the relays, the publishers you blocked'):
+                self.sharing.settings_panel(settings, form)
 
         with folding_panel('Appearance', 'Light or dark, text size, accent color'):
             self._appearance(settings)

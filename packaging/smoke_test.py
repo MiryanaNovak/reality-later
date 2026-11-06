@@ -6,7 +6,8 @@
 As a new user's (folders of its own, or none yet), it checks that:
   - `--help` answers;
   - the app starts (the program with a console), and its pages, its files, NiceGUI's live connection to
-    the browser and HTTPS for other devices all answer, and vector search's libraries load;
+    the browser and HTTPS for other devices all answer, and vector search's and card sharing's libraries
+    load;
   - starting it again finds the running copy;
   - `quit` stops it;
   - PyInstaller's program without a console starts too, writes its log (on Windows), and quits.
@@ -85,6 +86,8 @@ def main(argv: list[str]) -> int:
         settings = get(LOCAL + '/settings')
         check('Vector search' in settings and 'can\'t run on this computer' not in settings,
               'vector search\'s libraries load (onnxruntime, tokenizers, numpy)')
+        check('Sharing cards' in settings and 'isn\'t available here' not in settings,
+              'card sharing\'s libraries load (coincurve, websockets), and its catalog opens')
 
         again = run(target.console + ['--no-browser'], target.env)
         check('already running' in again, 'starting it again finds the running copy')

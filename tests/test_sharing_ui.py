@@ -1,0 +1,221 @@
+"""The shared cards pages (rpapp/ui/sharing_page.py), with a relay of the tests' own (fake_relay.py)."""
+import asyncio
+import time
+
+import pytest
+from nicegui import ui
+from nicegui.testing import user_simulation
+
+pytest.importorskip('coincurve', reason='coincurve (sharing cards) is installed for Python 3.13 and earlier')
+
+from fake_relay import FakeRelay  # noqa: E402
+
+from rpapp.publishing import announcements as fmt  # noqa: E402
+from rpapp.publishing import nostr, torrents  # noqa: E402
+from rpapp.publishing.announcements import PublicationDraft  # noqa: E402
+from rpapp.publishing.catalog import Catalog  # noqa: E402
+from rpapp.settings import SettingsStore  # noqa: E402
+from rpapp.ui.app import build_root  # noqa: E402
+
+MARIE, JUNO = nostr.new_secret(), nostr.new_secret()
+T0 = 1767225600
+SLOW = 50  # (should_see's tries, 0.1 s apart: for what comes from the relay)
+
+
+def card(secret, title, *, at, uuid=None, name='Marie', rating='sfw', tags=(), description='', content=None):
+    return fmt.build_publication(
+        PublicationDraft(publisher_name=name, card_name=title, card_description=description, card_tags=tags,
+                         content_rating=rating, language='en'),
+        torrents.card_file(content or f'{title} {at}'.encode()), card_uuid=uuid or fmt.new_card_uuid(),
+        secret=secret, created_at=at)
+
+
+ARIA_UUID = fmt.new_card_uuid()
+ARIA_1 = card(MARIE, 'Aria the Wanderer', at=T0, uuid=ARIA_UUID, tags=('fantasy', 'travel'),
+              description='A wandering bard.\nShe sings of old roads.')
+ARIA_2 = card(MARIE, 'Aria the Wanderer', at=T0 + 3600, uuid=ARIA_UUID, name='Marie L.', tags=('fantasy', 'travel'),
+              description='A wandering bard, now with a lute.')
+BRAM = card(MARIE, 'Bram after Dark', at=T0 + 100, rating='nsfw', tags=('romance',))
+CASS = card(JUNO, 'Cass of the Station', at=T0 + 200, name='Juno', tags=('sci-fi', 'futuristic'))
+ALL = [ARIA_1, ARIA_2, BRAM, CASS]
+
+
+@pytest.fixture
+async def relay():
+    async with FakeRelay() as fake:
+        fake.add(*(p.event.to_dict() for p in ALL))
+        yield fake
+
+
+@pytest.fixture
+async def user(tmp_path, relay):
+    async with user_simulation(build_root(tmp_path, sharing_relays=[relay.url])) as user:
+        yield user
+
+
+async def wait_for(condition, timeout=5.0):
+    for _ in range(int(timeout / 0.05)):
+        if condition():
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError('never happened')
+
+
+# --- the catalog ------------------------------------------------------------------------------------
+
+async def test_looking_when_opened_and_what_shows(user):
+    await user.open('/')
+    user.find(marker='nav-shared-cards').click()
+    await user.should_see('Aria the Wanderer', retries=SLOW)       # (found on the relay as the page opened)
+    await user.should_see('Cass of the Station', retries=SLOW)
+    await user.should_see('A wandering bard, now with a lute.', retries=SLOW)  # (its latest version only)
+    await user.should_not_see('Bram after Dark')     # (NSFW: hidden by default)
+    await user.should_see('Marie L.', retries=SLOW)                # (the current name)
+    await user.should_see('4 new publications', retries=SLOW)  # (Bram's too, and Aria's first version)
+
+
+async def test_nsfw_cards_when_asked(user, tmp_path):
+    await user.open('/shared')
+    await user.should_see('Aria the Wanderer', retries=SLOW)
+    user.find(marker='shared-nsfw').elements.pop().set_value(True)
+    await user.should_see('Bram after Dark', retries=SLOW)
+    assert SettingsStore(tmp_path).load().sharing.show_nsfw  # (remembered)
+
+
+async def test_searching_and_tags(user):
+    await user.open('/shared')
+    await user.should_see('Cass of the Station', retries=SLOW)
+    user.find(marker='shared-search').type('station')
+    await user.should_see('Cass of the Station', retries=SLOW)
+    await user.should_not_see('Aria the Wanderer')
+    await user.open('/shared?tag=fantasy')
+    await user.should_see('Aria the Wanderer', retries=SLOW)
+    await user.should_not_see('Cass of the Station')
+
+
+async def test_hidden_tags(user, tmp_path):
+    store = SettingsStore(tmp_path)
+    settings = store.load()
+    settings.sharing.hidden_tags = ['Futuristic']
+    store.save(settings)
+    await user.open('/shared')
+    await user.should_see('Aria the Wanderer', retries=SLOW)
+    await user.should_not_see('Cass of the Station')
+
+
+async def test_looking_again(user, relay):
+    await user.open('/shared')
+    await user.should_see('Aria the Wanderer', retries=SLOW)
+    relay.add(card(JUNO, 'Dove of the Harbour', at=int(time.time()), name='Juno').event.to_dict())  # (new)
+    user.find(marker='shared-look').click()
+    await user.should_see('Dove of the Harbour', retries=SLOW)
+
+
+async def test_pages_of_cards(tmp_path):
+    many = [card(JUNO, f'Card number {i:02}', at=T0 + i, name='Juno') for i in range(60)]
+    async with FakeRelay() as relay:
+        relay.add(*(p.event.to_dict() for p in many))
+        async with user_simulation(build_root(tmp_path, sharing_relays=[relay.url])) as user:
+            await user.open('/shared')
+            await user.should_see('Card number 59', retries=SLOW)
+            await user.should_not_see('Card number 05')  # (the first 50: the newest)
+            user.find(marker='shared-more').click()
+            await user.should_see('Card number 05', retries=SLOW)
+
+
+async def test_no_relays(tmp_path):
+    async with user_simulation(build_root(tmp_path, sharing_relays=())) as user:
+        await user.open('/shared')
+        await user.should_see('No shared cards yet', retries=SLOW)
+        await user.should_see('No relays to look on', retries=SLOW)
+
+
+# --- one card ---------------------------------------------------------------------------------------
+
+async def test_a_cards_page(user):
+    await user.open('/shared')
+    await user.should_see('Aria the Wanderer', retries=SLOW)
+    user.find(marker=f'row-{ARIA_2.event_id}').click()
+    await user.should_see('A wandering bard, now with a lute.', retries=SLOW)
+    await user.should_see('Marie L.', retries=SLOW)
+    await user.should_see('Also known as: Marie', retries=SLOW)
+    await user.should_see(nostr.to_npub(ARIA_2.publisher_id), retries=SLOW)
+    await user.should_see('Character card V2', retries=SLOW)
+    await user.should_see(marker='shared-versions', retries=SLOW)
+    await user.should_see('(this one)', retries=SLOW)
+
+    user.find(marker=f'shared-version-{ARIA_1.event_id}').click()  # the older version
+    await user.should_see('An older version of this card.', retries=SLOW)
+    await user.should_see('She sings of old roads.', retries=SLOW)
+    await user.should_see('Published this as "Marie".', retries=SLOW)
+    user.find(marker='shared-tag-fantasy').click()
+    await user.should_see(marker='shared-tags', retries=SLOW)
+
+
+async def test_a_withdrawn_card(user, relay, tmp_path):
+    withdrawal = fmt.build_withdrawal([CASS.event_id], secret=JUNO, reason='Published by mistake.', created_at=T0 + 999)
+    relay.add(withdrawal.event.to_dict())
+    await user.open('/shared')
+    await user.should_see('Aria the Wanderer', retries=SLOW)
+    await user.should_not_see('Cass of the Station')
+    await user.open(f'/shared/{CASS.event_id}')  # (for those who have it)
+    await user.should_see('Withdrawn by its publisher', retries=SLOW)
+    await user.should_see('Their reason: Published by mistake.', retries=SLOW)
+
+
+async def test_an_unknown_card(user):
+    await user.open('/shared/' + '0' * 64)
+    await user.should_see('Shared card not found', retries=SLOW)
+
+
+async def test_blocking_and_unblocking(user, tmp_path):
+    await user.open('/shared')
+    await user.should_see('Cass of the Station', retries=SLOW)
+    await user.open(f'/shared/{CASS.event_id}')
+    await user.should_see('Cass of the Station', retries=SLOW)
+    user.find(marker='menu-block-this-publisher').click()
+    await user.should_see(marker='confirm-dialog', retries=SLOW)
+    with user.scope(marker='confirm-dialog'):
+        user.find(kind=ui.button, content='Block').click()
+    await user.should_see('Blocked Juno', retries=SLOW)
+    await user.should_see('Aria the Wanderer', retries=SLOW)
+    await user.should_not_see('Cass of the Station')
+
+    await user.open('/settings')
+    await user.should_see('Juno', retries=SLOW)  # (blocked, with the name they had)
+    user.find(marker=f'unblock-{CASS.publisher_id}').click()
+    await user.should_see('Unblocked Juno', retries=SLOW)
+    with Catalog(tmp_path / 'sharing' / 'catalog.sqlite3') as catalog:  # (their cards back from the relay)
+        await wait_for(lambda: catalog.get(CASS.event_id) is not None)
+
+
+# --- Settings › Sharing cards -------------------------------------------------------------------------
+
+async def test_the_relays_in_settings(user, relay, tmp_path):
+    await user.open('/settings')
+    await user.should_see(relay.url)
+    new = user.find(marker='sharing-new-relay')
+    new.type('https://not.a.relay')
+    user.find(marker='sharing-add-relay').click()
+    await user.should_see('A relay\'s address starts with wss://')
+    new.clear().type('wss://Relay.Example.org/')
+    user.find(marker='sharing-add-relay').click()
+    await user.should_see('wss://relay.example.org', retries=SLOW)
+    user.find(marker=f'relay-remove-{relay.url}').click()
+    await user.should_not_see(relay.url)
+    with Catalog(tmp_path / 'sharing' / 'catalog.sqlite3') as catalog:
+        assert [r.url for r in catalog.relays()] == ['wss://relay.example.org']
+    user.find(marker='sharing-defaults').click()
+    await user.should_see('wss://relay.damus.io', retries=SLOW)
+    await user.should_see('None. To block one, open one of their cards.', retries=SLOW)
+
+
+async def test_when_sharing_cant_run(tmp_path, monkeypatch):
+    monkeypatch.setattr('rpapp.ui.app.sharing_problem', lambda: 'a library it needs is missing (coincurve)')
+    async with user_simulation(build_root(tmp_path)) as user:
+        await user.open('/shared')
+        await user.should_see('Sharing cards isn\'t available here')
+        await user.should_see('coincurve', retries=SLOW)
+        await user.open('/settings')
+        await user.should_see(marker='sharing-unavailable')  # (what the packages' smoke test looks for)
+        assert 'isn\'t available here' in user.find(marker='sharing-unavailable').elements.pop().text

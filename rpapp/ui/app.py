@@ -7,7 +7,7 @@ title and name, from ProfileSection (see characters_page.py).
 """
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from nicegui import app, ui
@@ -23,6 +23,7 @@ from ..lorebooks import lore_book_store
 from ..launcher import ServerInfo
 from ..personas import PersonaStore
 from ..presets import preset_store, set_up_presets
+from ..publishing import runtime_problem as sharing_problem
 from ..replies import Replies
 from ..vectors import Vectorizer
 from ..settings import SettingsStore
@@ -38,6 +39,7 @@ from .lorebooks_page import LoreBooksSection
 from .personas_page import PersonasSection
 from .presets_page import PresetsSection
 from .settings_page import SettingsSection
+from .sharing_page import SharingSection
 from .widgets import bar_slot, clearing_bar
 
 # Menu entries: (path, label, icon). Icons: https://fonts.google.com/icons
@@ -45,6 +47,7 @@ SECTIONS = [
     ('/', 'Home', 'home'),
     ('/conversations', 'Conversations', 'forum'),
     ('/characters', 'Characters', 'theater_comedy'),
+    ('/shared', 'Shared cards', 'travel_explore'),
     ('/personas', 'Personas', 'face'),
     ('/lorebooks', 'Lore books', 'auto_stories'),
     ('/prompts', 'Prompts', 'description'),
@@ -55,12 +58,14 @@ COMPUTER = ('/computer', 'This computer', 'computer')  # only on the computer th
 
 
 def build_root(data_dir: str | Path, *, access: Access | None = None,
-               server: ServerInfo | None = None, models: str | Path | None = None) -> Callable[[], None]:
+               server: ServerInfo | None = None, models: str | Path | None = None,
+               sharing_relays: Iterable[str] | None = None) -> Callable[[], None]:
     """Return the function NiceGUI calls to build the page for every browser tab.
 
     `access`: who may use the app (see access.py); None when pairing isn't set up (tests).
     `server`: how the app runs, for the "This computer" page (the defaults if not given: tests).
     `models`: the folder of vector search's models (paths.Places.models; <data_dir>/models if not given).
+    `sharing_relays`: the relays a new sharing catalog starts with (publishing/service.py's if not given).
     """
     theme.setup()
     server = server or ServerInfo(Config(folder=Path(data_dir)), None, Path(data_dir))
@@ -83,13 +88,16 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
                       presets=presets.collection.store, vectors=vectors)
     conversations = ConversationsSection(conversation_store, characters, personas, replies)
     lorebooks = LoreBooksSection(lore_books, users=[characters, personas])
+    shared = _sharing(data_dir, settings_store, sharing_relays)
     settings = SettingsSection(settings_store, connections.collection.store, access, presets.collection.store,
-                               vectors=vectors)
+                               vectors=vectors, sharing=shared)
     home = HomePage(connections=connections.collection.store, settings=settings_store, home=HomeStore(data_dir),
                     conversations=conversation_store, characters=characters, personas=personas,
                     access=access, server=server)
     app.on_shutdown(replies.stop_all)
     app.on_shutdown(vectors.stop)
+    if shared.sharing is not None:
+        app.on_shutdown(shared.sharing.close)
     app.on_shutdown(settings_store.flush)
     app.on_shutdown(conversation_store.memories.flush)
     for store in (connections.collection.store, lorebooks.store, personas.store, characters.store,
@@ -152,6 +160,8 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
             '/personas/{item_id}': personas.edit_page,
             '/characters': characters.list_page,
             '/characters/{item_id}': characters.edit_page,
+            '/shared': shared.list_page,
+            '/shared/{event_id}': shared.card_page,
             '/conversations': conversations.list_page,
             '/conversations/{conversation_id}': conversations.chat_page,
             '/conversations/{conversation_id}/memories': conversations.memories_page,
@@ -162,3 +172,16 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
             ui.sub_pages({path: clearing_bar(page) for path, page in pages.items()}).classes('w-full')
 
     return root
+
+
+def _sharing(data_dir: str | Path, settings: SettingsStore, relays: Iterable[str] | None) -> SharingSection:
+    """Card sharing (publishing/service.py), or why it can't run here: a missing library, a damaged catalog."""
+    if problem := sharing_problem():
+        return SharingSection(None, settings, problem=f'It needs Python 3.13 or earlier: {problem}.')
+    from ..publishing.catalog import CatalogError
+    from ..publishing.service import DEFAULT_RELAYS, Sharing
+    try:
+        return SharingSection(Sharing(data_dir, default_relays=DEFAULT_RELAYS if relays is None else relays),
+                              settings)
+    except CatalogError as e:
+        return SharingSection(None, settings, problem=str(e))

@@ -108,6 +108,15 @@ class AppearanceSettings(BaseModel):
     accent: str = 'jade'  # one of ui/theme.py's ACCENTS (an unknown one shows as the default)
 
 
+class SharingSettings(BaseModel):
+    """Which shared cards to show (see rpapp/publishing/ and ui/sharing_page.py). The relays are in the
+    sharing catalog, with how far discovery is on each."""
+    model_config = ConfigDict(extra='ignore', validate_assignment=True)
+
+    show_nsfw: bool = False                                  # cards their publisher rated NSFW
+    hidden_tags: list[str] = Field(default_factory=list)     # cards with any of these aren't shown
+
+
 class Settings(StoredModel):
     id: str = SETTINGS_ID
     name: str = Field('', exclude=True)  # from StoredModel; settings have no name
@@ -115,6 +124,7 @@ class Settings(StoredModel):
     lore: LoreSettings = Field(default_factory=LoreSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     vectors: VectorSettings = Field(default_factory=VectorSettings)
+    sharing: SharingSettings = Field(default_factory=SharingSettings)
     appearance: AppearanceSettings = Field(default_factory=AppearanceSettings)
 
 

@@ -1,6 +1,8 @@
 """Nostr's basics: events (NIP-01), their id and their signature (BIP-340, with coincurve), and keys
 written as npub / nsec (NIP-19).
 
+coincurve is only imported when signing or checking a signature.
+
 An event's id is the SHA-256 of [0, pubkey, created_at, kind, tags, content] written as JSON without
 spaces, in UTF-8 as is. Python's json writes that for any text without control characters other than
 tab, line feed and carriage return: the card format refuses the others (docs/card-announcements.md,
@@ -14,8 +16,6 @@ import os
 import re
 from dataclasses import dataclass
 from typing import Any
-
-import coincurve
 
 HEX = re.compile(r'[0-9a-f]*')
 
@@ -93,8 +93,8 @@ class Event:
     def has_valid_signature(self) -> bool:
         """Its signature is its pubkey's, for its id. (Its id must be checked too: has_valid_id.)"""
         try:
-            return coincurve.PublicKeyXOnly(bytes.fromhex(self.pubkey)).verify(bytes.fromhex(self.sig),
-                                                                               bytes.fromhex(self.id))
+            return _curve().PublicKeyXOnly(bytes.fromhex(self.pubkey)).verify(bytes.fromhex(self.sig),
+                                                                              bytes.fromhex(self.id))
         except ValueError:  # (a pubkey that isn't a point of the curve)
             return False
 
@@ -115,8 +115,8 @@ def sign(secret: bytes, *, kind: int, tags, content: str, created_at: int, aux: 
     pubkey = public_key(secret)
     tags = tuple(tuple(t) for t in tags)
     digest = event_id(pubkey, created_at, kind, tags, content)
-    sig = coincurve.PrivateKey(secret).sign_schnorr(bytes.fromhex(digest),
-                                                    aux_randomness=os.urandom(32) if aux is None else aux)
+    sig = _curve().PrivateKey(secret).sign_schnorr(bytes.fromhex(digest),
+                                                   aux_randomness=os.urandom(32) if aux is None else aux)
     return Event(id=digest, pubkey=pubkey, created_at=created_at, kind=kind, tags=tags, content=content,
                  sig=sig.hex())
 
@@ -133,7 +133,7 @@ def new_secret() -> bytes:
 
 def is_valid_secret(secret: bytes) -> bool:
     try:
-        coincurve.PrivateKey(secret)
+        _curve().PrivateKey(secret)
         return len(secret) == 32
     except ValueError:
         return False
@@ -141,7 +141,7 @@ def is_valid_secret(secret: bytes) -> bool:
 
 def public_key(secret: bytes) -> str:
     """The public key of a secret key, as Nostr writes it: 64 hex digits (its x coordinate)."""
-    return coincurve.PublicKeyXOnly.from_secret(secret).format().hex()
+    return _curve().PublicKeyXOnly.from_secret(secret).format().hex()
 
 
 def to_npub(pubkey: str) -> str:
@@ -219,6 +219,13 @@ def bech32_decode(text: str) -> tuple[str, bytes]:
     if _polymod(_expand(prefix) + words) != 1:
         raise ValueError('wrong checksum: a character is missing or mistyped')
     return prefix, bytes(_regroup(words[:-6], 5, 8, False))
+
+
+def _curve():
+    """coincurve, imported when first needed: without it (Python 3.14 for now), the rest of the package can
+    still be imported, and npub / nsec still written (publishing.runtime_problem() says what's missing)."""
+    import coincurve
+    return coincurve
 
 
 def _is_hex(value: Any, length: int) -> bool:

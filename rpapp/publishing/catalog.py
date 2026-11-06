@@ -146,6 +146,10 @@ MIGRATIONS = [
         PRIMARY KEY (relay_url, what)
     ) WITHOUT ROWID;
     """,
+    # 3: a blocked publisher's name, as it was when they were blocked (their publications are gone)
+    """
+    ALTER TABLE blocked_publishers ADD COLUMN name TEXT NOT NULL DEFAULT '';
+    """,
 ]
 
 
@@ -264,6 +268,17 @@ class RelayInfo:
         """Older ones still to get from it (for everything asked, together)."""
         gaps = [p.gap for _, p in self.points if p.gap]
         return (min(g[0] for g in gaps), max(g[1] for g in gaps)) if gaps else None
+
+
+@dataclass(frozen=True, slots=True)
+class BlockedPublisher:
+    public_key: str
+    name: str                            # their current name when they were blocked ('' if unknown)
+    blocked_at: int
+
+    @property
+    def npub(self) -> str:
+        return to_npub(self.public_key)
 
 
 @dataclass(frozen=True, slots=True)
@@ -510,12 +525,15 @@ class Catalog:
         now = int(time.time())
         with self._write():
             marks = ','.join('?' * len(ids))
+            names = {i: (self._db.execute('SELECT published_name FROM live_publications WHERE publisher_key = ? '
+                                          'ORDER BY created_at DESC, event_id LIMIT 1', (i,)).fetchone() or [''])[0]
+                     for i in ids}
             purged = tuple(row[0] for row in self._db.execute(
                 f'SELECT event_id FROM publications WHERE publisher_key IN ({marks})', ids))
             self._db.execute(f'DELETE FROM publications WHERE publisher_key IN ({marks})', ids)
             self._db.execute(f'DELETE FROM withdrawals WHERE publisher_key IN ({marks})', ids)
-            self._db.executemany('INSERT INTO blocked_publishers (public_key, blocked_at) VALUES (?, ?) '
-                                 'ON CONFLICT DO NOTHING', [(i, now) for i in ids])
+            self._db.executemany('INSERT INTO blocked_publishers (public_key, blocked_at, name) VALUES (?, ?, ?) '
+                                 'ON CONFLICT DO NOTHING', [(i, now, names[i]) for i in ids])
             self._blocked |= set(ids)
         return BlockResult(ids, purged)
 
@@ -531,6 +549,13 @@ class Catalog:
         with self._lock:
             return tuple(row[0] for row in self._db.execute(
                 'SELECT public_key FROM blocked_publishers ORDER BY blocked_at DESC, public_key'))
+
+    def blocked_publishers(self) -> tuple[BlockedPublisher, ...]:
+        """Who's blocked, the most recently first, with the name they had."""
+        with self._lock:
+            rows = self._db.execute('SELECT public_key, name, blocked_at FROM blocked_publishers '
+                                    'ORDER BY blocked_at DESC, public_key').fetchall()
+            return tuple(BlockedPublisher(row['public_key'], row['name'], row['blocked_at']) for row in rows)
 
     def is_blocked(self, publisher_id: str) -> bool:
         return publisher_id in self._blocked
@@ -605,6 +630,7 @@ class Catalog:
 
     def _migrate(self) -> None:
         version = self._db.execute('PRAGMA user_version').fetchone()[0]
+        self.created = version == 0  # (a new catalog: the app adds its default relays)
         if version > len(MIGRATIONS):
             raise CatalogError(f'The catalog of shared cards ({self.path}) was made by a newer version of the app: '
                                f'update it, or delete the catalog to start a new one.')
