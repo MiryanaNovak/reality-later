@@ -57,7 +57,7 @@ jobs:
           pyinstaller --noconfirm packaging/windows/reality-later.spec
 
       - name: Check it works
-        run: python packaging/windows/smoke_test.py "dist/Reality Later"
+        run: python packaging/smoke_test.py "dist/Reality Later"
 
       - name: The zip
         shell: pwsh

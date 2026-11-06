@@ -11,6 +11,15 @@ that installs on any Linux with Flatpak. It's for the GitHub releases, not Flath
   `reality-later-aarch64.flatpak` are attached to that version's release;
 - or run it by hand (Actions › Flatpak › Run workflow): the files are in the run's artifacts.
 
+Before handing them out, it checks them there: the tests, on Linux; then each `.flatpak` is
+installed on a fresh Ubuntu, as anyone would (the base system downloading from Flathub), and
+`packaging/smoke_test.py --flatpak io.github.MiryanaNovak.RealityLater` starts it and checks that its
+pages, files and HTTPS answer, that vector search's libraries load, and that `quit` stops it. The ARM
+one too, on GitHub's ARM machines.
+
+That test is for a computer where the app has no files yet: on yours, with its folder in
+`~/.var/app/`, it stops rather than use your data (and quit the app if it runs).
+
 ## On your computer
 
 Once, the tools and the base system (it comes from Flathub, even though the app doesn't):

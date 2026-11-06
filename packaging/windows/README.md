@@ -26,7 +26,7 @@ The program is a folder (`Reality Later\`):
 - or run it by hand (Actions › Windows › Run workflow): the files are in the run's artifacts.
 
 Before handing them out, it checks them there: the tests, on Windows; the program starts, and its
-pages, files and HTTPS answer (`smoke_test.py`); and the installer installs it, installs again over a
+pages, files and HTTPS answer (`packaging/smoke_test.py`, used for the Flatpak too); and the installer installs it, installs again over a
 running copy (which it must stop properly first), and uninstalls it (`installer_test.py`).
 
 ## On a Windows computer
@@ -36,7 +36,7 @@ JRSoftware.InnoSetup`), from the project's folder, in PowerShell:
 
     pip install . pyinstaller
     pyinstaller --noconfirm packaging\windows\reality-later.spec
-    python packaging\windows\smoke_test.py "dist\Reality Later"
+    python packaging\smoke_test.py "dist\Reality Later"
     & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DVersion=0.2.0 /DFileVersion=0.2.0.0 packaging\windows\installer.iss
 
 (Inno Setup's compiler, ISCC.exe, isn't on the PATH: `&` runs it by its full path. Installed for you
@@ -49,7 +49,7 @@ it installs the app for your Windows account, then uninstalls it, leaving `%APPD
 
 PyInstaller builds for the system it runs on, so this only makes a Windows program on Windows. But the
 same build file works on Linux and macOS too, for that system: a way to try a change to it without
-Windows (`smoke_test.py` runs on those too).
+Windows (`packaging/smoke_test.py` runs on those too).
 
 ## For the people who install it
 

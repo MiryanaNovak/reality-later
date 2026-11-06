@@ -1,7 +1,8 @@
 # The Flatpak, built on GitHub's machines: for Intel/AMD (x86_64) and ARM (aarch64) computers.
 # On a version tag (git tag v0.2.0 && git push --tags), the two .flatpak files are attached to that
-# version's release. Run it by hand too (Actions › Flatpak › Run workflow): the files are then in the
-# run's artifacts. See packaging/flatpak/README.md.
+# version's release, once checked: the tests pass on Linux, and each file installs on a fresh Ubuntu
+# and the app starts and answers (packaging/smoke_test.py). Run it by hand too (Actions › Flatpak ›
+# Run workflow): the files are then in the run's artifacts. See packaging/flatpak/README.md.
 name: Flatpak
 
 on:
@@ -13,8 +14,22 @@ permissions:
   contents: write  # to attach the files to the release
 
 jobs:
+  test:
+    name: Tests on Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'  # (the Flatpak's: its Freedesktop 25.08 runtime has Python 3.13)
+      - name: D-Bus, for the tray icon's tests
+        run: command -v dbus-daemon || (sudo apt-get update && sudo apt-get install -y --no-install-recommends dbus)
+      - run: pip install -e . pytest pytest-asyncio
+      - run: python -m pytest -q
+
   flatpak:
     name: Flatpak (${{ matrix.arch }})
+    needs: test
     strategy:
       fail-fast: false
       matrix:
@@ -33,12 +48,46 @@ jobs:
       - uses: actions/checkout@v4
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          bundle: reality-later-${{ matrix.arch }}.flatpak
+          bundle: reality-later-${{ matrix.arch }}.flatpak  # (also in the run's artifacts: the next job takes it there)
           manifest-path: packaging/flatpak/io.github.MiryanaNovak.RealityLater.yml
           arch: ${{ matrix.arch }}
           cache-key: flatpak-builder-${{ github.sha }}
+
+  smoke:
+    name: Smoke test (${{ matrix.arch }})
+    needs: flatpak
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}  # (not in the build's container: a plain Ubuntu, as the people installing it have)
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get the .flatpak just built
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*${{ matrix.arch }}*'
+          path: bundle
+          merge-multiple: true
+      - name: Install it, as anyone would (the runtime comes from Flathub)
+        run: |
+          ls -l bundle
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak dbus
+          # Ubuntu 24.04 lets only the programs it knows make sandboxes (with user namespaces), as
+          # Flatpak does to run an app: a desktop's Flatpak may; on this test machine, everyone may.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y --noninteractive bundle/*.flatpak
+      - name: Smoke test
+        # (with a session bus of its own, as on a desktop)
+        run: dbus-run-session -- python3 packaging/smoke_test.py --flatpak io.github.MiryanaNovak.RealityLater
       - name: Attach it to the release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: reality-later-${{ matrix.arch }}.flatpak
+          files: bundle/*.flatpak
