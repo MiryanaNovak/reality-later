@@ -18,7 +18,7 @@
       "max_tokens": 256,
       "query_prefix": "",
       "passage_prefix": "",
-      "threshold": 0.3,
+      "threshold": 0.45,
       "approx_mb": 23
     },
     {
@@ -38,7 +38,7 @@
       "max_tokens": 512,
       "query_prefix": "",
       "passage_prefix": "",
-      "threshold": 0.58,
+      "threshold": 0.6,
       "approx_mb": 34
     },
     {
@@ -58,7 +58,7 @@
       "max_tokens": 512,
       "query_prefix": "query: ",
       "passage_prefix": "passage: ",
-      "threshold": 0.79,
+      "threshold": 0.81,
       "approx_mb": 135
     }
   ]
