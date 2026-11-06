@@ -87,10 +87,16 @@ def test_position_and_role_follow_sillytavern():
 
 def test_strategy():
     entry = LoreEntry(uid=0)
+    assert entry.strategy == 'both'  # by default: a keyword, or (with vector search) the meaning
+    assert LoreEntry(uid=1, vectorized=True).strategy == 'both'  # (SillyTavern's flag doesn't decide)
     entry.set_strategy('constant')
-    assert (entry.constant, entry.vectorized, entry.strategy) == (True, False, 'constant')
-    entry.set_strategy('vectorized')
-    assert (entry.constant, entry.vectorized, entry.strategy) == (False, True, 'vectorized')
+    assert (entry.constant, entry.onlyBy, entry.strategy) == (True, '', 'constant')
+    entry.set_strategy('meaning')
+    assert (entry.constant, entry.onlyBy, entry.vectorized, entry.strategy) == (False, 'meaning', True, 'meaning')
+    entry.set_strategy('keywords')
+    assert (entry.onlyBy, entry.vectorized, entry.strategy) == ('keywords', False, 'keywords')
+    entry.set_strategy('both')
+    assert (entry.onlyBy, entry.vectorized, entry.strategy) == ('', True, 'both')
 
 
 def test_export_file_names():

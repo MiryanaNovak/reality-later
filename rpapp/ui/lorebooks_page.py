@@ -25,10 +25,11 @@ from .widgets import confirm, folding_panel, not_found, page_header, panel
 if TYPE_CHECKING:
     from .profile_page import ProfileSection
 
-STRATEGY_ICONS = {  # the colors SillyTavern uses: blue circle, green circle, chain link
+STRATEGY_ICONS = {  # SillyTavern's colors: blue circle (always), green circle (keywords), chain link (meaning)
+    'both': ('join_inner', 'teal-6'),
+    'keywords': ('circle', 'green-6'),
+    'meaning': ('link', 'purple-5'),
     'constant': ('circle', 'blue-6'),
-    'normal': ('circle', 'green-6'),
-    'vectorized': ('link', 'purple-5'),
 }
 
 
@@ -220,7 +221,9 @@ def entry_editor(entry: LoreEntry, form: Form) -> None:
     with panel('Entry'):
         form.switch(entry, 'disable', 'Enabled', invert=True)
         form.text(entry, 'comment', 'Title', hint='For you only, never sent to the model')
-        form.choice('When to include it', STRATEGIES, get=lambda: entry.strategy, set=entry.set_strategy)
+        form.choice('When to include it', STRATEGIES, get=lambda: entry.strategy, set=entry.set_strategy,
+                    hint='By meaning: when vector search is on for lore books (Settings › Vector search). '
+                         'Without it, entries come in by their keywords only.').mark('entry-strategy')
 
     with panel('Keywords', 'The entry is added when one of these appears in the recent messages. '
                            'Write /like this/ for a regular expression.'):
