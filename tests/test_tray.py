@@ -169,7 +169,10 @@ def test_windows_taskbar_light_or_dark():
     def no_setting():
         raise OSError('no such value')
     assert tray.windows_taskbar_is_light(no_setting) is False  # dark, if unknown: white icon
-    assert tray.windows_taskbar_is_light() is False  # (not Windows: no registry)
+    if sys.platform == 'win32':  # the computer's own setting: it varies (light on GitHub's machines)
+        assert tray.windows_taskbar_is_light() in (True, False)
+    else:
+        assert tray.windows_taskbar_is_light() is False  # (no registry)
 
 
 # --- Windows and macOS: pystray ---------------------------------------------------------------------
