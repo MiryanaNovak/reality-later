@@ -39,7 +39,7 @@ from ..publishing.nostr import to_npub
 from ..publishing.seeder import TorrentStatus
 from ..publishing.service import DEFAULT_RELAYS, Published, Sharing, SharingError, torrent_problem
 from ..settings import Settings, SettingsStore
-from .form import Form
+from .form import Form, keep_typed
 from .list_view import Row, plural, render_row
 from .widgets import confirm, not_found, page_bar, panel, time_ago
 
@@ -176,7 +176,8 @@ class SharingSection:
             with search.add_slot('prepend'):
                 ui.icon('search')
             with ui.row().classes('w-full items-center no-wrap gap-3'):
-                tags = ui.input_chips('Tags', value=[tag] if tag else [], new_value_mode='add-unique') \
+                tags = keep_typed(ui.input_chips('Tags', value=[tag] if tag else [], new_value_mode='add-unique'),
+                                  split=',') \
                     .props('outlined dense clearable hide-bottom-space').classes('grow').mark('shared-tags')
                 nsfw = ui.switch('Show NSFW', value=settings.sharing.show_nsfw).mark('shared-nsfw')
             if publisher:
@@ -625,11 +626,11 @@ class SharingSection:
                     'Description', value=last.card_description if last else character.description.strip()) \
                     .props('outlined autogrow').classes('w-full').mark('publish-description')
                 ui.label('What people read before downloading it.').classes('text-sm muted -mt-3')
-                fields['tags'] = ui.input_chips('Tags', value=list(last.card_tags) if last else [],
-                                                new_value_mode='add-unique') \
+                fields['tags'] = keep_typed(ui.input_chips('Tags', value=list(last.card_tags) if last else [],
+                                                           new_value_mode='add-unique'), split=',') \
                     .props('outlined dense clearable hide-bottom-space').classes('w-full').mark('publish-tags')
-                ui.label(f'Press Enter after each: {fmt.MAX_CARD_TAGS} at most, e.g. fantasy, romance, '
-                         f'sci-fi.').classes('text-sm muted -mt-3')
+                ui.label(f'Press Enter after each, or separate them with commas: {fmt.MAX_CARD_TAGS} at most, '
+                         f'e.g. fantasy, romance, sci-fi.').classes('text-sm muted -mt-3')
                 with ui.row().classes('w-full items-center gap-x-6 gap-y-1'):
                     with ui.column().classes('gap-0'):
                         ui.label('Rated').classes('text-sm muted')
@@ -845,8 +846,9 @@ class SharingSection:
         form.switch(settings.sharing, 'show_nsfw', 'Show NSFW cards').mark('sharing-nsfw')
         ui.label('Cards their publisher rated NSFW. It\'s their own rating: nobody checks it.') \
             .classes('text-sm muted -mt-3 ml-12')
-        form.chips(settings.sharing, 'hidden_tags', 'Tags to hide',
-                   hint='Cards with any of these tags aren\'t shown. Press Enter after each.') \
+        form.chips(settings.sharing, 'hidden_tags', 'Tags to hide', split=',',
+                   hint='Cards with any of these tags aren\'t shown. Press Enter after each, or separate them '
+                        'with commas.') \
             .mark('sharing-hidden-tags')
         if self.sharing is None:
             ui.label(f'Sharing cards isn\'t available here. {self.problem or runtime_problem()}') \

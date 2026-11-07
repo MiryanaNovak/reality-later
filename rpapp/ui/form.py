@@ -9,10 +9,13 @@ applied. After each accepted change, `on_change` runs (the editor uses it to sav
     form.number(conn.params, 'temperature', 'Temperature', min=0, max=2, step=0.05)
 
 For values that aren't a plain attribute, use form.bind(element, get, set).
+
+Lists of free-form values (form.chips) add a value on Enter, and also when the field is left with a
+value typed in it (keep_typed): that one isn't silently lost.
 """
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from nicegui import ui
@@ -98,9 +101,11 @@ class Form:
         element.props('use-chips')
         return self._wire_attr(element, obj, attr, hint, lambda v: list(v or []))
 
-    def chips(self, obj: BaseModel, attr: str, label: str, *, hint: str = '') -> ui.input_chips:
-        """A list of free-form strings. Type a value and press Enter to add it."""
-        element = ui.input_chips(label, value=list(getattr(obj, attr)), new_value_mode='add-unique')
+    def chips(self, obj: BaseModel, attr: str, label: str, *, hint: str = '', split: str = '') -> ui.input_chips:
+        """A list of free-form strings. Type a value and press Enter (or leave the field) to add it.
+        `split`: a character separating several values typed at once (see keep_typed)."""
+        element = keep_typed(ui.input_chips(label, value=list(getattr(obj, attr)), new_value_mode='add-unique'),
+                             split=split)
         return self._wire_attr(element, obj, attr, hint, lambda v: list(v or []))
 
     def switch(self, obj: BaseModel, attr: str, label: str, *, invert: bool = False) -> ui.switch:
@@ -150,6 +155,45 @@ def with_unknown(options: dict[Any, str], value: Any) -> dict[Any, str]:
     if value in options or value == NOT_SET:
         return options
     return {**options, value: f'{value} (unknown value)'}
+
+
+def keep_typed(chips: ui.input_chips, *, split: str = '') -> ui.input_chips:
+    """A chips field adds what's typed on Enter only; left with a value typed in it, the field drops it,
+    and its value looks taken when it isn't. Here, it's added then too.
+
+    It's done on the browser's `focusout`, which arrives before the click that took the focus away (on
+    Publish, say), while Quasar's `blur` arrives after it. `split`: a character separating values typed
+    at once ("fantasy, elf" → two tags, with ','), on Enter too. Values are added as typed, but blank ones."""
+    typed = ['']
+
+    def on_input(e: Any) -> None:
+        typed[0] = e.args if isinstance(e.args, str) else ''
+
+    def on_leave() -> None:
+        text, typed[0] = typed[0], ''
+        if text.strip():
+            chips.value = merged_values(chips.value, [text], split)
+
+    def on_change(e: Any) -> None:
+        if any(split in v for v in e.value or ()):
+            chips.value = merged_values([], e.value, split)
+
+    chips.on('input-value', on_input)
+    chips.on('focusout', on_leave, args=[])
+    if split:
+        chips.on_value_change(on_change)
+    return chips
+
+
+def merged_values(values: Iterable[str] | None, new: Iterable[str], split: str = '') -> list[str]:
+    """`values`, then those of `new` not there yet (each cut at `split`, if given, and its parts stripped)."""
+    out = list(values or ())
+    for text in new:
+        for part in (text.split(split) if split else [text]):
+            part = part.strip() if split else part
+            if part.strip() and part not in out:
+                out.append(part)
+    return out
 
 
 def _show_error(element: Any, err: Exception | None) -> None:

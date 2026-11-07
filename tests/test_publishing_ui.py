@@ -152,7 +152,10 @@ async def test_publishing_a_character(user, tmp_path, sharing, relay):
     user.find(marker='publish-confirm').click()
     await user.should_see('Rate it: SFW or NSFW.')
     set_value(user, 'publish-rating', 'sfw')
-    set_value(user, 'publish-tags', ['Fantasy', 'bard'])
+    set_value(user, 'publish-tags', ['Fantasy'])
+    tags = user.find(marker='publish-tags')
+    tags.trigger('inputValue', 'bard')  # (typed, without Enter: added as the field is left for Publish)
+    tags.trigger('focusout')
     set_value(user, 'publish-language', 'en')
     user.find(marker='publish-confirm').click()
 
