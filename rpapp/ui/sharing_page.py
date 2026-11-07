@@ -143,6 +143,11 @@ def fetch_text(fetch: Fetch) -> str:
     return 'Adding it to your characters…'
 
 
+def _fetch_key(fetch: Fetch | None) -> tuple | None:
+    """What a page shows of a download: when it changes, the page is drawn again."""
+    return (fetch.stage, round(fetch.progress, 2), fetch.peers, fetch.character_id) if fetch else None
+
+
 def _people(n: int) -> str:
     return '1 person' if n == 1 else f'{n} people'
 
@@ -542,11 +547,13 @@ class SharingSection:
         sharing = self.sharing
         p = entry.publication
         withdrawn = entry.withdrawn is not None
+        shown: dict = {'key': None}  # (the download's state the panel shows: drawn again when it changes)
 
         @ui.refreshable
         async def body() -> None:
             record = await sharing.downloaded(p.event_id)
             fetch = sharing.fetches.get(p.event_id)
+            shown['key'] = _fetch_key(fetch)
             character = self._character(record.character_id) if record else None
             title = 'In your characters' if record and character else 'Add it to your characters'
             with ui.column().classes('panel gap-2').mark('shared-get'):
@@ -600,7 +607,6 @@ class SharingSection:
             except SharingError as e:
                 ui.notify(str(e), type='negative')
                 return
-            watched['key'] = None
             await body.refresh()
 
         async def stop() -> None:
@@ -611,15 +617,12 @@ class SharingSection:
             await body.refresh()
 
         await body()
-        watched: dict = {'key': None}
 
-        def tick() -> None:  # (how far a download is; the page again once it's over)
-            fetch = sharing.fetches.get(p.event_id)
-            key = (fetch.stage, round(fetch.progress, 2), fetch.peers) if fetch else None
-            if key != watched['key']:
-                if watched['key'] is not None or (fetch is not None and fetch.running):
-                    body.refresh()
-                watched['key'] = key
+        def tick() -> None:  # (how far a download is, and what came of it: as soon as it's over, quick or not)
+            key = _fetch_key(sharing.fetches.get(p.event_id))
+            if key != shown['key']:
+                shown['key'] = key
+                body.refresh()
         ui.timer(0.5, tick)
 
     def _character(self, character_id: str) -> Character | None:

@@ -1,6 +1,8 @@
 """Downloading from the pages (rpapp/ui/sharing_page.py, characters_page.py): a card's page adds it to your
 characters; its character says where it came from. Marie publishes from another BitTorrent session on this
 computer, which the app's finds (the tests' stand-in for the DHT and trackers)."""
+import asyncio
+
 import pytest
 from nicegui import ui
 from nicegui.testing import user_simulation
@@ -75,6 +77,19 @@ async def test_adding_a_shared_card(user, marie, mine, tmp_path):
     [aria] = CharacterStore(tmp_path).list()
     assert (aria.title, aria.scenario) == ('Aria', '{{char}} sings of old roads.')
     assert mine.catalog.download(p.event_id).character_id == aria.id
+
+    # Again: the file is here already, so it's over at once; the page says so (not "Looking…" for ever)
+    user.find(marker='shared-add').click()
+    for _ in range(100):
+        if len(CharacterStore(tmp_path).list()) == 2:
+            break
+        await asyncio.sleep(0.05)
+    assert len(CharacterStore(tmp_path).list()) == 2
+    await asyncio.sleep(1)  # (the page's look at the download, twice)
+    await user.should_not_see(marker='shared-fetching')
+    again = mine.catalog.download(p.event_id).character_id
+    assert again != aria.id
+    await user.should_see('Added as')
 
     user.find(marker='shared-character-link').click()  # (its character says where it came from)
     await user.should_see(marker='character-shared-from', retries=SLOW)
