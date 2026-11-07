@@ -1,0 +1,12 @@
+# Line endings: LF in every checkout, Windows included (Git for Windows would turn them into CRLF), so
+# that a file is the same on every computer, and a copy of the project unpacked over a checkout only
+# shows what really changed. Text editors on Windows read LF fine.
+* text=auto eol=lf
+
+# Binary files: never converted (git recognizes most by itself; these to be sure)
+*.png binary
+*.ico binary
+*.icns binary
+*.woff2 binary
+*.zip binary
+*.onnx binary
