@@ -17,11 +17,17 @@ the other side to be reachable) but works.
 Everyone in a file's swarm sees the others' addresses: publishing a card, and seeding it, shows this
 computer's address to whoever looks at that file.
 
+How others reach this computer (network()): the port it listens on (6881, or the next free one, or the one
+set: configure()), whether the router opened it (UPnP, NAT-PMP), and whether someone from the internet
+has connected: the only proof that it's reachable. Without that, sharing works with those who are
+reachable themselves (this computer connects to them), not with those who aren't either.
+
 libtorrent's packages exist for Python 3.13 and earlier (torrent_problem() says what's missing).
 """
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import time
 from collections.abc import Callable
@@ -43,6 +49,8 @@ TORRENT_ERRORS = frozenset({'file_error', 'torrent_error', 'hash_failed'})
 FIND_TIMEOUT = 120.0  # seconds: nobody sharing the file found by then, a download gives up
 STALL_TIMEOUT = 120.0  # seconds: nothing more received for that long, too
 POLL = 0.25           # seconds between two looks at a download
+DEFAULT_PORT = 6881   # BitTorrent's usual one; taken, the next ones are tried (unless a port is set)
+ROUTER_WAIT = 30.0    # seconds: the router hasn't answered by then, it's said
 
 
 class FetchError(Exception):
@@ -73,6 +81,29 @@ class Limits:
     connections: int = 200
 
 
+def listen_on(port: int | None) -> str:
+    """libtorrent's listen_interfaces: every address of this computer, IPv4 and IPv6, on that port
+    (None: DEFAULT_PORT)."""
+    port = port or DEFAULT_PORT
+    return f'0.0.0.0:{port},[::]:{port}'
+
+
+@dataclass(frozen=True, slots=True)
+class NetworkStatus:
+    """How others reach this computer, as far as it can tell (TorrentSession.network())."""
+    started: bool                    # False: not listening yet (nothing shared or downloaded)
+    port: int                        # listened on (0: none)
+    wanted_port: int | None          # the one set (None: automatic)
+    listen_error: str                # why it can't listen ('' if it does)
+    port_mapping: bool               # whether the router is asked to open the port
+    mapped: tuple[tuple[str, str, int], ...]     # (UPnP or NAT-PMP, TCP or UDP, port on the internet side)
+    mapping_errors: tuple[tuple[str, str], ...]  # (UPnP or NAT-PMP, what went wrong)
+    asking_since: float | None       # when the router was asked (time.time())
+    external_address: str            # this computer's internet address, as others see it ('' not known)
+    reached_at: float | None         # the last connection from the internet (TCP), time.time()
+    reached_by: str                  # its kind: 'IPv4' or 'IPv6'
+
+
 @dataclass(frozen=True, slots=True)
 class TorrentStatus:
     infohash: str
@@ -84,14 +115,18 @@ class TorrentStatus:
 
 
 class TorrentSession:
-    def __init__(self, *, listen: str = '0.0.0.0:6881,[::]:6881', dht: bool = True, local_discovery: bool = True,
-                 port_mapping: bool = True, trackers: tuple[str, ...] = DEFAULT_TRACKERS,
-                 limits: Limits = Limits(), peers: tuple[tuple[str, int], ...] = ()) -> None:
-        """`listen`: libtorrent's listen_interfaces (6881 taken: it tries the next ports). The tests give
-        127.0.0.1:0, without the DHT, local discovery and port mapping: two sessions on this computer, and
-        `peers`, where to find the other one (asked for every file downloaded)."""
+    def __init__(self, *, port: int | None = None, listen: str | None = None, dht: bool = True,
+                 local_discovery: bool = True, port_mapping: bool = True,
+                 trackers: tuple[str, ...] = DEFAULT_TRACKERS, limits: Limits = Limits(),
+                 peers: tuple[tuple[str, int], ...] = ()) -> None:
+        """`port`: the one to listen on (None: DEFAULT_PORT, or the next free one; set, that one only).
+        `listen`: libtorrent's listen_interfaces instead: the tests give 127.0.0.1:0, without the DHT, local
+        discovery and port mapping (two sessions on this computer), and `peers`, where to find the other one
+        (asked for every file downloaded)."""
+        self.wanted_port = port
         self.settings = {
-            'listen_interfaces': listen, 'enable_dht': dht, 'enable_lsd': local_discovery,
+            'listen_interfaces': listen or listen_on(port), **_port_rules(port),
+            'enable_dht': dht, 'enable_lsd': local_discovery,
             'enable_upnp': port_mapping, 'enable_natpmp': port_mapping, 'user_agent': USER_AGENT,
             'upload_rate_limit': limits.upload, 'download_rate_limit': limits.download,
             'connections_limit': limits.connections, 'allow_multiple_connections_per_ip': not dht,
@@ -106,6 +141,14 @@ class TorrentSession:
         self._handles: dict[str, object] = {}   # infohash → torrent handle, of the files shared
         self._fetching: dict[str, object] = {}  # infohash → torrent handle, of the files being downloaded
         self._errors: dict[str, tuple[str, str]] = {}  # infohash → what went wrong with it: (alert, message)
+        # How others reach this computer (network()), from libtorrent's alerts
+        self._listening: dict[str, int] = {}    # 'tcp' or 'udp' → port
+        self._listen_error = ''
+        self._mapped: dict[tuple[str, str], int] = {}  # (UPnP or NAT-PMP, TCP or UDP) → port on the internet side
+        self._mapping_errors: dict[str, str] = {}      # UPnP or NAT-PMP → what went wrong
+        self._asking_since: float | None = None
+        self._external = ''
+        self._reached: tuple[float, str] | None = None  # (when, IPv4 or IPv6)
 
     @property
     def started(self) -> bool:
@@ -115,9 +158,12 @@ class TorrentSession:
         """Open the session (its port, the DHT): when there's something to share."""
         if self._session is None:
             import libtorrent as lt
+            category = lt.alert.category_t
             settings = dict(self.settings)
-            settings['alert_mask'] = lt.alert.category_t.error_notification | lt.alert.category_t.status_notification
+            settings['alert_mask'] = (category.error_notification | category.status_notification
+                                      | category.port_mapping_notification | category.peer_notification)
             self._session = lt.session(settings)
+            self._asking_since = time.time() if settings['enable_upnp'] or settings['enable_natpmp'] else None
 
     @property
     def port(self) -> int:
@@ -256,14 +302,55 @@ class TorrentSession:
     def fetching(self) -> tuple[str, ...]:
         return tuple(self._fetching)
 
+    # --- how others reach this computer ----------------------------------------------------------------
+
+    def network(self) -> NetworkStatus:
+        """The port listened on, the router's answer, and whether someone from the internet connected."""
+        self._read_alerts()
+        settings = self.settings
+        return NetworkStatus(
+            started=self.started, port=self._listening.get('tcp', 0) if self.started else 0,
+            wanted_port=self.wanted_port, listen_error=self._listen_error if 'tcp' not in self._listening else '',
+            port_mapping=bool(settings['enable_upnp'] or settings['enable_natpmp']),
+            mapped=tuple(sorted((t, p, port) for (t, p), port in self._mapped.items())),
+            mapping_errors=tuple(sorted(self._mapping_errors.items())), asking_since=self._asking_since,
+            external_address=self._external, reached_at=self._reached[0] if self._reached else None,
+            reached_by=self._reached[1] if self._reached else '')
+
+    def configure(self, *, port: int | None, port_mapping: bool) -> None:
+        """Another port (None: automatic), the router asked to open it or not: at once if the session runs
+        (libtorrent listens again, and asks the router for the new port), or when it starts."""
+        changed = {'listen_interfaces': listen_on(port), **_port_rules(port),
+                   'enable_upnp': port_mapping, 'enable_natpmp': port_mapping}
+        if changed.items() <= self.settings.items() and port == self.wanted_port:
+            return
+        self.settings.update(changed)
+        self.wanted_port = port
+        if self._session is not None:
+            self._read_alerts()  # (what was said of the old port: not of the new one)
+            self._listening.clear()
+            self._listen_error = ''
+            self._mapped.clear()
+            self._mapping_errors.clear()
+            self._asking_since = time.time() if port_mapping else None
+            self._session.apply_settings(changed)
+
+    def poll(self) -> None:
+        """Read what libtorrent said (the service does it every few seconds: its queue of alerts is limited)."""
+        self._read_alerts()
+
     def _read_alerts(self) -> None:
-        """What libtorrent said: a torrent's own errors (its file), kept for status(). A tracker or a peer
-        that fails isn't one: there are others, and the DHT (logged only)."""
+        """What libtorrent said: a torrent's own errors (its file), kept for status(); and how others reach
+        this computer, for network(). A tracker or a peer that fails isn't an error of the torrent: there
+        are others, and the DHT (logged only)."""
         if self._session is None:
             return
         for alert in self._session.pop_alerts():
             handle = getattr(alert, 'handle', None)
             what = alert.what()
+            if what in NETWORK_ALERTS:
+                self._network_alert(what, alert)
+                continue
             if handle is None or 'error' not in what and 'failed' not in what:
                 continue
             if what not in TORRENT_ERRORS:
@@ -276,6 +363,31 @@ class TorrentSession:
             self._errors[infohash] = (what, alert.message()[:300])
             log.warning('Sharing %s: %s', infohash, alert.message())
 
+    def _network_alert(self, what: str, alert) -> None:
+        import libtorrent as lt
+        if what == 'listen_succeeded':  # (on each address of this computer: the same port, normally)
+            self._listening.setdefault('tcp' if _is_tcp(lt, alert.socket_type) else 'udp', alert.port)
+        elif what == 'listen_failed':  # (said only if TCP listens nowhere: IPv6 fails where there's none)
+            if _is_tcp(lt, alert.socket_type):
+                self._listen_error = _error_text(alert.error) or alert.message()
+            log.info('BitTorrent: %s', alert.message())
+        elif what == 'portmap':
+            self._mapped[(_transport(lt, alert.map_transport), _protocol(lt, alert.map_protocol))] = alert.external_port
+            self._mapping_errors.pop(_transport(lt, alert.map_transport), None)
+            log.info('BitTorrent: %s', alert.message())
+        elif what == 'portmap_error':
+            self._mapping_errors[_transport(lt, alert.map_transport)] = _error_text(alert.error) or alert.message()
+            log.info('BitTorrent: %s', alert.message())
+        elif what == 'external_ip':
+            self._external = str(alert.external_address)
+        elif what == 'incoming_connection':  # (from the internet, by TCP: proof that the port is reachable)
+            try:
+                address = ipaddress.ip_address(alert.endpoint[0])
+            except ValueError:
+                return
+            if _is_tcp(lt, alert.socket_type) and address.is_global:
+                self._reached = (time.time(), f'IPv{address.version}')
+
     def close(self) -> None:
         """When the app stops (downloads under way are the caller's to cancel first: they delete what they
         received)."""
@@ -283,6 +395,35 @@ class TorrentSession:
             for infohash in list(self._handles):
                 self.stop(infohash)
             self._session = None
+
+
+def _port_rules(port: int | None) -> dict:
+    """Automatic: the next ports if it's taken, and at worst any. Set: that one or none (it's the one
+    opened on the router; another would be of no use), and a problem said."""
+    return {'max_retry_port_bind': 0 if port else 10, 'listen_system_port_fallback': not port}
+
+
+NETWORK_ALERTS = frozenset({'listen_succeeded', 'listen_failed', 'portmap', 'portmap_error', 'external_ip',
+                            'incoming_connection'})
+
+
+def _is_tcp(lt, socket_type) -> bool:
+    return socket_type in (lt.socket_type_t.tcp, lt.socket_type_t.tcp_ssl)
+
+
+def _transport(lt, transport) -> str:
+    return 'UPnP' if transport == lt.portmap_transport.upnp else 'NAT-PMP'
+
+
+def _protocol(lt, protocol) -> str:
+    return 'TCP' if protocol == lt.portmap_protocol.tcp else 'UDP'
+
+
+def _error_text(error) -> str:
+    try:
+        return str(error.message())
+    except Exception:  # (not an error code)
+        return ''
 
 
 def _check(info, *, name: str, size: int) -> None:

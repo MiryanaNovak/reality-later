@@ -27,7 +27,7 @@ from ..presets import preset_store, set_up_presets
 from ..publishing import runtime_problem as sharing_problem
 from ..replies import Replies
 from ..vectors import Vectorizer
-from ..settings import SettingsStore
+from ..settings import SettingsStore, SharingSettings
 from . import appearance, media, theme
 from .characters_page import CharactersSection
 from .computer_page import ComputerPage, on_this_computer
@@ -198,9 +198,15 @@ def _sharing(data_dir: str | Path, settings: SettingsStore, relays: Iterable[str
         return SharingSection(None, settings, problem=f'It needs Python 3.13 or earlier: {problem}.')
     from ..publishing.catalog import CatalogError
     from ..publishing.identity import key_path
+    from ..publishing.seeder import TorrentSession
     from ..publishing.service import DEFAULT_RELAYS, Sharing
     try:
-        return SharingSection(Sharing(data_dir, key_file=key_path(key_folder),
+        chosen = settings.load().sharing
+    except ValueError:  # (a damaged settings file: the Settings page says so)
+        chosen = SharingSettings()
+    try:  # (BitTorrent's session opens its port only once there's something to share or download)
+        session = TorrentSession(port=chosen.port, port_mapping=chosen.port_mapping)
+        return SharingSection(Sharing(data_dir, key_file=key_path(key_folder), session=session,
                                       default_relays=DEFAULT_RELAYS if relays is None else relays), settings)
     except CatalogError as e:
         return SharingSection(None, settings, problem=str(e))

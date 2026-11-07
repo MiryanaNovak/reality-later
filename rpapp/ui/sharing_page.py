@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections import Counter
 from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
@@ -40,7 +41,7 @@ from ..publishing.announcements import PublicationDraft, Rejected
 from ..publishing.catalog import CardQuery, CatalogEntry, Delivery, normalize_relay_url
 from ..publishing.identity import Identity, IdentityError
 from ..publishing.nostr import to_npub
-from ..publishing.seeder import TorrentStatus
+from ..publishing.seeder import DEFAULT_PORT, ROUTER_WAIT, NetworkStatus, TorrentStatus
 from ..publishing.service import DEFAULT_RELAYS, Published, Sharing, SharingError, torrent_problem
 from ..settings import Settings, SettingsStore
 from .form import Form, keep_typed
@@ -150,6 +151,48 @@ def _fetch_key(fetch: Fetch | None) -> tuple | None:
 
 def _people(n: int) -> str:
     return '1 person' if n == 1 else f'{n} people'
+
+
+def network_lines(st: NetworkStatus, *, now: float | None = None) -> list[tuple[str, str, str]]:
+    """How others reach this computer, in words: (icon, color, text) lines for Settings › Sharing cards."""
+    now = time.time() if now is None else now
+    port = st.wanted_port or DEFAULT_PORT
+    if not st.started:
+        return [('radio_button_unchecked', 'grey', 'Not listening yet: the port opens once there\'s a card to share '
+                                                   'or to download.')]
+    if not st.port:
+        return [('error_outline', 'negative', f'Can\'t listen on port {port}: {st.listen_error or "not yet"}. '
+                                              f'Another program may use it: choose another one.')]
+    lines = [('check_circle', 'positive', f'Listening on port {st.port} (TCP and UDP).'
+              + (f' {DEFAULT_PORT} was taken.' if not st.wanted_port and st.port != DEFAULT_PORT else ''))]
+    if not st.port_mapping:
+        lines.append(('info', 'primary', f'The router isn\'t asked: open port {st.port} (TCP and UDP) in its settings, '
+                                         f'to this computer.'))
+    elif opened := sorted({(t, p) for t, p, external in st.mapped}):
+        externals = sorted({external for _, _, external in st.mapped})
+        how = ', '.join(sorted({t for t, _ in opened}))
+        on = f'port {externals[0]}' if len(externals) == 1 else 'ports ' + ', '.join(map(str, externals))
+        lines.append(('check_circle', 'positive', f'The router opened it ({how}): {on} on the internet side.'))
+    elif st.mapping_errors:
+        said = '; '.join(f'{t}: {e}' for t, e in st.mapping_errors)
+        lines.append(('error_outline', 'negative', f'The router didn\'t open it ({said}). You can open port {st.port} '
+                                                   f'(TCP and UDP) in its settings yourself.'))
+    elif st.asking_since is not None and now - st.asking_since < ROUTER_WAIT:
+        lines.append(('hourglass_empty', 'primary', 'Asking the router to open it…'))
+    else:
+        lines.append(('help_outline', 'warning', f'No answer from the router: it may not offer UPnP or NAT-PMP, or '
+                                                 f'have them off. You can open port {st.port} (TCP and UDP) in its '
+                                                 f'settings yourself.'))
+    if st.reached_at is not None:
+        lines.append(('public', 'positive', f'Reachable from the internet: someone connected from outside '
+                                            f'{time_ago(_when(int(st.reached_at)))} ({st.reached_by}).'))
+    else:
+        lines.append(('help_outline', 'grey', 'Not confirmed yet: nobody from the internet has connected since the '
+                                              'app started. That can simply mean nobody wanted your cards yet.'))
+    where = f' on {st.external_address}' if st.external_address else ''
+    lines.append(('travel_explore', 'grey', f'To check it yourself, while the app shares a card: a port checking '
+                                            f'website should find port {st.port} open{where}.'))
+    return lines
 
 
 def sharing_text(status: TorrentStatus | str | None, *, withdrawn: bool) -> tuple[str, str]:
@@ -881,6 +924,49 @@ class SharingSection:
 
     # --- Settings › Sharing cards -----------------------------------------------------------------
 
+    def _connection(self, settings: Settings, form: Form) -> None:
+        """BitTorrent's port: which one, the router asked to open it or not, and how others reach this
+        computer, as far as it can tell (updated while the page is open)."""
+        sharing = self.sharing
+        ui.label('How others reach this computer').classes('step-title mt-2')
+        ui.label('Cards go from computer to computer (BitTorrent). This one can always connect to others; for '
+                 'others to connect to it too, its port must be open on your router.').classes('text-sm muted')
+        with ui.element('div').classes('field-grid'):
+            port = form.number(settings.sharing, 'port', 'Port', integer=True, min=1024, max=65535,
+                               placeholder=f'Automatic ({DEFAULT_PORT})',
+                               hint=f'TCP and UDP. Empty: {DEFAULT_PORT}, or the next free one.') \
+                .props('debounce=1000 stack-label').mark('sharing-port')
+        mapping = form.switch(settings.sharing, 'port_mapping', 'Ask the router to open it (UPnP, NAT-PMP)') \
+            .mark('sharing-port-mapping')
+        ui.label('Off: open it yourself in the router\'s settings, to this computer.') \
+            .classes('text-sm muted -mt-3 ml-12')
+
+        def apply() -> None:
+            sharing.session.configure(port=settings.sharing.port, port_mapping=settings.sharing.port_mapping)
+            status.refresh()
+        port.on_value_change(apply)
+        mapping.on_value_change(apply)
+
+        shown: dict = {'lines': None}
+
+        @ui.refreshable
+        def status() -> None:
+            lines = network_lines(sharing.session.network()) if not torrent_problem() else \
+                [('error_outline', 'negative', f'Cards can\'t be shared from this computer: {torrent_problem()}.')]
+            shown['lines'] = lines
+            with ui.column().classes('w-full gap-1').mark('sharing-network'):
+                for icon, color, text in lines:
+                    with ui.row().classes('items-start no-wrap gap-2 text-sm'):
+                        ui.icon(icon, size='1.3em', color=color)
+                        ui.label(text).classes('break-words')
+
+        status()
+
+        def tick() -> None:  # (what changes: the router's answer, connections from the internet)
+            if network_lines(sharing.session.network()) != shown['lines']:
+                status.refresh()
+        ui.timer(2, tick)
+
     def _key_block(self) -> None:
         """The publisher key: made or imported; then its public half, its backup, another one."""
         sharing = self.sharing
@@ -1026,6 +1112,8 @@ class SharingSection:
             if stopped:
                 ui.notify(f'{plural(stopped, "card")} no longer shared from this computer')
         share.on_value_change(share_changed)
+
+        self._connection(settings, form)
 
         ui.label('Your publisher key').classes('step-title mt-2')
         self._key_block()

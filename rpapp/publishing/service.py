@@ -67,6 +67,7 @@ DEFAULT_RELAYS = (
     'wss://nostr.mom',
 )
 DUE_AFTER = 3600  # seconds: opening the shared cards looks for new ones when the last look is older
+WATCH = 5.0       # seconds: how often what BitTorrent says is read (TorrentSession.poll())
 
 # False while the format is a draft: nothing goes to public relays (see the module's notes).
 PUBLIC_PUBLISHING = False
@@ -141,6 +142,7 @@ class Sharing:
         self.finished_at: float | None = None
         self._task: asyncio.Task | None = None
         self._background: set[asyncio.Task] = set()
+        self._watcher: asyncio.Task | None = None
 
     async def call(self, function: Callable[..., T], *args: Any, **kwargs: Any) -> T:
         """A catalog call (or any that waits on the disk), in a thread."""
@@ -299,6 +301,8 @@ class Sharing:
         delete what's left of downloads stopped midway. A file missing or changed isn't replaced:
         seeding_problems says so."""
         await asyncio.to_thread(shutil.rmtree, self.downloading, True)
+        if self._watcher is None:
+            self._watcher = asyncio.create_task(self._watch())
         await self._tidy_sharing()
         items = await self.call(self.catalog.seeding, enabled_only=True)
         if items and (problem := torrent_problem()):
@@ -472,10 +476,18 @@ class Sharing:
 
     # --- the end ----------------------------------------------------------------------------------
 
+    async def _watch(self) -> None:
+        """What BitTorrent says (the router's answer, connections from the internet...), read as it comes:
+        libtorrent keeps only so much of it."""
+        while True:
+            await asyncio.sleep(WATCH)
+            if self.session.started:
+                self.session.poll()
+
     async def close(self) -> None:
         """When the app stops: discovery and downloads stop (what discovery got is kept; what downloads got
         is deleted), and the catalog is closed."""
-        for task in [self._task, *self._background, *(f.task for f in self.fetches.values())]:
+        for task in [self._task, self._watcher, *self._background, *(f.task for f in self.fetches.values())]:
             if task is not None and not task.done():
                 task.cancel()
                 try:
