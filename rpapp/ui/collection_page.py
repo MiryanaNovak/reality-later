@@ -26,7 +26,7 @@ from nicegui import events, ui
 from ..storage import JsonStore, StoredModel
 from .form import error_text
 from .list_view import Action, ListView, Row
-from .widgets import confirm, file_picker, page_bar, page_header
+from .widgets import MenuItems, confirm, file_picker, page_bar, page_header
 
 T = TypeVar('T', bound=StoredModel)
 
@@ -172,8 +172,9 @@ class CollectionPage(Generic[T]):
 
     # -- editor page header ----------------------------------------------------------
 
-    def item_header(self, item: T, caption: str) -> ui.label:
-        """Back arrow, title and ⋮ menu for the top of an item's editor page."""
+    def item_header(self, item: T, caption: str, *, menu: MenuItems = ()) -> ui.label:
+        """Back arrow, title and ⋮ menu for the top of an item's editor page (`menu`: more of it, before
+        Delete)."""
         c = self.c
 
         async def delete() -> None:
@@ -182,6 +183,7 @@ class CollectionPage(Generic[T]):
         return page_header(item.label or 'Untitled', caption, back=c.path, menu=[
             ('Duplicate', lambda: self.duplicate(item, after=lambda copy: ui.navigate.to(c.item_path(copy))), False),
             *([('Export', lambda: self.export(item), False)] if c.exportable else []),
+            *menu,
             ('Delete', delete, True),
         ])
 

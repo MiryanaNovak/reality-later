@@ -71,11 +71,14 @@ def load_identity(path: str | Path) -> Identity | None:
                             f'your backup.') from None
 
 
-def create_identity(path: str | Path) -> Identity:
-    """A new key, saved. Never over an existing one (IdentityError): replace_identity() does that."""
+def create_identity(path: str | Path, *, replace: bool = False) -> Identity:
+    """A new key, saved. If there's one already: an error (IdentityError), or with `replace`, the new one
+    replaces it, the old one kept beside it (nostr-key.replaced-<date>.txt)."""
     path = Path(path)
     if path.exists():
-        raise IdentityError('You already have a publisher key.')
+        if not replace:
+            raise IdentityError('You already have a publisher key.')
+        _set_aside(path)
     identity = Identity.from_secret(nostr.new_secret())
     _save(path, identity)
     return identity
@@ -83,19 +86,34 @@ def create_identity(path: str | Path) -> Identity:
 
 def import_identity(path: str | Path, text: str, *, replace: bool = False) -> Identity:
     """A key from its backup (nsec1..., or its 64 hex digits), saved. If there's one already: an error, or
-    with `replace`, the new one replaces it, the old one kept beside it (nostr-key.replaced-<date>.txt)."""
+    with `replace`, the new one replaces it, the old one kept beside it (nostr-key.replaced-<date>.txt).
+    A damaged file is replaced the same way (set aside, not lost)."""
     path = Path(path)
     identity = Identity.from_secret(parse_secret(text))
-    current = load_identity(path) if path.exists() else None
+    try:
+        current = load_identity(path)
+    except IdentityError:  # (damaged: there's one, but not readable)
+        current = None
     if current is not None and current.public_key == identity.public_key:
         return current  # (the same key: nothing to do)
     if path.exists():
         if not replace:
             raise IdentityError('You already have a publisher key: replacing it changes who you are as a publisher.')
-        stamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-        os.replace(path, path.with_name(f'{path.stem}.replaced-{stamp}{path.suffix}'))
+        _set_aside(path)
     _save(path, identity)
     return identity
+
+
+def _set_aside(path: Path) -> Path:
+    """The key file replaced, kept beside the new one: nostr-key.replaced-<date>.txt."""
+    stamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+    aside = path.with_name(f'{path.stem}.replaced-{stamp}{path.suffix}')
+    n = 1
+    while aside.exists():  # (twice within the same second)
+        n += 1
+        aside = path.with_name(f'{path.stem}.replaced-{stamp}-{n}{path.suffix}')
+    os.replace(path, aside)
+    return aside
 
 
 def parse_secret(text: str) -> bytes:

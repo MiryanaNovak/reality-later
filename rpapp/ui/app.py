@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from nicegui import app, ui
 
@@ -42,6 +43,9 @@ from .settings_page import SettingsSection
 from .sharing_page import SharingSection
 from .widgets import bar_slot, clearing_bar
 
+if TYPE_CHECKING:
+    from ..publishing.service import Sharing
+
 # Menu entries: (path, label, icon). Icons: https://fonts.google.com/icons
 SECTIONS = [
     ('/', 'Home', 'home'),
@@ -59,13 +63,15 @@ COMPUTER = ('/computer', 'This computer', 'computer')  # only on the computer th
 
 def build_root(data_dir: str | Path, *, access: Access | None = None,
                server: ServerInfo | None = None, models: str | Path | None = None,
-               sharing_relays: Iterable[str] | None = None) -> Callable[[], None]:
+               sharing_relays: Iterable[str] | None = None, sharing: Sharing | None = None) -> Callable[[], None]:
     """Return the function NiceGUI calls to build the page for every browser tab.
 
     `access`: who may use the app (see access.py); None when pairing isn't set up (tests).
     `server`: how the app runs, for the "This computer" page (the defaults if not given: tests).
     `models`: the folder of vector search's models (paths.Places.models; <data_dir>/models if not given).
     `sharing_relays`: the relays a new sharing catalog starts with (publishing/service.py's if not given).
+    `sharing`: card sharing as the tests make it (BitTorrent on 127.0.0.1 only); made here if not given, with
+    the publisher key in the settings folder's certificates/ (publishing/identity.py).
     """
     theme.setup()
     server = server or ServerInfo(Config(folder=Path(data_dir)), None, Path(data_dir))
@@ -74,8 +80,11 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
     lore_books = lore_book_store(data_dir)
     conversation_store = ConversationStore(data_dir)
     personas = PersonasSection(PersonaStore(data_dir), lore_books, conversation_store)
-    characters = CharactersSection(CharacterStore(data_dir), lore_books, conversation_store, personas)
     settings_store = SettingsStore(data_dir)
+    shared = SharingSection(sharing, settings_store) if sharing is not None else \
+        _sharing(data_dir, settings_store, sharing_relays, key_folder=server.config.folder)
+    characters = CharactersSection(CharacterStore(data_dir), lore_books, conversation_store, personas,
+                                   sharing=shared)
     set_up_presets(data_dir, settings_store)  # the first time: the instructions from Settings become a prompt
     presets = PresetsSection(preset_store(data_dir), settings_store)
     vectors = Vectorizer(data_dir, models or Path(data_dir) / 'models', settings=settings_store,
@@ -88,7 +97,6 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
                       presets=presets.collection.store, vectors=vectors)
     conversations = ConversationsSection(conversation_store, characters, personas, replies)
     lorebooks = LoreBooksSection(lore_books, users=[characters, personas])
-    shared = _sharing(data_dir, settings_store, sharing_relays)
     settings = SettingsSection(settings_store, connections.collection.store, access, presets.collection.store,
                                vectors=vectors, sharing=shared)
     home = HomePage(connections=connections.collection.store, settings=settings_store, home=HomeStore(data_dir),
@@ -97,6 +105,7 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
     app.on_shutdown(replies.stop_all)
     app.on_shutdown(vectors.stop)
     if shared.sharing is not None:
+        app.on_startup(shared.sharing.resume_sharing)  # the files of the cards published from here, shared again
         app.on_shutdown(shared.sharing.close)
     app.on_shutdown(settings_store.flush)
     app.on_shutdown(conversation_store.memories.flush)
@@ -174,14 +183,17 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
     return root
 
 
-def _sharing(data_dir: str | Path, settings: SettingsStore, relays: Iterable[str] | None) -> SharingSection:
-    """Card sharing (publishing/service.py), or why it can't run here: a missing library, a damaged catalog."""
+def _sharing(data_dir: str | Path, settings: SettingsStore, relays: Iterable[str] | None, *,
+             key_folder: Path) -> SharingSection:
+    """Card sharing (publishing/service.py), or why it can't run here: a missing library, a damaged catalog.
+    The publisher key: in `key_folder`'s certificates/ (the settings folder's, with HTTPS's own key)."""
     if problem := sharing_problem():
         return SharingSection(None, settings, problem=f'It needs Python 3.13 or earlier: {problem}.')
     from ..publishing.catalog import CatalogError
+    from ..publishing.identity import key_path
     from ..publishing.service import DEFAULT_RELAYS, Sharing
     try:
-        return SharingSection(Sharing(data_dir, default_relays=DEFAULT_RELAYS if relays is None else relays),
-                              settings)
+        return SharingSection(Sharing(data_dir, key_file=key_path(key_folder),
+                                      default_relays=DEFAULT_RELAYS if relays is None else relays), settings)
     except CatalogError as e:
         return SharingSection(None, settings, problem=str(e))

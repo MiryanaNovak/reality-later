@@ -5,11 +5,13 @@
                                 Export (in each character's ⋮ menu) writes one as a PNG (V2)
     /characters/<character id>  one character: picture, identity, description, scenario,
                                 first messages, example dialogues, lore books; each part says
-                                whether the AI gets it
+                                whether the AI gets it. Its ⋮ menu: Publish to shared cards
+                                (sharing_page.py), when sharing cards can run here
 """
 from __future__ import annotations
 
 from collections import Counter
+from typing import TYPE_CHECKING
 
 from nicegui import ui
 
@@ -23,7 +25,10 @@ from .collection_page import safe_file_name
 from .form import Form, text_stats
 from .list_view import Link, Row, initials, plural
 from .profile_page import ProfileSection
-from .widgets import audience_legend, confirm, panel
+from .widgets import MenuItems, audience_legend, confirm, panel
+
+if TYPE_CHECKING:
+    from .sharing_page import SharingSection
 
 MACROS_HINT = 'Write {{char}} for the character\'s name and {{user}} for yours.'
 
@@ -36,7 +41,8 @@ class CharactersSection(ProfileSection[Character]):
     lore_books_audience = 'ai'
 
     def __init__(self, store: CharacterStore, lore_books: JsonStore[LoreBook],
-                 conversations: ConversationStore, personas: ProfileSection[Persona]) -> None:
+                 conversations: ConversationStore, personas: ProfileSection[Persona], *,
+                 sharing: SharingSection | None = None) -> None:
         super().__init__(
             store, lore_books, title='Characters', noun='character', path='/characters', create=new_character,
             title_placeholder='e.g. Seraphina, forest guardian',
@@ -48,6 +54,7 @@ class CharactersSection(ProfileSection[Character]):
         )
         self.conversations: ConversationStore = conversations
         self.personas = personas
+        self.sharing = sharing  # publishing them as shared cards (None, or its .sharing None: not here)
         self._counts: Counter[str] = Counter()
 
     # -- importing a character card --------------------------------------------------------
@@ -70,6 +77,18 @@ class CharactersSection(ProfileSection[Character]):
         picture = path.read_bytes() if path is not None and path.is_file() else None
         content = card_png(card_data(character, books), picture, initials=initials(character.title))
         return content, f'{safe_file_name(character.title)}.png', 'image/png'
+
+    # -- publishing it as a shared card -----------------------------------------------------
+
+    def item_menu(self, character: Character) -> MenuItems:
+        if self.sharing is None or self.sharing.sharing is None:
+            return ()
+        return [('Publish to shared cards', lambda: self.publish(character), False)]
+
+    async def publish(self, character: Character) -> None:
+        """The card file is the one Export makes (with the card's UUID in it); the character is saved with that
+        UUID when it's first published."""
+        await self.sharing.publish_dialog(character, lambda c: self.export_card(c)[0], self.store.save)
 
     def _lore_book(self, book_id: str) -> LoreBook | None:
         try:

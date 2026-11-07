@@ -115,6 +115,7 @@ class SharingSettings(BaseModel):
 
     show_nsfw: bool = False                                  # cards their publisher rated NSFW
     hidden_tags: list[str] = Field(default_factory=list)     # cards with any of these aren't shown
+    publisher_name: str = ''                                 # the name cards are published under (the last one)
 
 
 class Settings(StoredModel):

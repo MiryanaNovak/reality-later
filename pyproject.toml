@@ -26,6 +26,10 @@ dependencies = [
     # on later ones, the app works without sharing (publishing.runtime_problem() says why)
     "coincurve>=21; python_version < '3.14'",
     "websockets>=13",                       # talks to Nostr relays (rpapp/publishing/relay.py)
+    # BitTorrent: shares the files of the cards published (rpapp/publishing/seeder.py). Its packages: Windows
+    # (not ARM), Linux (x86-64, ARM), macOS 14+ on Apple chips; Python 3.13 at most. Elsewhere, the app runs
+    # and shows the cards people share, but can't publish (seeder.torrent_problem() says why)
+    "libtorrent>=2.1; python_version < '3.14' and platform_machine != 'ARM64' and (sys_platform != 'darwin' or platform_machine == 'arm64')",
     # the tray icon (see rpapp/tray.py): pystray on Windows and macOS, D-Bus on Linux
     "pystray; sys_platform == 'win32' or sys_platform == 'darwin'",
     "dbus-fast; sys_platform == 'linux'",

@@ -370,6 +370,10 @@ HEAD = f'''
   .file-path {{
     font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: .85rem; overflow-wrap: anywhere;
   }}
+  .publish-card {{ width: min(560px, calc(100vw - 24px)); max-height: 92vh; overflow-y: auto; }}
+  .publish-notice {{
+    background: var(--page); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; width: 100%;
+  }}
   .fingerprint {{
     font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: .8rem; overflow-wrap: anywhere;
     background: var(--page); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%;

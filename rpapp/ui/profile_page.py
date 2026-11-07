@@ -31,7 +31,7 @@ from .form import Form
 from .frame_editor import FrameEditor
 from .list_view import Row, initials, plural
 from .media import serve_images
-from .widgets import Audience, file_picker, not_found, panel
+from .widgets import Audience, MenuItems, file_picker, not_found, panel
 
 if TYPE_CHECKING:
     from ..conversations import ConversationStore
@@ -92,6 +92,10 @@ class ProfileSection(Generic[P]):
     def prepare_cards(self) -> None:
         """Runs once before the grid is drawn: count things here rather than once per card."""
 
+    def item_menu(self, item: P) -> MenuItems:
+        """More of the editor page's ⋮ menu (before Delete)."""
+        return ()
+
     def intro(self, item: P) -> None:
         """Under the page's title, before the panels: say what the parts are for."""
 
@@ -143,7 +147,8 @@ class ProfileSection(Generic[P]):
             if not item.image:
                 picture.refresh()  # the initials follow the title while there's no picture
 
-        title = self.pages.item_header(item, f'{self.noun.capitalize()}. Changes save automatically.')
+        title = self.pages.item_header(item, f'{self.noun.capitalize()}. Changes save automatically.',
+                                       menu=self.item_menu(item))
         self.intro(item)
         form = Form(on_change=changed)
 

@@ -119,7 +119,8 @@ class SettingsSection:
                 self._vector_search(settings, form)
 
         if self.sharing is not None:
-            with folding_panel('Sharing cards', 'Which shared cards show, the relays, the publishers you blocked'):
+            with folding_panel('Sharing cards',
+                               'Which shared cards show, your publisher key, the relays, the publishers you blocked'):
                 self.sharing.settings_panel(settings, form)
 
         with folding_panel('Appearance', 'Light or dark, text size, accent color'):

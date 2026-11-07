@@ -151,6 +151,34 @@ MIGRATIONS = [
     """
     ALTER TABLE blocked_publishers ADD COLUMN name TEXT NOT NULL DEFAULT '';
     """,
+    # 4: this computer's files: their torrents, which publications it shares, and where its own events went
+    """
+    CREATE TABLE torrents (
+        infohash    TEXT PRIMARY KEY CHECK (length(infohash) = 40),
+        file_sha256 TEXT NOT NULL CHECK (length(file_sha256) = 64),
+        file_name   TEXT NOT NULL,
+        metainfo    BLOB NOT NULL,      -- the .torrent: its info dictionary (torrents.py)
+        added_at    INTEGER NOT NULL
+    );
+    -- The publications this computer shares the file of (enabled), or stopped sharing (not enabled: not
+    -- shared again when the app starts).
+    CREATE TABLE seeding (
+        event_id   TEXT PRIMARY KEY REFERENCES publications (event_id) ON DELETE CASCADE,
+        infohash   TEXT NOT NULL REFERENCES torrents (infohash),
+        enabled    INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+        changed_at INTEGER NOT NULL
+    );
+    -- Where this computer's own events (publications, withdrawals) were sent, and what each relay said.
+    CREATE TABLE deliveries (
+        event_id        TEXT NOT NULL,
+        relay_url       TEXT NOT NULL,
+        state           TEXT NOT NULL CHECK (state IN ('pending', 'accepted', 'refused', 'held')),
+        attempts        INTEGER NOT NULL DEFAULT 0,
+        last_attempt_at INTEGER,
+        message         TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (event_id, relay_url)
+    ) WITHOUT ROWID;
+    """,
 ]
 
 
@@ -275,6 +303,24 @@ class RelayInfo:
         """Older ones still to get from it (for everything asked, together)."""
         gaps = [p.gap for _, p in self.points if p.gap]
         return (min(g[0] for g in gaps), max(g[1] for g in gaps)) if gaps else None
+
+
+@dataclass(frozen=True, slots=True)
+class Delivery:
+    """An event of this computer's, sent to a relay (or not yet)."""
+    relay_url: str
+    state: Literal['pending', 'accepted', 'refused', 'held']  # held: not sent (see service.py)
+    attempts: int
+    last_attempt_at: int | None
+    message: str                         # what the relay said
+
+
+@dataclass(frozen=True, slots=True)
+class Seeding:
+    event_id: str
+    infohash: str
+    file_name: str
+    enabled: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -598,6 +644,61 @@ class Catalog:
         with self._write():
             self._db.execute('UPDATE relays SET last_attempt_at = ?, last_error = ? WHERE url = ?',
                              (at, error[:500], url))
+
+    # --- this computer's files and events ------------------------------------------------------------
+
+    def save_torrent(self, infohash: str, file_sha256: str, file_name: str, metainfo: bytes) -> None:
+        with self._write():
+            self._db.execute('INSERT INTO torrents (infohash, file_sha256, file_name, metainfo, added_at) '
+                             'VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING',
+                             (infohash, file_sha256, file_name, metainfo, int(time.time())))
+
+    def metainfo(self, infohash: str) -> bytes | None:
+        with self._lock:
+            row = self._db.execute('SELECT metainfo FROM torrents WHERE infohash = ?', (infohash,)).fetchone()
+            return bytes(row[0]) if row else None
+
+    def set_seeding(self, event_id: str, infohash: str, enabled: bool) -> None:
+        with self._write():
+            self._db.execute('INSERT INTO seeding (event_id, infohash, enabled, changed_at) VALUES (?, ?, ?, ?) '
+                             'ON CONFLICT (event_id) DO UPDATE SET enabled = excluded.enabled, '
+                             'changed_at = excluded.changed_at', (event_id, infohash, int(enabled), int(time.time())))
+
+    def seeding(self, *, enabled_only: bool = False) -> tuple[Seeding, ...]:
+        """The publications whose file this computer shares (or stopped sharing)."""
+        with self._lock:
+            rows = self._db.execute(
+                'SELECT s.event_id, s.infohash, t.file_name, s.enabled FROM seeding s JOIN torrents t '
+                f'ON t.infohash = s.infohash {"WHERE s.enabled = 1" if enabled_only else ""} ORDER BY s.changed_at')
+            return tuple(Seeding(r['event_id'], r['infohash'], r['file_name'], bool(r['enabled'])) for r in rows)
+
+    def files_in_use(self) -> set[str]:
+        """The files (by name) still shared for a publication."""
+        with self._lock:
+            return {row[0] for row in self._db.execute('SELECT DISTINCT t.file_name FROM seeding s JOIN torrents t '
+                                                       'ON t.infohash = s.infohash WHERE s.enabled = 1')}
+
+    def record_delivery(self, event_id: str, relay_url: str, state: str, *, message: str = '',
+                        attempted: bool = True) -> None:
+        with self._write():
+            self._db.execute(
+                'INSERT INTO deliveries (event_id, relay_url, state, attempts, last_attempt_at, message) '
+                'VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (event_id, relay_url) DO UPDATE SET state = excluded.state, '
+                'attempts = attempts + excluded.attempts, last_attempt_at = coalesce(excluded.last_attempt_at, '
+                'last_attempt_at), message = excluded.message',
+                (event_id, relay_url, state, int(attempted), int(time.time()) if attempted else None, message[:500]))
+
+    def deliveries(self, event_id: str) -> tuple[Delivery, ...]:
+        with self._lock:
+            return tuple(Delivery(r['relay_url'], r['state'], r['attempts'], r['last_attempt_at'], r['message'])
+                         for r in self._db.execute('SELECT * FROM deliveries WHERE event_id = ? ORDER BY relay_url',
+                                                   (event_id,)))
+
+    def withdrawal(self, event_id: str) -> Withdrawal | None:
+        """A withdrawal kept in the catalog (this computer's own, to send it again)."""
+        with self._lock:
+            row = self._db.execute('SELECT event_json FROM withdrawals WHERE event_id = ?', (event_id,)).fetchone()
+        return fmt.read_withdrawal(Event.from_json(row[0])) if row else None
 
     # --- the database -------------------------------------------------------------------------------
 

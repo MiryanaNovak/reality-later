@@ -32,6 +32,10 @@ class Character(Profile):
     # Each one a few lines like "{{user}}: ..." / "{{char}}: ...". Sent as examples of style, not as
     # events of the story; while the whole chat fits, by default (see prompts.py).
     example_dialogues: list[str] = Field(default_factory=list)
+    # Its UUID as a shared card (rpapp/publishing/): given when it's first published, kept in the cards
+    # exported, and read back on import, so that publishing it again, here or elsewhere, makes a new version
+    # of the same card ('' until then).
+    shared_uuid: str = ''
 
 
 def new_character(title: str) -> Character:
@@ -43,3 +47,10 @@ class CharacterStore(ProfileStore[Character]):
 
     def __init__(self, data_dir: str | Path) -> None:
         super().__init__(Path(data_dir) / 'characters', Character)
+
+    def duplicate(self, item: Character, label: str | None = None) -> Character:
+        """A copy is a character of its own: published, it's another card, not a new version of the
+        original's (no shared UUID)."""
+        if not item.shared_uuid:
+            return super().duplicate(item, label)
+        return super().duplicate(item.model_copy(update={'shared_uuid': ''}), label or f'{item.label} (copy)')

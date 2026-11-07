@@ -73,6 +73,8 @@ PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
 
 # The most a card may unpack to. Compressed data can be made to unpack to gigabytes (a "zip
 # bomb"): it's read up to these sizes only, and refused beyond.
+SHARED_EXTENSION = 'reality_later'  # data.extensions.reality_later.card_uuid: its UUID as a shared card
+SHARED_UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')
 MAX_CARD_BYTES = 50_000_000     # a card's JSON (the biggest real ones, with large lore books, are a few MB)
 MAX_PICTURE_BYTES = 30_000_000  # a picture inside a CharX file
 TOO_BIG = 'This card is too big to be a real one: it unpacks to more than {} MB.'
@@ -317,6 +319,12 @@ def _to_app(fields: dict, version: str, picture: bytes | None, fallback_name: st
     character.first_messages = [g for g in greetings if g] or ['']
     character.example_dialogues = split_examples(card_text('mes_example'))
 
+    extensions = fields.get('extensions')
+    shared = extensions.get(SHARED_EXTENSION) if isinstance(extensions, dict) else None
+    uuid_ = shared.get('card_uuid') if isinstance(shared, dict) else None
+    if isinstance(uuid_, str) and SHARED_UUID.fullmatch(uuid_):
+        character.shared_uuid = uuid_
+
     book = None
     raw_book = fields.get('character_book')
     if isinstance(raw_book, dict) and isinstance(raw_book.get('entries'), list) and raw_book['entries']:
@@ -481,7 +489,7 @@ def card_data(character: Character, books: list[LoreBook] = ()) -> dict:
         'tags': [],
         'creator': '',
         'character_version': '',
-        'extensions': {},
+        'extensions': {SHARED_EXTENSION: {'card_uuid': character.shared_uuid}} if character.shared_uuid else {},
     }
     if any(book.entries for book in books):
         data['character_book'] = book_to_card(books, data['name'])

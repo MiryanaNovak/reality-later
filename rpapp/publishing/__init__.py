@@ -1,18 +1,22 @@
 """Sharing character cards without a central server: signed announcements on Nostr, the files by
 BitTorrent. The announcements' format is docs/card-announcements.md; this package follows it.
 
-So far (the files' downloading and seeding are to come):
+So far (downloading the files is to come):
 
     nostr.py          Nostr's basics: events, their id and signature, keys written as npub/nsec
     torrents.py       a card file's torrent, made the same way every time (so, the same infohash)
     announcements.py  the format: building publications and withdrawals, and checking those received
     identity.py       the publisher's key, in a file of its own
-    catalog.py        the publications this computer knows of (SQLite): versions, names, withdrawals, blocking
+    catalog.py        the publications this computer knows of (SQLite): versions, names, withdrawals, blocking;
+                      and its own: the files it shares, where its announcements arrived
     relay.py          talking to one Nostr relay: asking for events, sending ours
     discovery.py      getting the relays' publications and withdrawals into the catalog
+    seeder.py         BitTorrent (libtorrent): sharing the files of the cards published from here
+    service.py        all of it for the app: discovery in the background, publishing, withdrawing, sharing
 
 It needs coincurve (secp256k1's signatures): packages exist for Python 3.13 and earlier. Without it, the
-app works as before, and runtime_problem() says why sharing can't.
+app works as before, and runtime_problem() says why sharing can't. Publishing needs libtorrent too
+(seeder.torrent_problem()); looking at the cards people share doesn't.
 """
 from __future__ import annotations
 

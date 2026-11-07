@@ -266,6 +266,21 @@ def test_a_damaged_key_file(tmp_path):
     path.write_text('nsec1 lost half of it\n', encoding='utf-8')
     with pytest.raises(identity.IdentityError, match='backup'):
         identity.load_identity(path)
+    with pytest.raises(identity.IdentityError, match='already have'):  # (not over it, unless asked)
+        identity.import_identity(path, KEY2.hex())
+    assert identity.import_identity(path, KEY2.hex(), replace=True).secret == KEY2  # (its backup, restored)
+    [kept] = [p for p in tmp_path.iterdir() if p.name.startswith('nostr-key.replaced-')]
+    assert kept.read_text(encoding='utf-8') == 'nsec1 lost half of it\n'  # (set aside, not lost)
+
+
+def test_a_new_key_instead(tmp_path):
+    path = tmp_path / 'nostr-key.txt'
+    first = identity.create_identity(path)
+    second = identity.create_identity(path, replace=True)
+    third = identity.create_identity(path, replace=True)  # (within the same second: two kept)
+    assert identity.load_identity(path) == third and len({first, second, third}) == 3
+    kept = sorted(p for p in tmp_path.iterdir() if p.name.startswith('nostr-key.replaced-'))
+    assert {identity.load_identity(p) for p in kept} == {first, second}
 
 
 def test_runtime_problem():
