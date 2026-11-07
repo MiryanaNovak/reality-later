@@ -228,7 +228,8 @@ Paste the following configuration:
 ```ini
 [Unit]
 Description=Reality Later AI Roleplay Server
-After=network.target
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=simple
