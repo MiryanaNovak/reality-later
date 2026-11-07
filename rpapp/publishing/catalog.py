@@ -15,6 +15,7 @@ Blocking a publisher deletes all they published, and refuses what comes from the
 
     receive() / receive_all()   events from a relay (or the app's own): checked, then kept
     cards(CardQuery)            the latest version of each card (or every version), by filters, by pages
+    tags(CardQuery)             the tags of those cards, with how many have each
     versions(), get()           a card's versions; one publication (withdrawn ones too)
     publishers(PublisherQuery), publisher()
     block(), unblock(), blocked()
@@ -219,6 +220,12 @@ class CardQuery:
 
 
 @dataclass(frozen=True, slots=True)
+class TagCount:
+    tag: str
+    cards: int                           # how many of the cards asked about have it
+
+
+@dataclass(frozen=True, slots=True)
 class PublisherQuery:
     """Which publishers: those who published most recently first."""
     publisher_id: str | None = None
@@ -391,45 +398,23 @@ class Catalog:
 
     def cards(self, query: CardQuery = CardQuery()) -> Page[CatalogEntry]:
         """The cards (the latest version of each, unless include_versions), newest first."""
-        where, args = [], []
-        if query.publisher_id:
-            where.append('p.publisher_key = ?')
-            args.append(query.publisher_id)
-        if query.card_uuid:
-            where.append('p.card_uuid = ?')
-            args.append(query.card_uuid)
-        for word in _words(query.card_name):
-            where.append("p.title_folded LIKE ? ESCAPE '\\'")
-            args.append(f'%{_like(word)}%')
-        if _words(query.publisher_name):
-            where.append(_NAMED)
-            args += _named(query.publisher_name)
-        tags = fmt.normalize_tags(query.tags)
-        if tags:  # (the tags' index first: the publications with them, then the rest of the conditions)
-            marks = ','.join('?' * len(tags))
-            enough = len(tags) if query.match_all_tags else 1
-            where.append(f'p.event_id IN (SELECT t.event_id FROM publication_tags t WHERE t.tag IN ({marks}) '
-                         f'GROUP BY t.event_id HAVING COUNT(*) >= ?)')
-            args += [*tags, enough]
-        excluded = fmt.normalize_tags(query.exclude_tags)
-        if excluded:
-            marks = ','.join('?' * len(excluded))
-            where.append(f'NOT EXISTS (SELECT 1 FROM publication_tags x WHERE x.event_id = p.event_id '
-                         f'AND x.tag IN ({marks}))')
-            args += excluded
-        for column, value in (('card_format', query.card_format), ('content_rating', query.content_rating),
-                              ('language', query.language)):
-            if value:
-                where.append(f'p.{column} = ?')
-                args.append(value)
-        if query.published_since is not None:
-            where.append('p.created_at >= ?')
-            args.append(query.published_since)
-        if query.published_until is not None:
-            where.append('p.created_at <= ?')
-            args.append(query.published_until)
-        source = 'live_publications' if query.include_versions else 'latest_publications'
+        source, where, args = _conditions(query)
         return self._page(source, where, args, query.limit, query.cursor)
+
+    def tags(self, query: CardQuery = CardQuery(), *, prefix: str = '', limit: int = 100) -> list[TagCount]:
+        """The tags of the cards `query` finds (by default, all: the latest version of each), with how many
+        of them have each one, the most used first. `prefix`: only the tags starting with it (as it's typed;
+        normalized like tags are). With a query's tags, the tags found with them."""
+        source, where, args = _conditions(query)
+        start = fmt.normalize_tags([prefix])
+        if start:
+            where = [*where, "t.tag LIKE ? ESCAPE '\\'"]
+            args = [*args, f'{_like(start[0])}%']
+        sql = (f'SELECT t.tag, COUNT(*) AS cards FROM {source} p JOIN publication_tags t ON t.event_id = p.event_id '
+               f'{"WHERE " + " AND ".join(where) if where else ""} GROUP BY t.tag ORDER BY cards DESC, t.tag LIMIT ?')
+        with self._lock:
+            return [TagCount(row['tag'], row['cards'])
+                    for row in self._db.execute(sql, (*args, max(1, min(limit, MAX_PAGE))))]
 
     def versions(self, publisher_id: str, card_uuid: str, *, include_withdrawn: bool = False) -> list[CatalogEntry]:
         """All the versions of a card, newest first."""
@@ -687,6 +672,49 @@ def fold(text: str) -> str:
 # A publisher who used a name: their current one or a previous one (a name as JSON list of folded words).
 _NAMED = """EXISTS (SELECT 1 FROM publisher_names n WHERE n.publisher_key = p.publisher_key
     AND NOT EXISTS (SELECT 1 FROM json_each(?) w WHERE instr(n.name_folded, w.value) = 0))"""
+
+
+def _conditions(query: CardQuery) -> tuple[str, list[str], list]:
+    """Where a CardQuery's cards are (the view), and the conditions they meet, for SQL with `p` as the card."""
+    where: list[str] = []
+    args: list = []
+    if query.publisher_id:
+        where.append('p.publisher_key = ?')
+        args.append(query.publisher_id)
+    if query.card_uuid:
+        where.append('p.card_uuid = ?')
+        args.append(query.card_uuid)
+    for word in _words(query.card_name):
+        where.append("p.title_folded LIKE ? ESCAPE '\\'")
+        args.append(f'%{_like(word)}%')
+    if _words(query.publisher_name):
+        where.append(_NAMED)
+        args += _named(query.publisher_name)
+    tags = fmt.normalize_tags(query.tags)
+    if tags:  # (the tags' index first: the publications with them, then the rest of the conditions)
+        marks = ','.join('?' * len(tags))
+        enough = len(tags) if query.match_all_tags else 1
+        where.append(f'p.event_id IN (SELECT t.event_id FROM publication_tags t WHERE t.tag IN ({marks}) '
+                     f'GROUP BY t.event_id HAVING COUNT(*) >= ?)')
+        args += [*tags, enough]
+    excluded = fmt.normalize_tags(query.exclude_tags)
+    if excluded:
+        marks = ','.join('?' * len(excluded))
+        where.append(f'NOT EXISTS (SELECT 1 FROM publication_tags x WHERE x.event_id = p.event_id '
+                     f'AND x.tag IN ({marks}))')
+        args += excluded
+    for column, value in (('card_format', query.card_format), ('content_rating', query.content_rating),
+                          ('language', query.language)):
+        if value:
+            where.append(f'p.{column} = ?')
+            args.append(value)
+    if query.published_since is not None:
+        where.append('p.created_at >= ?')
+        args.append(query.published_since)
+    if query.published_until is not None:
+        where.append('p.created_at <= ?')
+        args.append(query.published_until)
+    return ('live_publications' if query.include_versions else 'latest_publications'), where, args
 
 
 def _named(name: str) -> list[str]:

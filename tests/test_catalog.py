@@ -290,3 +290,27 @@ def test_many_publications_stay_quick(tmp_path):
     assert len(page.items) == 100 and all(e.is_latest for e in page.items) and found.items
     assert len(publishers.items) == 20
     assert took < 2, f'{took:.2f} s'  # (about 0.05 s here: generous, for slow machines)
+
+
+def test_tags(catalog):
+    k3 = nostr.new_secret()
+    uuid = fmt.new_card_uuid()
+    publish(catalog, KEY1, at=T0, uuid=uuid, title='Aria', tags=('fantasy', 'old-tag'))
+    publish(catalog, KEY1, at=T0 + 10, uuid=uuid, title='Aria', tags=('fantasy', 'bard'))  # (its latest version)
+    publish(catalog, KEY1, at=T0 + 20, title='Bram', tags=('romance', 'fantasy'), rating='nsfw')
+    publish(catalog, k3, at=T0 + 30, title='Cass', tags=('sci-fi', 'romance'))
+    gone = publish(catalog, k3, at=T0 + 40, title='Dove', tags=('withdrawn-tag',))
+    catalog.receive(fmt.build_withdrawal([gone.event_id], secret=k3, created_at=NOW).event, now=NOW)
+
+    def counts(*args, **kwargs):
+        return [(t.tag, t.cards) for t in catalog.tags(*args, **kwargs)]
+
+    # Every tag of the cards (their latest version; not what's withdrawn), the most used first
+    assert counts() == [('fantasy', 2), ('romance', 2), ('bard', 1), ('sci-fi', 1)]
+    assert counts(CardQuery(content_rating='sfw')) == [('bard', 1), ('fantasy', 1), ('romance', 1), ('sci-fi', 1)]
+    assert counts(CardQuery(tags=('romance',))) == [('romance', 2), ('fantasy', 1), ('sci-fi', 1)]  # (found with it)
+    assert counts(CardQuery(exclude_tags=('sci-fi',))) == [('fantasy', 2), ('bard', 1), ('romance', 1)]
+    assert counts(CardQuery(include_versions=True)) == [('fantasy', 3), ('romance', 2), ('bard', 1), ('old-tag', 1),
+                                                        ('sci-fi', 1)]
+    assert counts(prefix='#RO') == [('romance', 2)] and counts(prefix='s') == [('sci-fi', 1)]
+    assert counts(prefix='%') == [] and counts(limit=1) == [('fantasy', 2)]
