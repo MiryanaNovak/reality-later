@@ -61,6 +61,8 @@ async def test_the_port_set_then_changed():
         assert s.network().port_mapping is False
 
         with socket.socket() as busy:  # (taken by another program: said, not another port instead)
+            if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):  # (Windows: else, listening on each address of this
+                busy.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)  # computer still works there)
             busy.bind(('0.0.0.0', 0))
             busy.listen()
             taken = busy.getsockname()[1]
