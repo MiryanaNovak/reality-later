@@ -449,6 +449,19 @@ async def test_a_model_not_pinned_yet_cant_be_downloaded(tmp_path):
             await user.should_see(marker='vectors-unpinned')
 
 
+def test_every_model_is_pinned():
+    """The app ships its models' exact versions and fingerprints (tools/pin_models.py records them): without
+    them, a model can't be downloaded. An unpinned catalog once slipped in, replacing the pinned one."""
+    import re
+
+    from rpapp.embeddings import catalog
+    for model in catalog().values():
+        assert model.pinned and re.fullmatch(r'[0-9a-f]{40}', model.revision), \
+            f'{model.key} isn\'t pinned: run tools/pin_models.py, and commit rpapp/embedding_models.json'
+        for f in model.files:
+            assert f.size > 0 and re.fullmatch(r'[0-9a-f]{64}', f.sha256), f'{model.key}: {f.path}'
+
+
 def test_build_root_uses_this_module():
     assert vectors_module.Vectorizer is Vectorizer
 
