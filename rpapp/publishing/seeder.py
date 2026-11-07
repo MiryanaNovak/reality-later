@@ -142,8 +142,10 @@ class TorrentSession:
         self._fetching: dict[str, object] = {}  # infohash → torrent handle, of the files being downloaded
         self._errors: dict[str, tuple[str, str]] = {}  # infohash → what went wrong with it: (alert, message)
         # How others reach this computer (network()), from libtorrent's alerts
-        self._listening: dict[str, int] = {}    # 'tcp' or 'udp' → port
-        self._listen_error = ''
+        # (TCP or UDP, IP version 4 or 6) → port; IP version → why TCP can't listen. IPv4 is what counts: most
+        # peers have it, and an IPv6 that works doesn't make up for it (nor does one that fails matter much)
+        self._listening: dict[tuple[str, int], int] = {}
+        self._listen_errors: dict[int, str] = {}
         self._mapped: dict[tuple[str, str], int] = {}  # (UPnP or NAT-PMP, TCP or UDP) → port on the internet side
         self._mapping_errors: dict[str, str] = {}      # UPnP or NAT-PMP → what went wrong
         self._asking_since: float | None = None
@@ -309,8 +311,8 @@ class TorrentSession:
         self._read_alerts()
         settings = self.settings
         return NetworkStatus(
-            started=self.started, port=self._listening.get('tcp', 0) if self.started else 0,
-            wanted_port=self.wanted_port, listen_error=self._listen_error if 'tcp' not in self._listening else '',
+            started=self.started, port=self._tcp_port() if self.started else 0,
+            wanted_port=self.wanted_port, listen_error='' if self._tcp_port() else self._listen_error(),
             port_mapping=bool(settings['enable_upnp'] or settings['enable_natpmp']),
             mapped=tuple(sorted((t, p, port) for (t, p), port in self._mapped.items())),
             mapping_errors=tuple(sorted(self._mapping_errors.items())), asking_since=self._asking_since,
@@ -329,11 +331,20 @@ class TorrentSession:
         if self._session is not None:
             self._read_alerts()  # (what was said of the old port: not of the new one)
             self._listening.clear()
-            self._listen_error = ''
+            self._listen_errors.clear()
             self._mapped.clear()
             self._mapping_errors.clear()
             self._asking_since = time.time() if port_mapping else None
             self._session.apply_settings(changed)
+
+    def _tcp_port(self) -> int:
+        """The port TCP listens on: IPv4's; IPv6's only where IPv4 didn't fail (none to be had: rare)."""
+        if ('tcp', 4) in self._listening:
+            return self._listening[('tcp', 4)]
+        return 0 if 4 in self._listen_errors else self._listening.get(('tcp', 6), 0)
+
+    def _listen_error(self) -> str:
+        return self._listen_errors.get(4) or self._listen_errors.get(6, '')
 
     def poll(self) -> None:
         """Read what libtorrent said (the service does it every few seconds: its queue of alerts is limited)."""
@@ -366,10 +377,11 @@ class TorrentSession:
     def _network_alert(self, what: str, alert) -> None:
         import libtorrent as lt
         if what == 'listen_succeeded':  # (on each address of this computer: the same port, normally)
-            self._listening.setdefault('tcp' if _is_tcp(lt, alert.socket_type) else 'udp', alert.port)
-        elif what == 'listen_failed':  # (said only if TCP listens nowhere: IPv6 fails where there's none)
+            protocol = 'tcp' if _is_tcp(lt, alert.socket_type) else 'udp'
+            self._listening.setdefault((protocol, _ip_version(alert.address)), alert.port)
+        elif what == 'listen_failed':  # (IPv4's said even if IPv6 listens; IPv6's only if nothing else does)
             if _is_tcp(lt, alert.socket_type):
-                self._listen_error = _error_text(alert.error) or alert.message()
+                self._listen_errors[_ip_version(alert.address)] = _error_text(alert.error) or alert.message()
             log.info('BitTorrent: %s', alert.message())
         elif what == 'portmap':
             self._mapped[(_transport(lt, alert.map_transport), _protocol(lt, alert.map_protocol))] = alert.external_port
@@ -405,6 +417,13 @@ def _port_rules(port: int | None) -> dict:
 
 NETWORK_ALERTS = frozenset({'listen_succeeded', 'listen_failed', 'portmap', 'portmap_error', 'external_ip',
                             'incoming_connection'})
+
+
+def _ip_version(address) -> int:
+    try:
+        return ipaddress.ip_address(str(address).strip('[]')).version
+    except ValueError:  # (a device name, from listen_interfaces: said as IPv4's)
+        return 4
 
 
 def _is_tcp(lt, socket_type) -> bool:

@@ -98,6 +98,35 @@ def test_what_libtorrent_says():
     assert st.reached_at is not None and st.reached_by == 'IPv6'
 
 
+def test_ipv4_taken_ipv6_free():
+    """A computer with IPv6, where another program holds the port for IPv4 only: IPv6 listens, but most peers
+    connect by IPv4, so it's said; IPv6 failing alone (no IPv6 there, often) isn't."""
+    tcp = lt.socket_type_t.tcp
+    in_use = SimpleNamespace(message=lambda: 'Address already in use')
+
+    def listening(address, port=7000):
+        return SimpleNamespace(address=address, port=port, socket_type=tcp)
+
+    def failed(address):
+        return SimpleNamespace(address=address, port=7000, socket_type=tcp, error=in_use, message=lambda: 'failed')
+
+    s = quiet(port=7000, port_mapping=False)
+    s._session = SimpleNamespace(pop_alerts=list)  # (as if started: what's tested is what alerts make of it)
+    s._network_alert('listen_succeeded', listening('::'))
+    s._network_alert('listen_failed', failed('192.168.1.20'))
+    assert (s.network().port, s.network().listen_error) == (0, 'Address already in use')
+
+    s._listening.clear(), s._listen_errors.clear()
+    s._network_alert('listen_failed', failed('::'))
+    s._network_alert('listen_succeeded', listening('192.168.1.20'))
+    assert (s.network().port, s.network().listen_error) == (7000, '')
+
+    s._listening.clear(), s._listen_errors.clear()
+    s._network_alert('listen_succeeded', listening('2a01:e0a::5'))  # (IPv6 only, nothing failed: so be it)
+    assert s.network().port == 7000
+    s._session = None
+
+
 # --- in words ----------------------------------------------------------------------------------------------
 
 def test_in_words():
