@@ -25,7 +25,7 @@ dependencies = [
     # sharing cards (see rpapp/publishing/): Nostr's signatures. Its packages stop at Python 3.13 for now:
     # on later ones, the app works without sharing (publishing.runtime_problem() says why)
     "coincurve>=21; python_version < '3.14'",
-    "websockets>=13",                       # talks to Nostr relays (rpapp/publishing/relay.py)
+    "websockets>=15",                       # talks to Nostr relays (rpapp/publishing/relay.py); 15: proxies
     # BitTorrent: shares the files of the cards published (rpapp/publishing/seeder.py). Its packages: Windows
     # (not ARM), Linux (x86-64, ARM), macOS 14+ on Apple chips; Python 3.13 at most. Elsewhere, the app runs
     # and shows the cards people share, but can't publish (seeder.torrent_problem() says why)

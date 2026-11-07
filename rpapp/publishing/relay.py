@@ -8,17 +8,23 @@ What the relay sends is untrusted: events come back as parsed JSON, for the call
 catalog does); anything else that isn't what's expected is ignored. A relay that doesn't answer in time,
 refuses a query or closes the connection raises RelayError.
 
-Uses the HTTPS proxy of the environment (HTTPS_PROXY), like the rest of the app.
+Uses the system's proxy, if there's one (HTTPS_PROXY and the like; Windows' and macOS' settings), like
+the rest of the app: but not for a relay on this computer or its network (is_local()), which a proxy
+usually can't reach, as browsers do.
 """
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import itertools
 import json
 from typing import Any
+from urllib.parse import urlsplit
 
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import WebSocketException
+from websockets.proxy import get_proxy
+from websockets.uri import parse_uri
 
 from .nostr import Event
 
@@ -42,12 +48,14 @@ class Relay:
         self.notices: list[str] = []   # what it said besides (NOTICE): for the curious
 
     async def __aenter__(self) -> Relay:
+        proxy = proxy_for(self.url)
         try:
             self._ws = await asyncio.wait_for(
                 connect(self.url, open_timeout=self.timeout, max_size=MAX_MESSAGE, user_agent_header=USER_AGENT,
-                        ping_interval=None, compression=None), self.timeout)
+                        ping_interval=None, compression=None, proxy=proxy), self.timeout)
         except (OSError, WebSocketException, asyncio.TimeoutError, ValueError) as e:
-            raise RelayError(f'can\'t connect ({_say(e)})') from None
+            through = f' through the proxy {_without_password(proxy)}' if proxy else ''
+            raise RelayError(f'can\'t connect{through} ({_say(e)})') from None
         return self
 
     async def __aexit__(self, *_) -> None:
@@ -123,6 +131,36 @@ class Relay:
             return json.loads(text)
         except (json.JSONDecodeError, RecursionError, TypeError):
             return None
+
+
+def is_local(url: str) -> bool:
+    """A relay on this computer or its network, by its address: localhost, a private or link-local IP, a
+    .local name, or a name without a dot (a computer of the network, as Windows has it)."""
+    host = (urlsplit(url).hostname or '').lower()
+    if host == 'localhost' or host.endswith(('.local', '.localhost')) or (host and '.' not in host and ':' not in host):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_private or address.is_link_local
+
+
+def proxy_for(url: str) -> str | None:
+    """The proxy to reach a relay through: the system's, if there's one and it isn't to be bypassed for
+    that address; never for a relay on this computer or its network."""
+    if is_local(url):
+        return None
+    try:
+        return get_proxy(parse_uri(url))
+    except Exception:  # (not a relay's address: connect() says so)
+        return None
+
+
+def _without_password(proxy: str) -> str:
+    parts = urlsplit(proxy)
+    return parts._replace(netloc=parts.hostname + (f':{parts.port}' if parts.port else '')).geturl() \
+        if parts.password and parts.hostname else proxy
 
 
 def _say(error: BaseException) -> str:

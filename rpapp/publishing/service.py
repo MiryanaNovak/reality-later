@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import ipaddress
 import logging
 import os
 import re
@@ -43,7 +42,6 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, TypeVar
-from urllib.parse import urlsplit
 
 from . import announcements as fmt
 from . import identity as keys
@@ -52,7 +50,7 @@ from .catalog import Catalog, CatalogEntry, Delivery, Download
 from .discovery import Discovery, DiscoveryResult
 from .identity import Identity
 from .nostr import Event
-from .relay import Relay, RelayError
+from .relay import Relay, RelayError, is_local
 from .seeder import DEFAULT_TRACKERS, FetchError, FetchProgress, TorrentSession, TorrentStatus
 from .torrents import card_file
 
@@ -486,18 +484,6 @@ class Sharing:
                     pass
         self.session.close()
         self.catalog.close()
-
-
-def is_local(url: str) -> bool:
-    """A relay on this computer or its network (by its address: localhost, a private IP, a .local name)."""
-    host = (urlsplit(url).hostname or '').lower()
-    if host == 'localhost' or host.endswith('.local') or host.endswith('.localhost'):
-        return True
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        return False
-    return address.is_loopback or address.is_private or address.is_link_local
 
 
 def torrent_problem() -> str:
