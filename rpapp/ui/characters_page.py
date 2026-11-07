@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from nicegui import ui
@@ -25,7 +26,7 @@ from .collection_page import safe_file_name
 from .form import Form, text_stats
 from .list_view import Link, Row, initials, plural
 from .profile_page import ProfileSection
-from .widgets import MenuItems, audience_legend, confirm, panel
+from .widgets import MenuItems, audience_legend, browser_languages, confirm, panel
 
 if TYPE_CHECKING:
     from .sharing_page import SharingSection
@@ -59,9 +60,11 @@ class CharactersSection(ProfileSection[Character]):
 
     # -- importing a character card --------------------------------------------------------
 
-    def import_card(self, file_name: str, content: bytes) -> tuple[Character, str]:
-        """A SillyTavern-style character card (PNG, JSON or CharX; V1 to V3), saved as a new character."""
-        card = read_card(file_name, content, languages=_languages())
+    def import_card(self, file_name: str, content: bytes, *,
+                    languages: Iterable[str] | None = None) -> tuple[Character, str]:
+        """A SillyTavern-style character card (PNG, JSON or CharX; V1 to V3), saved as a new character.
+        `languages`: the user's, best first (the browser's if not given)."""
+        card = read_card(file_name, content, languages=browser_languages() if languages is None else list(languages))
         imported = save_card(card, self.store, self.lore_books)
         said = f'Imported "{imported.character.title}" ({card.version} card)'
         if imported.book is not None:
@@ -84,6 +87,11 @@ class CharactersSection(ProfileSection[Character]):
         if self.sharing is None or self.sharing.sharing is None:
             return ()
         return [('Publish to shared cards', lambda: self.publish(character), False)]
+
+    def import_shared(self, file_name: str, content: bytes, languages: Iterable[str]) -> tuple[str, str]:
+        """A shared card downloaded (publishing/service.py's importer): added as a new character, like Import."""
+        character, said = self.import_card(file_name, content, languages=languages)
+        return character.id, said
 
     async def publish(self, character: Character) -> None:
         """The card file is the one Export makes (with the card's UUID in it); the character is saved with that
@@ -146,6 +154,10 @@ class CharactersSection(ProfileSection[Character]):
     def intro(self, character: Character) -> None:
         audience_legend('Name, Scenario, First messages, Example dialogues, Lore books',
                         'Title, Picture, Description')
+        if self.sharing is not None and self.sharing.sharing is not None:
+            # From a shared card? Said once the catalog answered (withdrawn since, a newer version...)
+            with ui.element('div').classes('w-full'):
+                ui.timer(0.01, lambda: self.sharing.character_note(character.id), once=True)
 
     def panels(self, character: Character, form: Form) -> None:
         with panel('Description', 'What the character is about, in a sentence or two, to help you pick them: it\'s '
@@ -246,14 +258,3 @@ class CharactersSection(ProfileSection[Character]):
 
         entries()
 
-
-def _languages() -> list[str]:
-    """The browser's languages, best first ('fr', 'en'), from its Accept-Language header."""
-    request = ui.context.client.request
-    header = request.headers.get('accept-language', '') if request is not None else ''
-    found = []
-    for item in header.split(','):
-        code = item.split(';')[0].strip().lower().split('-')[0]
-        if code and code != '*' and code not in found:
-            found.append(code)
-    return found

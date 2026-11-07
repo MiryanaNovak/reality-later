@@ -4,8 +4,12 @@ Sharing cards.
     /shared               the catalog: the latest version of each card, newest first, with filters;
                           ?publisher=<key> one publisher's, ?tag=<tag> one tag's
     /shared/{event_id}    one publication: its description, details, publisher and versions; blocking.
-                          One of yours: how its file is shared, where its announcement arrived, sending it
-                          again, stopping sharing, withdrawing
+                          Someone else's: adding it to your characters (downloading it), and what became
+                          of it. One of yours: how its file is shared, where its announcement arrived,
+                          sending it again, stopping sharing, withdrawing
+
+A downloaded card's character says where it came from, on its page (character_note()): withdrawn since,
+or a newer version out.
 
 Publishing starts from a character's ⋮ menu (publish_dialog(), from characters_page.py): the card's name,
 description, tags, rating and language, then the card file exported as for Export (with the card's UUID
@@ -41,10 +45,11 @@ from ..publishing.service import DEFAULT_RELAYS, Published, Sharing, SharingErro
 from ..settings import Settings, SettingsStore
 from .form import Form, keep_typed
 from .list_view import Row, plural, render_row
-from .widgets import confirm, not_found, page_bar, panel, time_ago
+from .widgets import browser_languages, confirm, not_found, page_bar, panel, time_ago
 
 if TYPE_CHECKING:
-    from ..characters import Character
+    from ..characters import Character, CharacterStore
+    from ..publishing.service import Fetch
 
 log = logging.getLogger(__name__)
 
@@ -129,6 +134,19 @@ def delivery_summary(deliveries: Iterable[Delivery]) -> str:
     return ', '.join(parts)
 
 
+def fetch_text(fetch: Fetch) -> str:
+    """How far a download is, in words."""
+    if fetch.stage == 'looking':
+        return 'Looking for people sharing it…' + (f' ({_people(fetch.peers)} found)' if fetch.peers else '')
+    if fetch.stage == 'downloading':
+        return f'Downloading: {int(fetch.progress * 100)}%' + (f', from {_people(fetch.peers)}' if fetch.peers else '')
+    return 'Adding it to your characters…'
+
+
+def _people(n: int) -> str:
+    return '1 person' if n == 1 else f'{n} people'
+
+
 def sharing_text(status: TorrentStatus | str | None, *, withdrawn: bool) -> tuple[str, str]:
     """How a publication's file is shared from here: (icon, text); a problem's icon is 'error_outline'."""
     if isinstance(status, str):
@@ -140,8 +158,7 @@ def sharing_text(status: TorrentStatus | str | None, *, withdrawn: bool) -> tupl
         return 'error_outline', f'Sharing its file failed: {status.error}'
     if status.state != 'seeding':
         return 'hourglass_empty', 'Getting ready to share its file…'
-    peers = ('nobody downloading it now' if not status.peers else '1 person connected' if status.peers == 1 else
-             f'{status.peers} people connected')
+    peers = 'nobody downloading it now' if not status.peers else f'{_people(status.peers)} connected'
     sent = size_text(status.uploaded) if status.uploaded else 'nothing'
     return 'cloud_upload', f'Shared from this computer while the app runs: {peers}, {sent} sent since the app started.'
 
@@ -151,6 +168,7 @@ class SharingSection:
         self.sharing = sharing      # None: sharing can't run here, and `problem` says why
         self.settings = settings
         self.problem = problem
+        self.characters: CharacterStore | None = None  # where downloaded cards become characters (the app's)
 
     # --- the catalog ------------------------------------------------------------------------------
 
@@ -206,16 +224,20 @@ class SharingSection:
                 return
             with ui.list().props('separator').classes('panel item-list').mark('shared-list'):
                 for entry in shown:
-                    render_row(entry, self._row(entry), key=entry.publication.event_id,
+                    render_row(entry, self._row(entry, have=entry.publication.event_id in have),
+                               key=entry.publication.event_id,
                                on_open=lambda e: ui.navigate.to(f'/shared/{e.publication.event_id}'))
             if cursor[0]:
                 ui.button('Show more', on_click=more).props('flat').mark('shared-more')
+
+        have: set[str] = set()  # (those downloaded here)
 
         async def load(more_: bool = False) -> None:
             page = await sharing.call(sharing.catalog.cards, query(cursor[0] if more_ else None))
             if not more_:
                 shown.clear()
             shown.extend(page.items)
+            have.update(await sharing.call(sharing.catalog.downloaded, [e.publication.event_id for e in page.items]))
             cursor[0] = page.next_cursor
             results.refresh()
 
@@ -233,6 +255,7 @@ class SharingSection:
 
         page = await sharing.call(sharing.catalog.cards, query(None))
         shown.extend(page.items)
+        have.update(await sharing.call(sharing.catalog.downloaded, [e.publication.event_id for e in page.items]))
         cursor[0] = page.next_cursor
         results()
         search.on_value_change(load)
@@ -297,11 +320,13 @@ class SharingSection:
         ui.timer(0.5, tick)
 
     @staticmethod
-    def _row(entry: CatalogEntry) -> Row:
+    def _row(entry: CatalogEntry, *, have: bool = False) -> Row:
         p = entry.publication
         description = ' '.join(p.card_description.split())
         nsfw = p.content_rating == 'nsfw'
         note = f'{entry.publisher_name} · {time_ago(_when(p.created_at))}'
+        if have:
+            note += ' · downloaded'
         if p.card_tags:
             note += ' · ' + ' '.join(f'#{t}' for t in p.card_tags[:6])
         return Row(title=p.card_name, subtitle=description, note=note,
@@ -357,6 +382,8 @@ class SharingSection:
 
         if mine:
             await self._own_panel(entry, versions)
+        else:
+            await self._get_panel(entry)
 
         with panel('Description'):
             if p.card_description.strip():
@@ -381,7 +408,6 @@ class SharingSection:
                     with ui.column().classes('gap-0'):
                         ui.label(label).classes('muted')
                         ui.label(value)
-            ui.label('Downloading shared cards isn\'t there yet.').classes('text-sm muted')
 
         with panel('Publisher'):
             ui.label(entry.publisher_name).classes('panel-title -mt-2').mark('shared-publisher-name')
@@ -509,6 +535,136 @@ class SharingSection:
                 if not withdrawn:
                     ui.button('Withdraw…', icon='remove_circle_outline', on_click=withdraw) \
                         .props('flat dense color=negative').mark('own-withdraw')
+
+    async def _get_panel(self, entry: CatalogEntry) -> None:
+        """Someone else's card: adding it to your characters (downloading it, in the background), how far
+        that is, and what became of it."""
+        sharing = self.sharing
+        p = entry.publication
+        withdrawn = entry.withdrawn is not None
+
+        @ui.refreshable
+        async def body() -> None:
+            record = await sharing.downloaded(p.event_id)
+            fetch = sharing.fetches.get(p.event_id)
+            character = self._character(record.character_id) if record else None
+            title = 'In your characters' if record and character else 'Add it to your characters'
+            with ui.column().classes('panel gap-2').mark('shared-get'):
+                ui.label(title).classes('panel-title')
+                if fetch is not None and fetch.running:
+                    with ui.row().classes('items-center no-wrap gap-2 text-sm').mark('shared-fetching'):
+                        ui.spinner(size='1.2em')
+                        ui.label(fetch_text(fetch))
+                    return
+                if fetch is not None and fetch.stage == 'failed':
+                    with ui.row().classes('items-start no-wrap gap-2 text-sm').mark('shared-fetch-failed'):
+                        ui.icon('error_outline', size='1.3em', color='negative')
+                        ui.label(fetch.error).classes('text-negative break-words')
+                if record is not None:
+                    with ui.row().classes('items-center gap-1 text-sm').mark('shared-yours'):
+                        if character is not None:
+                            ui.label('Added as')
+                            ui.link(character.title or 'Untitled', f'/characters/{character.id}') \
+                                .mark('shared-character-link')
+                            ui.label(f'· {date_text(record.downloaded_at)}').classes('muted')
+                        else:
+                            ui.label(f'Added on {date_text(record.downloaded_at)}; that character was deleted '
+                                     f'since.').classes('muted')
+                    icon, text = sharing_text(sharing.sharing_status(entry), withdrawn=withdrawn)
+                    if icon == 'cloud_off' and not withdrawn:
+                        text = 'Its file isn\'t shared from this computer (Settings › Sharing cards).'
+                    with ui.row().classes('items-start no-wrap gap-2 text-sm').mark('shared-sharing'):
+                        ui.icon(icon, size='1.3em', color='negative' if icon == 'error_outline' else 'primary')
+                        ui.label(text).classes('break-words')
+                if withdrawn:
+                    if record is None:
+                        ui.label('It was withdrawn: it can no longer be downloaded.').classes('text-sm muted')
+                    return
+                with ui.row().classes('gap-2'):
+                    ui.button('Add it again' if record else 'Add to my characters', icon='download',
+                              on_click=add).props('flat dense' if record else '').mark('shared-add')
+                    if record is not None and isinstance(sharing.sharing_status(entry), TorrentStatus):
+                        ui.button('Stop sharing its file', icon='cloud_off', on_click=stop) \
+                            .props('flat dense').mark('shared-stop')
+                if record is None:
+                    ui.label('Its file comes from those who share it (BitTorrent), and is checked: it must be the '
+                             'one announced. Then it\'s a new character of yours. Those it comes from see this '
+                             'computer\'s internet address.').classes('text-sm muted')
+                elif character is not None:
+                    ui.label('Added again, it\'s a new character: the one you have stays as it is.') \
+                        .classes('text-sm muted')
+
+        async def add() -> None:
+            try:
+                sharing.download(p.event_id, languages=browser_languages())
+            except SharingError as e:
+                ui.notify(str(e), type='negative')
+                return
+            watched['key'] = None
+            await body.refresh()
+
+        async def stop() -> None:
+            if not await confirm('Stop sharing its file?', 'Nobody can download it from this computer any more. '
+                                 'Your character stays as it is.', 'Stop sharing'):
+                return
+            await sharing.stop_sharing(p.event_id)
+            await body.refresh()
+
+        await body()
+        watched: dict = {'key': None}
+
+        def tick() -> None:  # (how far a download is; the page again once it's over)
+            fetch = sharing.fetches.get(p.event_id)
+            key = (fetch.stage, round(fetch.progress, 2), fetch.peers) if fetch else None
+            if key != watched['key']:
+                if watched['key'] is not None or (fetch is not None and fetch.running):
+                    body.refresh()
+                watched['key'] = key
+        ui.timer(0.5, tick)
+
+    def _character(self, character_id: str) -> Character | None:
+        if self.characters is None or not character_id:
+            return None
+        try:
+            return self.characters.get(character_id)
+        except ValueError:  # (a damaged file)
+            return None
+
+    async def character_note(self, character_id: str) -> None:
+        """On a character's page (characters_page.py): the shared card it was downloaded from, if it was;
+        withdrawn since (it's kept: said), or a newer version out."""
+        if self.sharing is None:
+            return
+        sharing = self.sharing
+        records = await sharing.call(sharing.catalog.downloads, character_id=character_id)
+        if not records:
+            return
+        entry = await sharing.call(sharing.catalog.get, records[0].event_id)
+        latest = None
+        if entry is not None and entry.withdrawn is None and not entry.is_latest:
+            p = entry.publication
+            versions = await sharing.call(sharing.catalog.versions, p.publisher_id, p.card_uuid)
+            latest = next((v for v in versions if v.is_latest), None)
+        with ui.row().classes('items-start no-wrap gap-2 text-sm w-full').mark('character-shared-from'):
+            ui.icon('travel_explore', size='1.3em', color='primary')
+            with ui.column().classes('gap-0 min-w-0'):
+                if entry is None:  # (its publisher blocked since)
+                    ui.label('From a shared card no longer in your catalog.').classes('muted')
+                    return
+                p = entry.publication
+                with ui.row().classes('items-center gap-1'):
+                    ui.label('From the shared card').classes('muted')
+                    ui.link(f'"{p.card_name}" by {entry.publisher_name}', f'/shared/{p.event_id}')
+                if entry.withdrawn is not None:
+                    reason = f' Their reason: {entry.withdrawn.reason}' if entry.withdrawn.reason else ''
+                    ui.label(f'Its publisher withdrew it {time_ago(_when(entry.withdrawn.at))}: it can no longer be '
+                             f'downloaded. You keep this character.{reason}') \
+                        .classes('text-negative break-words').mark('character-shared-withdrawn')
+                elif latest is not None:
+                    with ui.row().classes('items-center gap-1').mark('character-shared-newer'):
+                        ui.label('A newer version is out:').classes('muted')
+                        ui.link(f'see it ({date_text(latest.publication.created_at)})',
+                                f'/shared/{latest.publication.event_id}')
 
     @staticmethod
     async def _withdraw_dialog(entry: CatalogEntry, versions: list[CatalogEntry]) -> tuple[list[str], str] | None:
@@ -842,7 +998,7 @@ class SharingSection:
         return None
 
     def settings_panel(self, settings: Settings, form: Form) -> None:
-        """What to show, your publisher key, the relays, and the blocked publishers."""
+        """What to show, the cards downloaded, your publisher key, the relays, and the blocked publishers."""
         form.switch(settings.sharing, 'show_nsfw', 'Show NSFW cards').mark('sharing-nsfw')
         ui.label('Cards their publisher rated NSFW. It\'s their own rating: nobody checks it.') \
             .classes('text-sm muted -mt-3 ml-12')
@@ -855,6 +1011,18 @@ class SharingSection:
                 .classes('muted break-words').mark('sharing-unavailable')
             return
         sharing = self.sharing
+
+        ui.label('Cards you download').classes('step-title mt-2')
+        share = form.switch(settings.sharing, 'share_downloads', 'Share them in turn').mark('sharing-share-downloads')
+        ui.label('While the app runs, others can download them from you too (they see this computer\'s internet '
+                 'address). It\'s how cards stay available while their publisher is away. Off, their files '
+                 'aren\'t kept: your characters stay.').classes('text-sm muted -mt-3 ml-12')
+
+        async def share_changed(e) -> None:
+            stopped = await sharing.set_share_downloads(bool(e.value))
+            if stopped:
+                ui.notify(f'{plural(stopped, "card")} no longer shared from this computer')
+        share.on_value_change(share_changed)
 
         ui.label('Your publisher key').classes('step-title mt-2')
         self._key_block()

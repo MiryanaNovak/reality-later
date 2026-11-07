@@ -85,6 +85,13 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
         _sharing(data_dir, settings_store, sharing_relays, key_folder=server.config.folder)
     characters = CharactersSection(CharacterStore(data_dir), lore_books, conversation_store, personas,
                                    sharing=shared)
+    shared.characters = characters.store
+    if shared.sharing is not None:  # (shared cards downloaded become characters, as the Import button does)
+        shared.sharing.importer = characters.import_shared
+        try:
+            shared.sharing.share_downloads = settings_store.load().sharing.share_downloads
+        except ValueError:  # (a damaged settings file: the Settings page says so)
+            pass
     set_up_presets(data_dir, settings_store)  # the first time: the instructions from Settings become a prompt
     presets = PresetsSection(preset_store(data_dir), settings_store)
     vectors = Vectorizer(data_dir, models or Path(data_dir) / 'models', settings=settings_store,

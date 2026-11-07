@@ -21,6 +21,9 @@ Blocking a publisher deletes all they published, and refuses what comes from the
     block(), unblock(), blocked()
     relays(), add_relay(), remove_relay(); save_sync(), sync_failed(): how far discovery is (discovery.py)
 
+And what this computer did with them: the files it shares (seeding()), where its own events went
+(deliveries()), and the publications it downloaded, with the character each became (downloads()).
+
 Its calls wait for the database (milliseconds; longer when the disk is busy): from asyncio code, they
 run in a thread, as the sharing service will do. A lock makes them safe from several threads.
 
@@ -179,6 +182,18 @@ MIGRATIONS = [
         PRIMARY KEY (event_id, relay_url)
     ) WITHOUT ROWID;
     """,
+    # 5: the publications downloaded here (their file checked), and the character each became. Not tied to
+    # the publications: blocking a publisher deletes theirs, but the characters had from them stay.
+    """
+    CREATE TABLE downloads (
+        event_id      TEXT PRIMARY KEY CHECK (length(event_id) = 64),
+        infohash      TEXT NOT NULL,
+        file_name     TEXT NOT NULL,
+        character_id  TEXT NOT NULL,
+        downloaded_at INTEGER NOT NULL
+    );
+    CREATE INDEX downloads_by_character ON downloads (character_id);
+    """,
 ]
 
 
@@ -321,6 +336,16 @@ class Seeding:
     infohash: str
     file_name: str
     enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class Download:
+    """A publication downloaded here, and the character it became (the last time it was added)."""
+    event_id: str
+    infohash: str
+    file_name: str
+    character_id: str
+    downloaded_at: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -678,6 +703,37 @@ class Catalog:
             return {row[0] for row in self._db.execute('SELECT DISTINCT t.file_name FROM seeding s JOIN torrents t '
                                                        'ON t.infohash = s.infohash WHERE s.enabled = 1')}
 
+    def record_download(self, event_id: str, infohash: str, file_name: str, character_id: str) -> None:
+        """A publication downloaded, added as that character (again: the new one replaces the old)."""
+        with self._write():
+            self._db.execute('INSERT INTO downloads (event_id, infohash, file_name, character_id, downloaded_at) '
+                             'VALUES (?, ?, ?, ?, ?) ON CONFLICT (event_id) DO UPDATE SET character_id = '
+                             'excluded.character_id, downloaded_at = excluded.downloaded_at',
+                             (event_id, infohash, file_name, character_id, int(time.time())))
+
+    def download(self, event_id: str) -> Download | None:
+        with self._lock:
+            row = self._db.execute('SELECT * FROM downloads WHERE event_id = ?', (event_id,)).fetchone()
+            return _download(row) if row else None
+
+    def downloads(self, *, character_id: str | None = None) -> tuple[Download, ...]:
+        """The publications downloaded (those a character came from), the most recent first."""
+        with self._lock:
+            rows = self._db.execute('SELECT * FROM downloads WHERE ? IS NULL OR character_id = ? '
+                                    'ORDER BY downloaded_at DESC, event_id', (character_id, character_id))
+            return tuple(_download(row) for row in rows)
+
+    def downloaded(self, event_ids: Iterable[str]) -> set[str]:
+        """Which of these publications were downloaded here."""
+        ids = list(dict.fromkeys(event_ids))
+        with self._lock:
+            found: set[str] = set()
+            for i in range(0, len(ids), 500):
+                chunk = ids[i:i + 500]
+                found |= {row[0] for row in self._db.execute(
+                    f'SELECT event_id FROM downloads WHERE event_id IN ({",".join("?" * len(chunk))})', chunk)}
+            return found
+
     def record_delivery(self, event_id: str, relay_url: str, state: str, *, message: str = '',
                         attempted: bool = True) -> None:
         with self._write():
@@ -836,3 +892,7 @@ def _cursor(cursor: str) -> tuple[int, str]:
     if not number.isdigit() or not re.fullmatch(r'[0-9a-f]{64}', key):
         raise ValueError(f'not a cursor: {cursor!r}')
     return int(number), key
+
+
+def _download(row: sqlite3.Row) -> Download:
+    return Download(row['event_id'], row['infohash'], row['file_name'], row['character_id'], row['downloaded_at'])

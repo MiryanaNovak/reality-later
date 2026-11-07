@@ -174,7 +174,7 @@ async def test_publishing_a_character(user, tmp_path, sharing, relay):
     assert (p.card_uuid, p.card_name, p.published_name, p.card_tags, p.content_rating, p.language) == \
         (saved.shared_uuid, 'Aria the Wanderer', 'Marie', ('fantasy', 'bard'), 'sfw', 'en')
     assert SettingsStore(tmp_path).load().sharing.publisher_name == 'Marie'  # (next time's)
-    kept = (tmp_path / 'sharing' / 'published' / p.file_name).read_bytes()
+    kept = (tmp_path / 'sharing' / 'files' / p.file_name).read_bytes()
     card = read_card(p.file_name, kept)  # (the card file: as Export makes it, with its UUID)
     assert card.character.shared_uuid == saved.shared_uuid and card.character.name == 'Aria'
 
@@ -272,7 +272,7 @@ async def test_stopping_sharing_the_file(user, sharing, tmp_path):
     await user.should_see('Not shared from this computer. To share it again, publish its character again.',
                           retries=SLOW)
     assert sharing.session.sharing() == ()
-    assert not (tmp_path / 'sharing' / 'published' / published.publication.file_name).exists()
+    assert not (tmp_path / 'sharing' / 'files' / published.publication.file_name).exists()
 
 
 async def test_withdrawing(user, sharing, relay):

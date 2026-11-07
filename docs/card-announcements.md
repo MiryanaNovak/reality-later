@@ -196,8 +196,13 @@ before downloading the file itself, rejects it unless:
 - its `length` is the `file` tag's size, and within the size limit (the app's setting, 20 MiB by
   default).
 
-Once downloaded, the file's SHA-256 MUST be the `sha256` tag's; otherwise it's deleted. The file is
-then read like any card file the user would import, with the same limits.
+Once downloaded, the file's SHA-256 MUST be the `sha256` tag's, and its torrent, made as above, the `x`
+tag's infohash; otherwise it's deleted. The file is then read like any card file the user would import,
+with the same limits.
+
+Those who downloaded a file may share it in turn (the app does, unless its user says not to), until it's
+withdrawn: that's how cards stay available while their publisher is away. Everyone in a swarm sees the
+others' internet addresses.
 
 
 ## Withdrawing a publication

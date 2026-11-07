@@ -4,8 +4,9 @@ One per data folder, made by the app at startup (ui/app.py), if sharing can run 
 (publishing.runtime_problem()). In <data folder>/sharing/:
 
     catalog.sqlite3     the catalog (catalog.py); a new one starts with DEFAULT_RELAYS (Settings changes them)
-    published/          the files of the cards published from here, named <sha256>.<extension>, shared by
-                        BitTorrent while the app runs (seeder.py)
+    files/              the card files this computer shares by BitTorrent while the app runs (seeder.py): those
+                        it published, and those it downloaded (unless asked not to), named <sha256>.<extension>
+    downloading/        files on their way (emptied when the app starts)
 
 The publisher's key is elsewhere: in the settings folder (identity.py).
 
@@ -13,10 +14,16 @@ Discovery runs as a background task, one at a time: pages ask for one (discover(
 (progress, running), and go on with what's there meanwhile. The catalog's calls run in a thread (call()),
 and so does what reads or hashes files: the pages don't wait on the disk.
 
-Publishing a card (publish()): its file is kept in published/ and shared, its announcement signed and sent
+Publishing a card (publish()): its file is kept in files/ and shared, its announcement signed and sent
 to the relays written to (deliver()), each relay's answer kept. The same card again, unchanged: the same
 announcement, sent again where it hasn't arrived (no new version). Withdrawing (withdraw()): a withdrawal
 sent the same way, and the file no longer shared.
+
+Downloading one (download(), in the background like discovery): its file from those who share it, checked
+(the torrent's description before anything else, then the file's SHA-256 and torrent: the announced
+ones), then added as a new character (`importer`, given by the app), and shared from here in turn while
+`share_downloads`. Withdrawn, or its publisher blocked: no longer shared (and the file goes); the character
+stays.
 
 **While the format is a draft** (docs/card-announcements.md), PUBLIC_PUBLISHING is False: events only go
 to relays on this computer or its network (tools/test_relay.py makes one); the others are "held".
@@ -28,6 +35,8 @@ import hashlib
 import ipaddress
 import logging
 import os
+import re
+import shutil
 import tempfile
 import time
 from collections.abc import Callable, Iterable
@@ -39,12 +48,12 @@ from urllib.parse import urlsplit
 from . import announcements as fmt
 from . import identity as keys
 from .announcements import Publication, PublicationDraft
-from .catalog import Catalog, CatalogEntry, Delivery
+from .catalog import Catalog, CatalogEntry, Delivery, Download
 from .discovery import Discovery, DiscoveryResult
 from .identity import Identity
 from .nostr import Event
 from .relay import Relay, RelayError
-from .seeder import DEFAULT_TRACKERS, TorrentSession, TorrentStatus
+from .seeder import DEFAULT_TRACKERS, FetchError, FetchProgress, TorrentSession, TorrentStatus
 from .torrents import card_file
 
 log = logging.getLogger(__name__)
@@ -80,6 +89,29 @@ class Published:
     deliveries: tuple[Delivery, ...]
 
 
+@dataclass
+class Fetch:
+    """A download, while it runs and once it's over (until the app stops)."""
+    event_id: str
+    stage: Literal['looking', 'downloading', 'adding', 'done', 'failed'] = 'looking'
+    progress: float = 0.0     # 0 to 1, while downloading
+    peers: int = 0
+    error: str = ''           # failed: why
+    character_id: str = ''    # done: the character it became
+    message: str = ''         # done: what the import said
+    languages: tuple[str, ...] = ()  # the user's, best first: for the import (a card's notes in several)
+    task: asyncio.Task | None = None
+
+    @property
+    def running(self) -> bool:
+        return self.stage not in ('done', 'failed')
+
+
+# Adds a card file as a character: (file name, content, the user's languages) → (character id, what was
+# done). Called on the event loop, like the app's own Import.
+Importer = Callable[[str, bytes, tuple[str, ...]], tuple[str, str]]
+
+
 class Sharing:
     def __init__(self, data_dir: str | Path, *, key_file: str | Path | None = None,
                  default_relays: Iterable[str] = DEFAULT_RELAYS, session: TorrentSession | None = None,
@@ -87,7 +119,10 @@ class Sharing:
         """`key_file`: the publisher's key (identity.key_path(<settings folder>); in the sharing folder if not
         given: tests). `session`: BitTorrent's (the tests give one on 127.0.0.1)."""
         self.folder = Path(data_dir) / 'sharing'
-        self.published = self.folder / 'published'
+        self.files = self.folder / 'files'
+        self.downloading = self.folder / 'downloading'
+        if (self.folder / 'published').is_dir() and not self.files.exists():  # (its name before downloading)
+            (self.folder / 'published').rename(self.files)
         self.key_file = Path(key_file) if key_file else self.folder / keys.KEY_FILE_NAME
         self.public_publishing = public_publishing
         self.catalog = Catalog(self.folder / 'catalog.sqlite3')
@@ -97,6 +132,10 @@ class Sharing:
         self.discovery = Discovery(self.catalog)
         self.session = session or TorrentSession()
         self.seeding_problems: dict[str, str] = {}  # event id → why its file isn't shared
+        self.importer: Importer | None = None    # adds a card file as a character: the app gives it
+        self.share_downloads = True              # Settings › Sharing cards (set_share_downloads())
+        self.fetches: dict[str, Fetch] = {}      # event id → its download, this time the app runs
+        self._files_lock = asyncio.Lock()        # (files/ and what's shared from it change one at a time)
         self.progress: dict[str, int] = {}       # events received from each relay, by the discovery running
         self.result: DiscoveryResult | None = None
         self.error = ''                          # the last discovery's, if it failed as a whole
@@ -131,6 +170,7 @@ class Sharing:
     async def _discover(self, full: bool) -> DiscoveryResult | None:
         try:
             self.result = await self.discovery.discover(full=full, on_progress=self._progressed)
+            await self._tidy_sharing()  # (withdrawn since: no longer shared)
             return self.result
         except Exception as e:  # (a bug, or the disk: said on the page rather than lost)
             log.exception('Looking for shared cards failed')
@@ -145,8 +185,11 @@ class Sharing:
     # --- blocking ---------------------------------------------------------------------------------
 
     async def block(self, publisher_id: str) -> int:
-        """Block a publisher: their cards leave the catalog. How many publications went."""
-        return len((await self.call(self.catalog.block, [publisher_id])).purged)
+        """Block a publisher: their cards leave the catalog, and their files aren't shared from here any more
+        (characters had from them stay). How many publications went."""
+        gone = len((await self.call(self.catalog.block, [publisher_id])).purged)
+        await self._tidy_sharing()
+        return gone
 
     async def unblock(self, publisher_id: str) -> None:
         """Unblock a publisher, and get their cards again from the relays, in the background."""
@@ -189,12 +232,13 @@ class Sharing:
         publication = same or made
         action = 'resumed' if same else 'new_version' if versions else 'new_card'
 
-        await asyncio.to_thread(self._keep_file, file.name, file.sha256, content)
-        await self.call(self.catalog.save_torrent, file.infohash, file.sha256, file.name, file.metainfo())
-        if same is None:
-            await self.call(self.catalog.add, publication)
-        self.session.seed(file.metainfo(), self.published, trackers=publication.trackers)
-        await self.call(self.catalog.set_seeding, publication.event_id, file.infohash, True)
+        async with self._files_lock:
+            await asyncio.to_thread(self._keep_file, file.name, file.sha256, content)
+            await self.call(self.catalog.save_torrent, file.infohash, file.sha256, file.name, file.metainfo())
+            if same is None:
+                await self.call(self.catalog.add, publication)
+            self.session.seed(file.metainfo(), self.files, trackers=publication.trackers)
+            await self.call(self.catalog.set_seeding, publication.event_id, file.infohash, True)
         self.seeding_problems.pop(publication.event_id, None)
         return Published(action, publication, await self.deliver(publication.event))
 
@@ -253,36 +297,64 @@ class Sharing:
     # --- sharing the files --------------------------------------------------------------------------
 
     async def resume_sharing(self) -> None:
-        """When the app starts: share again the files of the publications shared when it stopped. A file
-        missing or changed isn't replaced: seeding_problems says so."""
+        """When the app starts: share again the files shared when it stopped, but those withdrawn since, and
+        delete what's left of downloads stopped midway. A file missing or changed isn't replaced:
+        seeding_problems says so."""
+        await asyncio.to_thread(shutil.rmtree, self.downloading, True)
+        await self._tidy_sharing()
         items = await self.call(self.catalog.seeding, enabled_only=True)
         if items and (problem := torrent_problem()):
             for item in items:
                 self.seeding_problems[item.event_id] = f'Its file can\'t be shared from this computer: {problem}.'
             return
         for item in items:
-            path = self.published / item.file_name
+            path = self.files / item.file_name
             expected = item.file_name.split('.')[0]
             if not await asyncio.to_thread(_has_hash, path, expected):
                 self.seeding_problems[item.event_id] = (f'Its file is missing or changed ({path}): publish the card '
-                                                        f'again to share it.')
+                                                        f'again, or download it again, to share it.')
                 continue
             metainfo = await self.call(self.catalog.metainfo, item.infohash)
             entry = await self.call(self.catalog.get, item.event_id)
-            self.session.seed(metainfo, self.published, trackers=entry.publication.trackers if entry else ())
+            self.session.seed(metainfo, self.files, trackers=entry.publication.trackers if entry else ())
 
     async def stop_sharing(self, event_id: str) -> None:
         """No longer share a publication's file from here; and the file goes when no other one needs it."""
-        found = next((s for s in await self.call(self.catalog.seeding) if s.event_id == event_id), None)
-        if found is None:
-            return
-        await self.call(self.catalog.set_seeding, event_id, found.infohash, False)
-        still = {s.infohash for s in await self.call(self.catalog.seeding, enabled_only=True)}
-        if found.infohash not in still:
-            self.session.stop(found.infohash)
-        if found.file_name not in await self.call(self.catalog.files_in_use):
-            await asyncio.to_thread((self.published / found.file_name).unlink, missing_ok=True)
+        async with self._files_lock:
+            found = next((s for s in await self.call(self.catalog.seeding) if s.event_id == event_id), None)
+            if found is None:
+                return
+            await self.call(self.catalog.set_seeding, event_id, found.infohash, False)
+            still = {s.infohash for s in await self.call(self.catalog.seeding, enabled_only=True)}
+            if found.infohash not in still:
+                self.session.stop(found.infohash)
+            if found.file_name not in await self.call(self.catalog.files_in_use):
+                await asyncio.to_thread((self.files / found.file_name).unlink, missing_ok=True)
         self.seeding_problems.pop(event_id, None)
+
+    async def _tidy_sharing(self) -> None:
+        """No longer share the files of publications withdrawn, or gone from the catalog (their publisher
+        blocked); and delete the files nothing shares any more."""
+        async with self._files_lock:
+            for item in await self.call(self.catalog.seeding, enabled_only=True):
+                entry = await self.call(self.catalog.get, item.event_id)
+                if entry is not None and entry.withdrawn is not None:
+                    await self.call(self.catalog.set_seeding, item.event_id, item.infohash, False)
+                    self.seeding_problems.pop(item.event_id, None)
+            # (a blocked publisher's publications are gone, and with them, whether their files were shared)
+            still = {s.infohash for s in await self.call(self.catalog.seeding, enabled_only=True)}
+            for infohash in self.session.sharing():
+                if infohash not in still:
+                    self.session.stop(infohash)
+            in_use = await self.call(self.catalog.files_in_use)
+            await asyncio.to_thread(self._delete_unused, in_use)
+
+    def _delete_unused(self, in_use: set[str]) -> None:
+        if not self.files.is_dir():
+            return
+        for path in self.files.iterdir():
+            if _CARD_FILE.fullmatch(path.name) and path.name not in in_use:
+                path.unlink(missing_ok=True)
 
     def sharing_status(self, entry: CatalogEntry) -> TorrentStatus | str | None:
         """How a publication's file is shared from here: its torrent's status, why it isn't (a problem), or
@@ -293,12 +365,12 @@ class Sharing:
         return self.session.status(p.torrent_infohash)
 
     def _keep_file(self, name: str, sha256: str, content: bytes) -> None:
-        """The file, in published/ under its name (already there: checked; written atomically)."""
-        path = self.published / name
+        """The file, in files/ under its name (already there: checked; written atomically)."""
+        path = self.files / name
         if _has_hash(path, sha256):
             return
-        self.published.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=self.published, prefix=name, suffix='.tmp')
+        self.files.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=self.files, prefix=name, suffix='.tmp')
         try:
             with os.fdopen(fd, 'wb') as f:
                 f.write(content)
@@ -309,11 +381,103 @@ class Sharing:
         if not _has_hash(path, sha256):
             raise SharingError(f'The card\'s file couldn\'t be kept ({path}): it isn\'t what was written.')
 
+    # --- downloading ----------------------------------------------------------------------------------
+
+    def download(self, event_id: str, *, languages: Iterable[str] = ()) -> Fetch:
+        """Download a publication's card and add it as a new character, in the background: its Fetch says
+        how far it is (fetches). The one running already, if there's one. `languages`: the user's, best
+        first (the browser's: read when it's asked, since there's no page to ask once it's there)."""
+        fetch = self.fetches.get(event_id)
+        if fetch is not None and fetch.running:
+            return fetch
+        if self.importer is None:
+            raise SharingError('Cards can\'t be added as characters here.')
+        fetch = Fetch(event_id, languages=tuple(languages))
+        fetch.task = asyncio.create_task(self._download(fetch))
+        self.fetches[event_id] = fetch
+        return fetch
+
+    async def _download(self, fetch: Fetch) -> None:
+        try:
+            await self._fetch(fetch)
+        except (SharingError, FetchError) as e:
+            fetch.stage, fetch.error = 'failed', str(e)
+        except asyncio.CancelledError:
+            fetch.stage, fetch.error = 'failed', 'Stopped: the app was closing.'
+            raise
+        except Exception as e:  # (a bug, or the disk: said on the page rather than lost)
+            log.exception('Downloading %s failed', fetch.event_id)
+            fetch.stage, fetch.error = 'failed', f'It couldn\'t be downloaded: {e}'
+
+    async def _fetch(self, fetch: Fetch) -> None:
+        entry = await self.call(self.catalog.get, fetch.event_id)
+        if entry is None:
+            raise SharingError('It isn\'t in the catalog any more.')
+        if entry.withdrawn is not None:
+            raise SharingError('Its publisher withdrew it: it can no longer be downloaded.')
+        p = entry.publication
+        kept = self.files / p.file_name
+        got: Path | None = None
+        if await asyncio.to_thread(_has_hash, kept, p.card_sha256):  # (here already: shared from here)
+            content = await asyncio.to_thread(kept.read_bytes)
+        else:
+            if problem := torrent_problem():
+                raise SharingError(f'Cards can\'t be downloaded on this computer: {problem}.')
+            got = await self.session.fetch(p.torrent_infohash, self.downloading, name=p.file_name, size=p.card_size,
+                                           trackers=p.trackers, on_progress=lambda now: _progressed(fetch, now))
+            content = await asyncio.to_thread(got.read_bytes)
+            file = await asyncio.to_thread(card_file, content)
+            if (file.sha256, file.infohash, file.name) != (p.card_sha256, p.torrent_infohash, p.file_name):
+                await asyncio.to_thread(got.unlink, missing_ok=True)
+                raise SharingError('The file received isn\'t the one announced: it was deleted.')
+        fetch.stage = 'adding'
+        try:  # (on the event loop, as the app's own Import: the stores' hooks expect it)
+            character_id, message = self.importer(p.file_name, content, fetch.languages)
+        except Exception as e:  # (cards.CardError: not a card this app reads; or the disk)
+            if got is not None:
+                await asyncio.to_thread(got.unlink, missing_ok=True)
+            raise SharingError(f'It can\'t be added as a character: {e}') from None
+        await self.call(self.catalog.record_download, p.event_id, p.torrent_infohash, p.file_name, character_id)
+        if self.share_downloads:  # (shared from here in turn: kept in files/)
+            async with self._files_lock:
+                if got is not None:
+                    self.files.mkdir(parents=True, exist_ok=True)
+                    await asyncio.to_thread(os.replace, got, kept)
+                file = await asyncio.to_thread(card_file, content)
+                await self.call(self.catalog.save_torrent, file.infohash, file.sha256, file.name, file.metainfo())
+                await self.call(self.catalog.set_seeding, p.event_id, file.infohash, True)
+                self.session.seed(file.metainfo(), self.files, trackers=p.trackers)
+        elif got is not None:
+            await asyncio.to_thread(got.unlink, missing_ok=True)
+        fetch.character_id, fetch.message, fetch.stage = character_id, message, 'done'
+
+    async def set_share_downloads(self, on: bool) -> int:
+        """Share the cards downloaded from now on, or not; not: those shared stop being, and their files go
+        (the characters stay). How many stopped."""
+        self.share_downloads = on
+        if on:
+            return 0
+        downloaded = {d.event_id for d in await self.call(self.catalog.downloads)}
+        me = self.identity()
+        stopped = 0
+        for item in await self.call(self.catalog.seeding, enabled_only=True):
+            entry = await self.call(self.catalog.get, item.event_id)
+            mine = entry is not None and me is not None and entry.publication.publisher_id == me.public_key
+            if item.event_id in downloaded and not mine:
+                await self.stop_sharing(item.event_id)
+                stopped += 1
+        return stopped
+
+    async def downloaded(self, event_id: str) -> Download | None:
+        """Whether a publication was downloaded here, and the character it became."""
+        return await self.call(self.catalog.download, event_id)
+
     # --- the end ----------------------------------------------------------------------------------
 
     async def close(self) -> None:
-        """When the app stops: discovery stops (what it got is kept), and the catalog is closed."""
-        for task in [self._task, *self._background]:
+        """When the app stops: discovery and downloads stop (what discovery got is kept; what downloads got
+        is deleted), and the catalog is closed."""
+        for task in [self._task, *self._background, *(f.task for f in self.fetches.values())]:
             if task is not None and not task.done():
                 task.cancel()
                 try:
@@ -346,6 +510,13 @@ def _same(a: Event, b: Event) -> bool:
     def tags(event: Event) -> list:
         return [t for t in event.tags if t[0] != 'tracker']
     return a.content == b.content and tags(a) == tags(b) and a.pubkey == b.pubkey
+
+
+def _progressed(fetch: Fetch, now: FetchProgress) -> None:
+    fetch.stage, fetch.progress, fetch.peers = now.stage, now.progress, now.peers
+
+
+_CARD_FILE = re.compile(r'[0-9a-f]{64}\.(png|json|charx)')
 
 
 def _has_hash(path: Path, sha256: str) -> bool:

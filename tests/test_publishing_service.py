@@ -61,7 +61,7 @@ async def test_publishing_a_card(sharing, relay, tmp_path):
     assert published.action == 'new_card' and p.card_uuid == uuid and p.publisher_id == sharing.identity().public_key
     assert [(d.relay_url, d.state, d.attempts) for d in published.deliveries] == [(relay.url, 'accepted', 1)]
     assert relay.events[p.event_id]['content'] == 'A wandering bard.'  # (on the relay)
-    kept = tmp_path / 'sharing' / 'published' / p.file_name
+    kept = tmp_path / 'sharing' / 'files' / p.file_name
     assert kept.read_bytes() == content and p.file_name == f'{hashlib.sha256(content).hexdigest()}.png'
     entry = sharing.catalog.get(p.event_id)
     assert entry is not None and entry.is_latest  # (in the catalog, as any other)
@@ -128,7 +128,7 @@ async def test_what_cant_be_published(tmp_path, relay):
         with pytest.raises(Rejected, match='too_long:title'):
             await s.publish(PublicationDraft(publisher_name='M', card_name='x' * 201), aria_card(),
                             card_uuid=fmt.new_card_uuid())
-        assert not (tmp_path / 'sharing' / 'published').exists()  # (nothing kept for nothing)
+        assert not (tmp_path / 'sharing' / 'files').exists()  # (nothing kept for nothing)
     finally:
         await s.close()
 
@@ -143,7 +143,7 @@ async def test_withdrawing(sharing, relay, tmp_path):
     entry = sharing.catalog.get(p.event_id)
     assert entry.withdrawn.reason == 'Published by mistake.'
     assert sharing.sharing_status(entry) is None  # (no longer shared)
-    assert not (tmp_path / 'sharing' / 'published' / p.file_name).exists()
+    assert not (tmp_path / 'sharing' / 'files' / p.file_name).exists()
     assert any(e['kind'] == 5 for e in relay.events.values())
 
     with pytest.raises(SharingError, match='withdrawn'):  # (the relays deleted it: not sent to them again)
@@ -166,7 +166,7 @@ async def test_stopping_and_a_file_two_publications_share(sharing, tmp_path):
     b = await sharing.publish(PublicationDraft(publisher_name='Marie', card_name='Aria (copy)'), content,
                               card_uuid=fmt.new_card_uuid())
     assert a.publication.torrent_infohash == b.publication.torrent_infohash  # (the same file: one torrent)
-    kept = tmp_path / 'sharing' / 'published' / a.publication.file_name
+    kept = tmp_path / 'sharing' / 'files' / a.publication.file_name
     await sharing.stop_sharing(a.publication.event_id)
     assert kept.exists() and sharing.session.status(a.publication.torrent_infohash) is not None  # (b needs it)
     await sharing.stop_sharing(b.publication.event_id)
@@ -200,7 +200,7 @@ async def test_sharing_again_when_the_app_starts(tmp_path, relay, monkeypatch):
         monkeypatch.undo()
         await without.close()
 
-    (tmp_path / 'sharing' / 'published' / a.publication.file_name).write_bytes(b'changed')
+    (tmp_path / 'sharing' / 'files' / a.publication.file_name).write_bytes(b'changed')
     again = Sharing(tmp_path, session=local_session())
     try:
         await again.resume_sharing()

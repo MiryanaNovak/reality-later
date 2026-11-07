@@ -194,6 +194,19 @@ def page_header(title: str, caption: str = '', *, back: str | None = None, menu:
 
 
 
+def browser_languages() -> list[str]:
+    """The browser's languages, best first ('fr', 'en'), from its Accept-Language header (of the page
+    being built, or whose event is handled)."""
+    request = ui.context.client.request
+    header = request.headers.get('accept-language', '') if request is not None else ''
+    found = []
+    for item in header.split(','):
+        code = item.split(';')[0].strip().lower().split('-')[0]
+        if code and code != '*' and code not in found:
+            found.append(code)
+    return found
+
+
 def time_ago(when: datetime, now: datetime | None = None) -> str:
     """'just now', '5 minutes ago', '3 hours ago', 'yesterday', '4 days ago', or a date ('2 Oct 2026')."""
     now = now or datetime.now(timezone.utc)
