@@ -119,6 +119,7 @@ class SharingSettings(BaseModel):
     share_downloads: bool = True                             # the cards downloaded: shared in turn while the app runs
     port: int | None = Field(None, ge=1024, le=65535)        # BitTorrent's (None: 6881, or the next free one)
     port_mapping: bool = True                                # the router asked to open it (UPnP, NAT-PMP)
+    publishing_accepted: int = 0     # the version of the notice before publishing agreed to (ui/sharing_page.py)
 
 
 class Settings(StoredModel):

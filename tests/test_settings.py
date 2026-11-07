@@ -39,7 +39,7 @@ def test_defaults_file_and_lookup(tmp_path):
         'vectors': {'memories': False, 'lore': False, 'model': 'all-minilm-l6-v2', 'source': 'huggingface',
                     'thresholds': {}, 'max_entries': 3},  # (vector search: off until it's turned on)
         'sharing': {'show_nsfw': False, 'hidden_tags': [], 'publisher_name': '', 'share_downloads': True,
-                    'port': None, 'port_mapping': True},
+                    'port': None, 'port_mapping': True, 'publishing_accepted': 0},
         'appearance': {'accent': 'jade'},
     }
     assert chat_connection(store.load(), connections.get).id == conn.id

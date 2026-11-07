@@ -13,8 +13,9 @@ or a newer version out.
 
 Publishing starts from a character's ⋮ menu (publish_dialog(), from characters_page.py): the card's name,
 description, tags, rating and language, then the card file exported as for Export (with the card's UUID
-in it, so that publishing it again makes a new version). Settings › Sharing cards has the publisher key:
-made, imported, backed up, replaced.
+in it, so that publishing it again makes a new version). The first time, a wizard comes first: what
+publishing means (agreed to), the publisher key (made or imported, and backed up: there's no recovering
+it), how the file is shared (the port, the router). Settings › Sharing cards has all of it too.
 
 Looking for new cards runs in the background (Sharing.discover()): when the page opens, if the last look
 is an hour old, or with its button; the page shows how far it is, and what it found once done.
@@ -55,6 +56,13 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 PAGE = 50
+# The notice before publishing (the wizard's first step): raised when it changes in a way that matters, so
+# that it's shown, and agreed to, again (settings.sharing.publishing_accepted).
+NOTICE_VERSION = 1
+WIZARD_STEPS = {'notice': 'Before you publish', 'key': 'Your publisher key', 'sharing': 'Sharing its file',
+                'card': 'Your card'}
+KEY_FILE = 'reality-later-publisher-key.txt'      # the backup's name, saved as a file
+KEY_PLACE = 'certificates/nostr-key.txt, in the settings folder'
 
 
 def short_key(public_key: str) -> str:
@@ -133,6 +141,11 @@ def delivery_summary(deliveries: Iterable[Delivery]) -> str:
     if counts['held']:
         parts.append(f'{counts["held"]} held (public relays, while the format is a draft)')
     return ', '.join(parts)
+
+
+def save_key_file(key: Identity) -> None:
+    """The key's backup, as a file the browser saves (its secret half: shown only when asked)."""
+    ui.download.content(f'{key.nsec()}\n'.encode('ascii'), KEY_FILE, 'text/plain')
 
 
 def fetch_text(fetch: Fetch) -> str:
@@ -762,102 +775,242 @@ class SharingSection:
                              save: Callable[[Character], None]) -> Published | None:
         """Publish a character as a shared card (from its editor's ⋮ menu): ask how it's announced, then
         publish its card file (`export`) and open its page. `save` saves the character, given its card UUID
-        the first time. What was published, or None."""
+        the first time. What was published, or None.
+
+        The first time (until it's been through once: settings.sharing.publishing_accepted), a wizard comes
+        first: what publishing means (agreed to), the publisher key (made or imported, and backed up), how
+        the file is shared (the port, the router). Without a key later on: the key's step again."""
         sharing = self.sharing
         try:
             settings = self.settings.load()
         except ValueError:  # (a damaged settings file: the Settings page says so)
             settings = Settings()
-        try:
-            sharing.identity()
-        except IdentityError as e:
-            ui.notify(f'{e} (Settings › Sharing cards)', type='negative', multi_line=True)
-            return None
         if problem := torrent_problem():
             ui.notify(f'Cards can\'t be shared from this computer: {problem}.', type='negative', multi_line=True)
             return None
-
-        # Published before (with this key): a new version, starting from what was announced last time
-        me = sharing.identity()
-        before = await sharing.call(sharing.catalog.versions, me.public_key, character.shared_uuid,
-                                    include_withdrawn=True) if me and character.shared_uuid else []
-        last = before[0].publication if before else None
-
+        me, _ = self._key_or_problem()
+        if settings.sharing.publishing_accepted < NOTICE_VERSION:
+            steps = ['notice', 'key', 'sharing', 'card']
+        else:
+            steps = ['key', 'card'] if me is None else ['card']
+        state = {'step': steps[0], 'made': False}
         fields: dict[str, ui.element] = {}
+
         with ui.context.client.layout, ui.dialog().props('persistent') as dialog, \
                 ui.card().classes('dialog-card publish-card').mark('publish-dialog') as card:
             ui.label(f'Publish "{character.title}" to shared cards').classes('panel-title')
 
             @ui.refreshable
-            def body() -> None:
-                if sharing.identity() is None:
-                    no_key()
+            async def view() -> None:
+                step = state['step']
+                if len(steps) > 1:
+                    number = steps.index(step) + 1
+                    with ui.column().classes('w-full gap-1').mark(f'wizard-{step}'):
+                        ui.label(f'Step {number} of {len(steps)}: {WIZARD_STEPS[step]}').classes('text-sm muted')
+                        ui.linear_progress(value=number / len(steps), show_value=False, size='4px')
+                if step == 'card':
+                    await card_step()
                 else:
-                    form()
-            def no_key() -> None:
-                ui.label('Publishing needs a publisher key: it signs your cards, so that people know they\'re '
-                         'yours, and only it can publish new versions of them, or withdraw them.').classes('muted')
-                ui.label('It\'s kept on this computer. Back it up afterwards, in Settings › Sharing cards: lost, '
-                         'it can\'t be recovered. (A key of yours already? Import it there.)').classes('text-sm muted')
-                with ui.row().classes('w-full justify-end gap-2'):
-                    ui.button('Cancel', on_click=lambda: dialog.submit(None)).props('flat')
-                    ui.button('Make my key', icon='key', on_click=make_key).mark('publish-make-key')
+                    {'notice': notice_step, 'key': key_step, 'sharing': sharing_step}[step]()
 
-            def make_key() -> None:
-                try:
-                    sharing.create_identity()
-                except (IdentityError, OSError) as e:
-                    ui.notify(f'The key can\'t be made: {e}', type='negative', multi_line=True)
+        def go(step: str) -> None:
+            state['step'] = step
+            view.refresh()
+
+        def navigation(next_label: str = 'Next', on_next: Callable[[], object] | None = None, *,
+                       marker: str = 'wizard-next') -> ui.button | None:
+            """Cancel, Back (but on the first step), and the step's own button."""
+            index = steps.index(state['step'])
+            with ui.row().classes('w-full justify-end gap-2'):
+                ui.button('Cancel', on_click=lambda: dialog.submit(None)).props('flat').mark('wizard-cancel')
+                if index > 0:
+                    ui.button('Back', on_click=lambda: go(steps[index - 1])).props('flat').mark('wizard-back')
+                if on_next is None:
+                    return None
+                return ui.button(next_label, on_click=on_next).mark(marker)
+
+        # --- Step 1: what publishing means -------------------------------------------------------------
+
+        def notice_step() -> None:
+            ui.label('Publishing doesn\'t go through any company: cards go from computer to computer. That '
+                     'doesn\'t make you anonymous:')
+            with ui.element('ul').classes('wizard-list text-sm'):
+                for text in ('Your publisher key ties together every card you publish, whatever name you give.',
+                             'Your internet address (IP) is seen by the relays you publish to, and by everyone who '
+                             'downloads your cards from this computer.',
+                             'What you publish stays public: withdrawing a card stops new downloads, but those who '
+                             'have it keep it, and some relays keep its announcement.'):
+                    with ui.element('li'):
+                        ui.label(text)
+            ui.label('Only publish what you have the right to share: nothing illegal, no one else\'s cards '
+                     'without their permission, nothing about real people.').classes('text-weight-bold') \
+                .mark('wizard-rules')
+            navigation('I agree', lambda: go('key'), marker='wizard-agree')
+
+        # --- Step 2: the publisher key, made or imported, and backed up --------------------------------
+
+        def key_step() -> None:
+            key, problem = self._key_or_problem()
+            if problem:
+                ui.label(problem).classes('text-sm text-negative break-words').mark('wizard-key-problem')
+                ui.label('Restore it from its backup: the text that starts with nsec1.').classes('text-sm muted')
+                import_field(replace=True)
+                navigation()
+                return
+            if key is None:
+                ui.label('Your publisher key signs your cards: it\'s how people know they\'re yours, and only it '
+                         'can publish new versions of them, or withdraw them. It\'s kept on this computer, and '
+                         'never sent anywhere.')
+                ui.button('Make my key', icon='key', on_click=make).mark('wizard-make-key')
+                ui.label('Or, if you have one already, its backup (it starts with nsec1):').classes('text-sm muted')
+                import_field(replace=False)
+                navigation()
+                return
+            ui.label('Your key is made. Its public half, which identifies you:' if state['made'] else
+                     'Your publisher key. Its public half, which identifies you:').classes('text-sm muted')
+            ui.label(key.npub).classes('fingerprint').mark('wizard-npub')
+            ui.label('Back it up now. There\'s no "forgot my key": lost, it can\'t be recovered, and you would be '
+                     'a new publisher, unable to update or withdraw the cards you published.') \
+                .classes('text-negative text-weight-bold').mark('wizard-backup-warning')
+            nsec = key.nsec()
+            ui.input('Your secret key', value=nsec, password=True, password_toggle_button=True) \
+                .props('readonly outlined autocomplete=off').classes('w-full').mark('wizard-nsec')
+            with ui.row().classes('gap-2'):
+                ui.button('Copy', icon='content_copy', on_click=lambda: ui.notify('Copied')).props('flat dense') \
+                    .on('click', js_handler=f'() => window.rpCopy({json.dumps(nsec)})').mark('wizard-copy')
+                ui.button('Save as a file', icon='save_alt', on_click=lambda: save_key_file(key)) \
+                    .props('flat dense').mark('wizard-save-file')
+            ui.label('Keep it somewhere safe and private, like a password manager: whoever has it can publish as '
+                     'you. Backing up the app\'s data folder doesn\'t include it: it\'s kept with the settings '
+                     f'({KEY_PLACE}).').classes('text-sm muted')
+            saved = ui.checkbox('I\'ve saved my key somewhere safe').mark('wizard-saved')
+            proceed = navigation('Next', lambda: go(steps[steps.index('key') + 1]), marker='wizard-key-next')
+            proceed.bind_enabled_from(saved, 'value')
+
+        def make() -> None:
+            try:
+                sharing.create_identity()
+            except (IdentityError, OSError) as e:
+                ui.notify(f'The key can\'t be made: {e}', type='negative', multi_line=True)
+                return
+            state['made'] = True
+            view.refresh()
+
+        def import_field(*, replace: bool) -> None:
+            with ui.row().classes('w-full items-start no-wrap gap-2'):
+                field = ui.input('Its backup', placeholder='nsec1…', password=True, password_toggle_button=True) \
+                    .props('outlined autocomplete=off').classes('grow').mark('wizard-import-input')
+
+                def bring() -> None:
+                    try:
+                        sharing.import_identity(field.value or '', replace=replace)
+                    except IdentityError as e:
+                        field.props['error'] = True
+                        field.props['error-message'] = str(e)
+                        field.update()
+                        return
+                    except OSError as e:
+                        ui.notify(f'The key can\'t be saved: {e}', type='negative', multi_line=True)
+                        return
+                    state['made'] = False
+                    view.refresh()
+
+                field.on('keydown.enter', bring)
+                ui.button('Import', on_click=bring).props('outline').classes('mt-1').mark('wizard-import')
+
+        # --- Step 3: how the file is shared --------------------------------------------------------------
+
+        def sharing_step() -> None:
+            ui.label('When you publish, this computer is the only one that has the card\'s file: others download '
+                     'it from here (BitTorrent), and then share it in turn. While no computer that has it is on, '
+                     'nobody can download it.')
+            ui.label('So its file is shared while the app runs. For others to reach this computer, its port must '
+                     'be open on your router: the app asks the router to open it. Leave it so, unless you\'d rather '
+                     'open it yourself.').classes('text-sm muted')
+            port = ui.number('Port', value=settings.sharing.port, min=1024, max=65535, precision=0,
+                             placeholder=f'Automatic ({DEFAULT_PORT})') \
+                .props('outlined clearable stack-label').classes('w-full').mark('wizard-port')
+            ui.label(f'TCP and UDP. Empty: {DEFAULT_PORT}, or the next free one.').classes('text-sm muted -mt-3')
+            mapping = ui.switch('Ask the router to open it (UPnP, NAT-PMP)', value=settings.sharing.port_mapping) \
+                .mark('wizard-port-mapping')
+            ui.label('Off: open the port yourself in the router\'s settings, to this computer. Without an open '
+                     'port, only those whose own port is open can get your cards from you.') \
+                .classes('text-sm muted -mt-3 ml-12')
+            ui.label('You can change these later, in Settings › Sharing cards.').classes('text-sm muted')
+
+            def done() -> None:
+                value = port.value
+                if value is not None and (value != int(value) or not 1024 <= value <= 65535):
+                    port.props['error'] = True
+                    port.props['error-message'] = 'A port from 1024 to 65535, or empty'
+                    port.update()
                     return
-                body.refresh()
+                chosen = None if value is None else int(value)
+                try:  # (kept, with the notice agreed to: next time, the card's form only)
+                    current = self.settings.load()
+                    current.sharing.port, current.sharing.port_mapping = chosen, bool(mapping.value)
+                    current.sharing.publishing_accepted = NOTICE_VERSION
+                    self.settings.save(current)
+                except ValueError:  # (a damaged settings file: the Settings page says so)
+                    pass
+                sharing.session.configure(port=chosen, port_mapping=bool(mapping.value))
+                go('card')
 
-            def form() -> None:
-                if last is not None:
-                    note = 'withdrawn' if before[0].withdrawn else 'published'
-                    ui.label(f'You {note} it on {date_text(last.created_at)}: this is a new version of the same '
-                             f'card.').classes('text-sm muted').mark('publish-new-version')
-                fields['name'] = ui.input('Card name', value=last.card_name if last else character.title) \
-                    .props(f'outlined maxlength={fmt.MAX_TITLE}').classes('w-full').mark('publish-name')
-                fields['publisher'] = ui.input(
-                    'Your publisher name', value=settings.sharing.publisher_name or (last.published_name if last
-                                                                                    else '')) \
-                    .props(f'outlined maxlength={fmt.MAX_PUBLISHER}').classes('w-full').mark('publish-publisher')
-                ui.label('Shown with all your cards. Names aren\'t unique: your key tells you apart.') \
-                    .classes('text-sm muted -mt-3')
-                fields['description'] = ui.textarea(
-                    'Description', value=last.card_description if last else character.description.strip()) \
-                    .props('outlined autogrow').classes('w-full').mark('publish-description')
-                ui.label('What people read before downloading it.').classes('text-sm muted -mt-3')
-                fields['tags'] = keep_typed(ui.input_chips('Tags', value=list(last.card_tags) if last else [],
-                                                           new_value_mode='add-unique'), split=',') \
-                    .props('outlined dense clearable hide-bottom-space').classes('w-full').mark('publish-tags')
-                ui.label(f'Press Enter after each, or separate them with commas: {fmt.MAX_CARD_TAGS} at most, '
-                         f'e.g. fantasy, romance, sci-fi.').classes('text-sm muted -mt-3')
-                with ui.row().classes('w-full items-center gap-x-6 gap-y-1'):
-                    with ui.column().classes('gap-0'):
-                        ui.label('Rated').classes('text-sm muted')
-                        fields['rating'] = ui.radio({'sfw': 'SFW', 'nsfw': 'NSFW'},
-                                                    value=last.content_rating if last else None) \
-                            .props('inline dense').mark('publish-rating')
-                    fields['language'] = ui.select({'': 'Not said', **LANGUAGES}, label='Language',
-                                                   value=(last.language or '') if last else '') \
-                        .props('outlined dense').classes('min-w-40').mark('publish-language')
-                ui.label('Your own rating: NSFW cards only show to those who choose to see them.') \
-                    .classes('text-sm muted -mt-3')
-                with ui.column().classes('publish-notice gap-1 text-sm').mark('publish-notice'):
-                    ui.label('Everything in the card becomes public: its picture, scenario, first messages, '
-                             'example dialogues and lore books. Anyone can download it; those who have it keep '
-                             'it, even if you withdraw it.')
-                    ui.label('This computer shares its file while the app runs (BitTorrent): those who '
-                             'download it see this computer\'s internet address.')
-                    if not sharing.public_publishing:
-                        ui.label('While card sharing\'s format is a draft, cards only go to relays on this '
-                                 'computer or its network.').classes('muted')
-                fields['error'] = ui.label('').classes('text-negative text-sm break-words').mark('publish-error')
-                fields['error'].set_visibility(False)
-                with ui.row().classes('w-full justify-end gap-2'):
-                    ui.button('Cancel', on_click=lambda: dialog.submit(None)).props('flat')
-                    fields['button'] = ui.button('Publish', icon='publish', on_click=publish).mark('publish-confirm')
+            navigation('Next', done, marker='wizard-sharing-next')
+
+        # --- Step 4 (or the only one): the card ----------------------------------------------------------
+
+        async def card_step() -> None:
+            # Published before (with this key): a new version, starting from what was announced last time
+            key, _ = self._key_or_problem()
+            before = await sharing.call(sharing.catalog.versions, key.public_key, character.shared_uuid,
+                                        include_withdrawn=True) if key and character.shared_uuid else []
+            last = before[0].publication if before else None
+            if last is not None:
+                note = 'withdrawn' if before[0].withdrawn else 'published'
+                ui.label(f'You {note} it on {date_text(last.created_at)}: this is a new version of the same '
+                         f'card.').classes('text-sm muted').mark('publish-new-version')
+            fields['name'] = ui.input('Card name', value=last.card_name if last else character.title) \
+                .props(f'outlined maxlength={fmt.MAX_TITLE}').classes('w-full').mark('publish-name')
+            fields['publisher'] = ui.input(
+                'Your publisher name', value=settings.sharing.publisher_name or (last.published_name if last
+                                                                                else '')) \
+                .props(f'outlined maxlength={fmt.MAX_PUBLISHER}').classes('w-full').mark('publish-publisher')
+            ui.label('Shown with all your cards. Names aren\'t unique: your key tells you apart.') \
+                .classes('text-sm muted -mt-3')
+            fields['description'] = ui.textarea(
+                'Description', value=last.card_description if last else character.description.strip()) \
+                .props('outlined autogrow').classes('w-full').mark('publish-description')
+            ui.label('What people read before downloading it.').classes('text-sm muted -mt-3')
+            fields['tags'] = keep_typed(ui.input_chips('Tags', value=list(last.card_tags) if last else [],
+                                                       new_value_mode='add-unique'), split=',') \
+                .props('outlined dense clearable hide-bottom-space').classes('w-full').mark('publish-tags')
+            ui.label(f'Press Enter after each, or separate them with commas: {fmt.MAX_CARD_TAGS} at most, '
+                     f'e.g. fantasy, romance, sci-fi.').classes('text-sm muted -mt-3')
+            with ui.row().classes('w-full items-center gap-x-6 gap-y-1'):
+                with ui.column().classes('gap-0'):
+                    ui.label('Rated').classes('text-sm muted')
+                    fields['rating'] = ui.radio({'sfw': 'SFW', 'nsfw': 'NSFW'},
+                                                value=last.content_rating if last else None) \
+                        .props('inline dense').mark('publish-rating')
+                fields['language'] = ui.select({'': 'Not said', **LANGUAGES}, label='Language',
+                                               value=(last.language or '') if last else '') \
+                    .props('outlined dense').classes('min-w-40').mark('publish-language')
+            ui.label('Your own rating: NSFW cards only show to those who choose to see them.') \
+                .classes('text-sm muted -mt-3')
+            with ui.column().classes('publish-notice gap-1 text-sm').mark('publish-notice'):
+                ui.label('Everything in the card becomes public: its picture, scenario, first messages, '
+                         'example dialogues and lore books. Anyone can download it; those who have it keep '
+                         'it, even if you withdraw it.')
+                ui.label('This computer shares its file while the app runs (BitTorrent): those who '
+                         'download it see this computer\'s internet address.')
+                if not sharing.public_publishing:
+                    ui.label('While card sharing\'s format is a draft, cards only go to relays on this '
+                             'computer or its network.').classes('muted')
+            fields['error'] = ui.label('').classes('text-negative text-sm break-words').mark('publish-error')
+            fields['error'].set_visibility(False)
+            fields['button'] = navigation('Publish', publish, marker='publish-confirm')
+            fields['button'].props('icon=publish')
 
         def failed(text: str) -> None:
             fields['error'].text = text
@@ -905,8 +1058,8 @@ class SharingSection:
                 pass
             dialog.submit(published)
 
-        with card:
-            body()
+        with card:  # (now that its steps are all defined)
+            await view()
         published = await dialog
         try:
             dialog.delete()
@@ -921,6 +1074,13 @@ class SharingSection:
                               f'({summary})'}[published.action], type='positive', multi_line=True)
         ui.navigate.to(f'/shared/{published.publication.event_id}')
         return published
+
+    def _key_or_problem(self) -> tuple[Identity | None, str]:
+        """This computer's publisher key, if there's one; or why its file can't be read."""
+        try:
+            return self.sharing.identity(), ''
+        except IdentityError as e:
+            return None, str(e)
 
     # --- Settings › Sharing cards -----------------------------------------------------------------
 
@@ -1034,6 +1194,8 @@ class SharingSection:
             with ui.row().classes('w-full justify-end gap-2'):
                 ui.button('Copy', icon='content_copy', on_click=lambda: ui.notify('Copied')).props('flat') \
                     .on('click', js_handler=f'() => window.rpCopy({json.dumps(nsec)})').mark('key-backup-copy')
+                ui.button('Save as a file', icon='save_alt', on_click=lambda: save_key_file(me)).props('flat') \
+                    .mark('key-backup-file')
                 ui.button('Done', on_click=lambda: dialog.submit(None))
         await dialog
         try:

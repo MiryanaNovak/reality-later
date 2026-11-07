@@ -20,6 +20,7 @@ from rpapp.publishing.seeder import TorrentSession  # noqa: E402
 from rpapp.publishing.service import Sharing  # noqa: E402
 from rpapp.settings import SettingsStore  # noqa: E402
 from rpapp.ui.app import build_root  # noqa: E402
+from rpapp.ui.sharing_page import KEY_FILE, NOTICE_VERSION  # noqa: E402
 
 SLOW = 50  # (should_see's tries, 0.1 s apart: for what goes through the relay)
 
@@ -85,6 +86,8 @@ async def test_making_and_backing_up_the_key(user, tmp_path):
     user.find(marker='sharing-backup-key').click()
     await user.should_see(marker='key-backup')
     assert value_of(user, 'key-backup-nsec') == me.nsec()
+    user.find(marker='key-backup-file').click()
+    assert (await user.download.next()).content == f'{me.nsec()}\n'.encode()
     with user.scope(marker='key-backup'):
         user.find(kind=ui.button, content='Done').click()
     await user.should_not_see(marker='key-backup')
@@ -132,15 +135,41 @@ async def test_a_damaged_key(user, tmp_path, sharing):
             if p.name.startswith('nostr-key.replaced-')] == ['not a key']  # (set aside, not lost)
 
 
+def accept_notice(tmp_path):
+    """As if the wizard had been through once already: the card's form only."""
+    store = SettingsStore(tmp_path)
+    settings = store.load()
+    settings.sharing.publishing_accepted = NOTICE_VERSION
+    store.save(settings)
+
+
+async def open_publishing(user, character):
+    await user.open(f'/characters/{character.id}')
+    user.find(marker='menu-publish-to-shared-cards').click()
+    await user.should_see(marker='publish-dialog')
+
+
+async def through_the_wizard(user, *, make_key=True):
+    await user.should_see(marker='wizard-notice')
+    user.find(marker='wizard-agree').click()
+    await user.should_see(marker='wizard-key')
+    if make_key:
+        user.find(marker='wizard-make-key').click()
+        await user.should_see(marker='wizard-nsec')
+    set_value(user, 'wizard-saved', True)
+    user.find(marker='wizard-key-next').click()
+    await user.should_see(marker='wizard-sharing')
+    user.find(marker='wizard-sharing-next').click()
+    await user.should_see(marker='publish-name')
+
+
 # --- publishing a character --------------------------------------------------------------------------
 
 async def test_publishing_a_character(user, tmp_path, sharing, relay):
     store, character = aria(tmp_path)
-    await user.open(f'/characters/{character.id}')
-    user.find(marker='menu-publish-to-shared-cards').click()
-    await user.should_see(marker='publish-dialog')
-    user.find(marker='publish-make-key').click()  # (no key yet: made here)
-    await user.should_see(marker='publish-name')
+    await open_publishing(user, character)
+    await through_the_wizard(user)  # (the first time: what it means, the key made, how it's shared)
+    await user.should_see('Step 4 of 4: Your card')
     assert value_of(user, 'publish-name') == 'Aria the Wanderer'
     assert value_of(user, 'publish-description') == 'A wandering bard.'
     await user.should_see(marker='publish-notice')
@@ -178,10 +207,10 @@ async def test_publishing_a_character(user, tmp_path, sharing, relay):
     card = read_card(p.file_name, kept)  # (the card file: as Export makes it, with its UUID)
     assert card.character.shared_uuid == saved.shared_uuid and card.character.name == 'Aria'
 
-    # Again, unchanged: nothing new. Then changed: a new version, starting from what was announced
-    await user.open(f'/characters/{character.id}')
-    user.find(marker='menu-publish-to-shared-cards').click()
+    # Again, unchanged: nothing new (and no wizard). Then changed: a new version, from what was announced
+    await open_publishing(user, character)
     await user.should_see(marker='publish-new-version')
+    await user.should_not_see(marker='wizard-card')
     assert value_of(user, 'publish-publisher') == 'Marie' and value_of(user, 'publish-rating') == 'sfw'
     assert value_of(user, 'publish-tags') == ['fantasy', 'bard']
     user.find(marker='publish-confirm').click()
@@ -201,6 +230,7 @@ async def test_publishing_a_character(user, tmp_path, sharing, relay):
 
 async def test_what_the_format_refuses(user, tmp_path, sharing):
     sharing.create_identity()
+    accept_notice(tmp_path)
     store, character = aria(tmp_path)
     await user.open(f'/characters/{character.id}')
     user.find(marker='menu-publish-to-shared-cards').click()
@@ -212,6 +242,136 @@ async def test_what_the_format_refuses(user, tmp_path, sharing):
     await user.should_see('The description is too long: 16 KB at most', retries=SLOW)
     assert not store.get(character.id).shared_uuid  # (nothing published: no UUID kept)
     assert character.shared_uuid == ''
+
+
+# --- the wizard, the first time --------------------------------------------------------------------------
+
+async def test_cancelling_changes_nothing(user, tmp_path, sharing):
+    store, character = aria(tmp_path)
+    await open_publishing(user, character)
+    await user.should_see('Step 1 of 4: Before you publish')
+    await user.should_see(marker='wizard-rules')
+    user.find(marker='wizard-cancel').click()  # (at the notice)
+    await user.should_not_see(marker='publish-dialog')
+
+    await open_publishing(user, character)
+    user.find(marker='wizard-agree').click()
+    await user.should_see(marker='wizard-key')
+    user.find(marker='wizard-make-key').click()
+    await user.should_see(marker='wizard-nsec')
+    set_value(user, 'wizard-saved', True)
+    user.find(marker='wizard-key-next').click()
+    await user.should_see(marker='wizard-sharing')
+    set_value(user, 'wizard-port', 7000)
+    set_value(user, 'wizard-port-mapping', False)
+    user.find(marker='wizard-cancel').click()  # (at the port: nothing kept but the key, made)
+    await user.should_not_see(marker='publish-dialog')
+    settings = SettingsStore(tmp_path).load().sharing
+    assert (settings.port, settings.port_mapping, settings.publishing_accepted) == (None, True, 0)
+    assert sharing.session.wanted_port is None and sharing.identity() is not None
+
+    await open_publishing(user, character)  # (not through yet: again, the key there already)
+    await user.should_see(marker='wizard-notice')
+    user.find(marker='wizard-agree').click()
+    await user.should_see('Your publisher key. Its public half, which identifies you:')
+    await user.should_see(sharing.identity().npub)
+
+
+async def test_the_key_must_be_backed_up(user, tmp_path, sharing):
+    store, character = aria(tmp_path)
+    await open_publishing(user, character)
+    user.find(marker='wizard-agree').click()
+    await user.should_see(marker='wizard-make-key')
+    user.find(marker='wizard-make-key').click()
+    await user.should_see('Your key is made.')
+    await user.should_see(marker='wizard-backup-warning')
+    me = sharing.identity()
+    assert value_of(user, 'wizard-nsec') == me.nsec()
+    next_button = user.find(marker='wizard-key-next').elements.pop()
+    assert not next_button.enabled  # (not before it's said to be saved)
+    user.find(marker='wizard-save-file').click()
+    assert (await user.download.next()).content == f'{me.nsec()}\n'.encode()
+    set_value(user, 'wizard-saved', True)
+    assert next_button.enabled
+    user.find(marker='wizard-back').click()  # (back to the notice, and on again)
+    await user.should_see(marker='wizard-agree')
+    user.find(marker='wizard-agree').click()
+    await user.should_see(marker='wizard-saved')
+    assert not user.find(marker='wizard-key-next').elements.pop().enabled
+    assert KEY_FILE.endswith('.txt')
+
+
+async def test_importing_a_key(user, tmp_path, sharing):
+    store, character = aria(tmp_path)
+    await open_publishing(user, character)
+    user.find(marker='wizard-agree').click()
+    await user.should_see(marker='wizard-import-input')
+    user.find(marker='wizard-import-input').type('npub1nope')
+    user.find(marker='wizard-import').click()
+    await user.should_see('That\'s a public key (npub)')
+    secret = nostr.new_secret()
+    user.find(marker='wizard-import-input').clear().type(nostr.to_nsec(secret))
+    user.find(marker='wizard-import').click()
+    await user.should_see(nostr.to_npub(nostr.public_key(secret)))
+    assert sharing.identity().secret == secret
+
+
+async def test_a_damaged_key_when_publishing(user, tmp_path, sharing):
+    sharing.key_file.parent.mkdir(parents=True)
+    sharing.key_file.write_text('not a key', encoding='utf-8')
+    accept_notice(tmp_path)  # (through before: the key's step only)
+    store, character = aria(tmp_path)
+    await open_publishing(user, character)
+    await user.should_see('Step 1 of 2: Your publisher key')
+    await user.should_see(marker='wizard-key-problem')
+    secret = nostr.new_secret()
+    user.find(marker='wizard-import-input').type(nostr.to_nsec(secret))
+    user.find(marker='wizard-import').click()
+    await user.should_see(marker='wizard-saved')
+    assert sharing.identity().secret == secret
+    set_value(user, 'wizard-saved', True)
+    user.find(marker='wizard-key-next').click()
+    await user.should_see('Step 2 of 2: Your card')  # (the port's step: seen already)
+
+
+async def test_the_port_kept_once_through(user, tmp_path, sharing):
+    store, character = aria(tmp_path)
+    await open_publishing(user, character)
+    user.find(marker='wizard-agree').click()
+    await user.should_see(marker='wizard-make-key')
+    user.find(marker='wizard-make-key').click()
+    await user.should_see(marker='wizard-saved')
+    set_value(user, 'wizard-saved', True)
+    user.find(marker='wizard-key-next').click()
+    await user.should_see('Step 3 of 4: Sharing its file')
+    await user.should_see('nobody can download it')
+    set_value(user, 'wizard-port', 80)  # (refused)
+    user.find(marker='wizard-sharing-next').click()
+    await user.should_see('A port from 1024 to 65535, or empty')
+    set_value(user, 'wizard-port', 7000)
+    set_value(user, 'wizard-port-mapping', False)
+    user.find(marker='wizard-sharing-next').click()
+    await user.should_see(marker='publish-name')
+    settings = SettingsStore(tmp_path).load().sharing
+    assert (settings.port, settings.port_mapping, settings.publishing_accepted) == (7000, False, NOTICE_VERSION)
+    assert sharing.session.wanted_port == 7000 and sharing.session.settings['enable_upnp'] is False
+
+    user.find(marker='wizard-cancel').click()  # (the card not published: but the wizard is through)
+    await open_publishing(user, character)
+    await user.should_see(marker='publish-name')
+    await user.should_not_see('Step 1 of')
+
+
+async def test_the_key_gone_since(user, tmp_path, sharing):
+    accept_notice(tmp_path)
+    store, character = aria(tmp_path)
+    await open_publishing(user, character)
+    await user.should_see('Step 1 of 2: Your publisher key')
+    user.find(marker='wizard-make-key').click()
+    await user.should_see(marker='wizard-saved')
+    set_value(user, 'wizard-saved', True)
+    user.find(marker='wizard-key-next').click()
+    await user.should_see('Step 2 of 2: Your card')
 
 
 async def test_no_publishing_where_sharing_cant_run(tmp_path, monkeypatch):

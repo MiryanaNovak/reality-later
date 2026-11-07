@@ -370,6 +370,8 @@ HEAD = f'''
   .file-path {{
     font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: .85rem; overflow-wrap: anywhere;
   }}
+  .wizard-list {{ list-style: disc; padding-left: 1.3em; margin: 0; }}
+  .wizard-list li {{ margin: 4px 0; }}
   .publish-card {{ width: min(560px, calc(100vw - 24px)); max-height: 92vh; overflow-y: auto; }}
   .publish-notice {{
     background: var(--page); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; width: 100%;
