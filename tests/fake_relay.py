@@ -8,7 +8,8 @@ from websockets.asyncio.server import serve
 
 
 class FakeRelay:
-    def __init__(self, *, max_limit: int = 500, misbehave: str | None = None) -> None:
+    def __init__(self, *, max_limit: int = 500, misbehave: str | None = None, port: int = 0) -> None:
+        self.port = port                   # 0: any free one (a given one: a relay down, then up again)
         self.events: dict[str, dict] = {}
         self.queries: list[dict] = []      # each filter asked for, in order
         self.max_limit = max_limit         # what it gives at most per filter, whatever the limit asked
@@ -21,7 +22,7 @@ class FakeRelay:
         self.url = ''
 
     async def __aenter__(self) -> FakeRelay:
-        self._server = await serve(self._serve, '127.0.0.1', 0)
+        self._server = await serve(self._serve, '127.0.0.1', self.port)
         self.url = f'ws://127.0.0.1:{self._server.sockets[0].getsockname()[1]}'
         return self
 

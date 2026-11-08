@@ -5,6 +5,7 @@ import hashlib
 import os
 import socket
 import tempfile
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -21,7 +22,9 @@ from rpapp.publishing import announcements as fmt  # noqa: E402
 from rpapp.publishing import nostr  # noqa: E402
 from rpapp.publishing.announcements import PublicationDraft, Rejected  # noqa: E402
 from rpapp.publishing.seeder import TorrentSession  # noqa: E402
-from rpapp.publishing.service import HELD, Sharing, SharingError, is_local  # noqa: E402
+from rpapp.publishing import service  # noqa: E402
+from rpapp.publishing.catalog import Delivery  # noqa: E402
+from rpapp.publishing.service import HELD, RETRY_AFTER, Sharing, SharingError, is_local, retry_at  # noqa: E402
 
 DRAFT = PublicationDraft(publisher_name='Marie', card_name='Aria the Wanderer', card_description='A wandering bard.',
                          card_tags=('fantasy',), language='en')
@@ -106,6 +109,86 @@ async def test_where_it_goes(sharing, relay):
     relay.refuse_events = None
     again = await sharing.send_again(other.publication.event_id)
     assert next(d for d in again if d.relay_url == relay.url).state == 'accepted'
+
+
+def free_port() -> int:
+    with socket.socket() as s:
+        s.bind(('127.0.0.1', 0))
+        return s.getsockname()[1]
+
+
+def test_when_its_tried_again():
+    def d(state, message='', attempts=1):
+        return Delivery('ws://127.0.0.1:7777', state, attempts, 1000, message)
+    assert retry_at(d('pending')) == 1000 + RETRY_AFTER[0]
+    assert [retry_at(d('pending', attempts=n)) - 1000 for n in (2, 3, 4, 5, 9)] == \
+        [*RETRY_AFTER[1:], RETRY_AFTER[-1]]  # (longer each time, then every last one)
+    assert retry_at(d('refused', 'rate-limited: slow down')) and retry_at(d('refused', 'error: database busy'))
+    for state, message in (('refused', 'blocked: members only'), ('refused', 'invalid: bad tag'), ('held', HELD),
+                           ('accepted', '')):
+        assert retry_at(d(state, message)) is None  # (refused for good, held, or there)
+
+
+async def test_sent_again_by_itself(sharing, relay):
+    """What didn't arrive but may yet is sent again when it's due: to a relay that couldn't be reached, or
+    that said to try later; not to one that refused it for good, nor to a public one while the format is a
+    draft. A publication withdrawn since isn't: its withdrawal is."""
+    port = free_port()
+    down = f'ws://127.0.0.1:{port}'
+    sharing.catalog.add_relay(down)
+    sharing.catalog.add_relay('wss://relay.example.com')  # (held)
+    relay.refuse_events = 'rate-limited: slow down'
+    p = (await sharing.publish(DRAFT, aria_card(), card_uuid=fmt.new_card_uuid())).publication
+    assert {d.relay_url: d.state for d in sharing.catalog.deliveries(p.event_id)} == \
+        {relay.url: 'refused', down: 'pending', 'wss://relay.example.com': 'held'}
+    assert await sharing.retry_deliveries() == 0  # (not due yet: a minute after)
+
+    relay.refuse_events = None
+    async with FakeRelay(port=port) as back:  # (up again)
+        assert await sharing.retry_deliveries(now=time.time() + RETRY_AFTER[0]) == 1
+        assert {d.relay_url: (d.state, d.attempts) for d in sharing.catalog.deliveries(p.event_id)} == \
+            {relay.url: ('accepted', 2), down: ('accepted', 2), 'wss://relay.example.com': ('held', 0)}
+        assert p.event_id in back.events
+    sharing.catalog.remove_relay(down)  # (not written to: not tried again)
+
+    relay.refuse_events = 'blocked: members only'
+    blocked = (await sharing.publish(DRAFT, aria_card('Blocked.'), card_uuid=fmt.new_card_uuid())).publication
+    relay.refuse_events = None
+    assert await sharing.retry_deliveries(now=time.time() + 10 ** 6) == 0
+    assert {d.relay_url: d.state for d in sharing.catalog.deliveries(blocked.event_id)}[relay.url] == 'refused'
+
+    relay.refuse_events = 'error: database busy'
+    gone = (await sharing.publish(DRAFT, aria_card('Gone.'), card_uuid=fmt.new_card_uuid())).publication
+    sent = {d.relay_url: d.state for d in await sharing.withdraw([gone.event_id])}
+    assert sent == {relay.url: 'refused', 'wss://relay.example.com': 'held'}
+    relay.refuse_events = None
+    assert await sharing.retry_deliveries(now=time.time() + 10 ** 6) == 1  # (its withdrawal: not it)
+    withdrawal_id = sharing.catalog.get(gone.event_id).withdrawn.withdrawal_id
+    assert {d.relay_url: d.state for d in sharing.catalog.deliveries(withdrawal_id)} == \
+        {relay.url: 'accepted', 'wss://relay.example.com': 'held'}
+    assert gone.event_id not in relay.events
+    assert {d.relay_url: d.state for d in sharing.catalog.deliveries(gone.event_id)}[relay.url] == 'refused'
+
+
+async def test_tried_again_while_the_app_runs(tmp_path, monkeypatch):
+    monkeypatch.setattr(service, 'RETRY_AFTER', (0,))
+    monkeypatch.setattr(service, 'RETRY_CHECK', 0.05)
+    port = free_port()
+    s = Sharing(tmp_path, default_relays=[f'ws://127.0.0.1:{port}'], session=local_session())
+    s.create_identity()
+    try:
+        p = (await s.publish(DRAFT, aria_card(), card_uuid=fmt.new_card_uuid())).publication
+        assert s.catalog.deliveries(p.event_id)[0].state == 'pending'
+        await s.resume_sharing()  # (as when the app starts)
+        async with FakeRelay(port=port) as back:
+            for _ in range(100):
+                if p.event_id in back.events:
+                    break
+                await asyncio.sleep(0.05)
+            assert p.event_id in back.events
+            assert s.catalog.deliveries(p.event_id)[0].state == 'accepted'
+    finally:
+        await s.close()
 
 
 async def test_public_relays_once_its_final(tmp_path, relay):

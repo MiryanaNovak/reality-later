@@ -48,7 +48,7 @@ from ..publishing.catalog import CardQuery, CatalogEntry, Delivery, normalize_re
 from ..publishing.identity import Identity, IdentityError
 from ..publishing.nostr import to_npub
 from ..publishing.seeder import DEFAULT_PORT, ROUTER_WAIT, NetworkStatus, TorrentStatus
-from ..publishing.service import DEFAULT_RELAYS, Published, Sharing, SharingError, torrent_problem
+from ..publishing.service import DEFAULT_RELAYS, Published, Sharing, SharingError, retry_at, torrent_problem
 from ..settings import Settings, SettingsStore
 from .form import Form, keep_typed
 from .list_view import Link, Row, plural, render_row
@@ -130,21 +130,45 @@ DELIVERY = {  # state: (icon, color, what it means)
 }
 
 
-def delivery_text(d: Delivery) -> str:
+def delivery_text(d: Delivery, *, retried: bool = True, now: float | None = None) -> str:
+    """What became of a delivery, in words, and when it's tried again by itself if it is (`retried`: its
+    relay is still written to)."""
     text = DELIVERY.get(d.state, ('', '', d.state))[2]
-    return f'{text}: {d.message}' if d.message and d.state in ('pending', 'refused') else text
+    if d.message and d.state in ('pending', 'refused'):
+        text = f'{text}: {d.message.rstrip(". ")}'
+    if retried and (at := retry_at(d)) is not None:
+        text += f'. Tried again by itself {_in(at - (time.time() if now is None else now))}.'
+    return text
+
+
+def _in(seconds: float) -> str:
+    """'in a moment', 'in a minute', 'in 25 minutes', 'in an hour', 'in 6 hours'."""
+    if seconds < 30:
+        return 'in a moment'
+    if seconds < 90:
+        return 'in a minute'
+    if seconds < 3300:
+        return f'in {round(seconds / 60)} minutes'
+    if seconds < 5400:
+        return 'in an hour'
+    return f'in {round(seconds / 3600)} hours'
 
 
 def delivery_summary(deliveries: Iterable[Delivery]) -> str:
-    """'arrived on 2 relays, 1 not reached, 6 held (public relays, while the format is a draft)'."""
-    counts = Counter(d.state for d in deliveries)
-    if not counts:
+    """'arrived on 2 relays, 1 not reached yet (tried again by itself), refused by 1, 6 held (public relays,
+    while the format is a draft)'."""
+    deliveries = list(deliveries)
+    if not deliveries:
         return 'no relay to send it to (Settings › Sharing cards)'
+    counts = Counter(d.state for d in deliveries)
+    later = sum(d.may_arrive for d in deliveries)
     parts = []
     if counts['accepted']:
         parts.append(f'arrived on {plural(counts["accepted"], "relay")}')
-    if missed := counts['pending'] + counts['refused']:
-        parts.append(f'{plural(missed, "relay")} not reached')
+    if later:
+        parts.append(f'{plural(later, "relay")} not reached yet (tried again by itself)')
+    if refused := counts['pending'] + counts['refused'] - later:
+        parts.append(f'refused by {plural(refused, "relay")}')
     if counts['held']:
         parts.append(f'{counts["held"]} held (public relays, while the format is a draft)')
     return ', '.join(parts)
@@ -561,15 +585,21 @@ class SharingSection:
             parts.append('sharing its file failed')
         else:
             parts.append(f'shared, {_people(status.peers)} connected' if status.peers else 'shared')
-        counts = Counter(d.state for d in await sharing.call(sharing.catalog.deliveries, p.event_id))
+        deliveries = await sharing.call(sharing.catalog.deliveries, p.event_id)
+        counts = Counter(d.state for d in deliveries)
         if not counts:
             parts.append('not sent to relays from this computer')
         else:
+            later = sum(d.may_arrive for d in deliveries)  # (tried again by itself)
+            refused = counts['pending'] + counts['refused'] - later
             if counts['accepted']:
                 parts.append(f'on {plural(counts["accepted"], "relay")}')
-            if missed := counts['pending'] + counts['refused']:
+            if later or refused:
                 level = 'warning' if level == 'ok' else level
-                parts.append(f'{plural(missed, "relay")} not reached')
+            if later:
+                parts.append(f'{plural(later, "relay")} not reached yet')
+            if refused:
+                parts.append(f'refused by {plural(refused, "relay")}')
             if counts['held']:
                 parts.append(f'{counts["held"]} held')
         text = ', '.join(parts)
@@ -783,18 +813,26 @@ class SharingSection:
             ui.label('Its withdrawal, on the relays' if withdrawn else 'Its announcement, on the relays') \
                 .classes('step-title mt-1')
 
-            listed: dict = {}  # (read first, then drawn at once: see _get_panel)
+            listed: dict = {'view': None}  # (read first, then drawn at once: see _get_panel)
 
-            async def look() -> None:
+            async def look() -> bool:
+                """Where it was sent, and what came of it, now (tried again by itself since...); whether what's
+                said of it changed."""
                 listed['deliveries'] = deliveries = await sharing.call(sharing.catalog.deliveries, event_id)
                 known = {d.relay_url for d in deliveries}
+                relays_ = await sharing.call(sharing.catalog.relays)
+                listed['written'] = written = {r.url for r in relays_ if r.write}
                 # Where it could still go: a relay that wasn't reached, or one added since
                 listed['missing'] = any(d.state in ('pending', 'refused') for d in deliveries) or \
-                    any(r.write and r.url not in known for r in await sharing.call(sharing.catalog.relays))
+                    any(url not in known for url in written)
+                view = (tuple((d.relay_url, d.state, delivery_text(d, retried=d.relay_url in written))
+                              for d in deliveries), listed['missing'])
+                changed, listed['view'] = view != listed['view'], view
+                return changed
 
             @ui.refreshable
             def relays() -> None:
-                deliveries, missing = listed['deliveries'], listed['missing']
+                deliveries, missing, written = listed['deliveries'], listed['missing'], listed['written']
                 if not deliveries:
                     ui.label('Not sent to any relay from this computer.').classes('text-sm muted') \
                         .mark('own-no-deliveries')
@@ -806,7 +844,8 @@ class SharingSection:
                                 ui.icon(icon, color=color)
                             with ui.item_section().classes('min-w-0'):
                                 ui.item_label(d.relay_url).classes('break-all')
-                                ui.item_label(delivery_text(d)).props('caption').classes('break-words')
+                                ui.item_label(delivery_text(d, retried=d.relay_url in written)) \
+                                    .props('caption').classes('break-words')
                 if missing:
                     button = ui.button('Send the withdrawal again' if withdrawn else 'Send again', icon='send',
                                        on_click=lambda: send_again(button)).props('flat dense').mark('own-send-again')
@@ -827,6 +866,11 @@ class SharingSection:
 
             await look()
             relays()
+
+            async def relays_tick() -> None:  # (sent again by itself meanwhile; when it will be next)
+                if await look():
+                    relays.refresh()
+            ui.timer(5, relays_tick)
 
             async def stop() -> None:
                 if not await confirm('Stop sharing its file?', 'Nobody can download it from this computer any '

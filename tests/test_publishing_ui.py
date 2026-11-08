@@ -604,6 +604,36 @@ async def test_sending_again(user, sharing, relay):
     await user.should_see(marker='own-send-again', retries=SLOW)
 
 
+async def test_tried_again_by_itself(user, sharing, relay):
+    """A relay that couldn't be reached: its page says when it's tried again, and what came of it once it is
+    (looked at again as the page stays open); one that refused it for good isn't tried again."""
+    import socket
+    import time
+
+    from fake_relay import FakeRelay
+    from rpapp.publishing.service import RETRY_AFTER
+    with socket.socket() as s:
+        s.bind(('127.0.0.1', 0))
+        port = s.getsockname()[1]
+    down = f'ws://127.0.0.1:{port}'
+    sharing.create_identity()
+    sharing.catalog.add_relay(down)
+    relay.refuse_events = 'blocked: members only'
+    published = await publish(sharing)
+    relay.refuse_events = None
+    await user.open(f'/shared/{published.publication.event_id}')
+    await user.should_see(marker=f'delivery-{down}', retries=SLOW)
+    await user.should_see('Tried again by itself in a minute.', retries=SLOW)
+    await user.should_see('Refused: blocked: members only', retries=SLOW)  # (and nothing more: for good)
+
+    async with FakeRelay(port=port) as back:
+        assert await sharing.retry_deliveries(now=time.time() + RETRY_AFTER[0]) == 1
+        # (the page looks again by itself, every 5 s; should_not_see tries every 0.05 s)
+        await user.should_not_see('Tried again by itself', retries=150)
+        assert published.publication.event_id in back.events
+    await user.should_see('Refused: blocked: members only')
+
+
 async def test_stopping_sharing_the_file(user, sharing, tmp_path):
     sharing.create_identity()
     published = await publish(sharing)

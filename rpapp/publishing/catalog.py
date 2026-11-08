@@ -377,6 +377,17 @@ class Delivery:
     last_attempt_at: int | None
     message: str                         # what the relay said
 
+    @property
+    def may_arrive(self) -> bool:
+        """Not arrived, but may yet: the relay couldn't be reached, or said to try later (unlike a refusal for
+        good: "blocked:", "invalid:"...; or one held)."""
+        return self.state == 'pending' or (self.state == 'refused' and self.message.startswith(TRY_LATER))
+
+
+# What a relay that refuses an event says when it may take it later (NIP-01's prefixes): a delivery that
+# may still arrive (Delivery.may_arrive)
+TRY_LATER = ('rate-limited:', 'error:')
+
 
 @dataclass(frozen=True, slots=True)
 class Seeding:
@@ -859,6 +870,18 @@ class Catalog:
             return tuple(Delivery(r['relay_url'], r['state'], r['attempts'], r['last_attempt_at'], r['message'])
                          for r in self._db.execute('SELECT * FROM deliveries WHERE event_id = ? ORDER BY relay_url',
                                                    (event_id,)))
+
+    def undelivered(self) -> list[tuple[str, Delivery]]:
+        """This computer's deliveries that didn't arrive but may yet (Delivery.may_arrive), to relays still
+        written to: (event id, delivery). Their events may have been withdrawn since."""
+        try_later = ' OR '.join("d.message LIKE ? || '%'" for _ in TRY_LATER)
+        with self._lock:
+            rows = self._db.execute(
+                f"SELECT d.* FROM deliveries d JOIN relays r ON r.url = d.relay_url AND r.write = 1 "
+                f"WHERE d.state = 'pending' OR (d.state = 'refused' AND ({try_later})) "
+                f"ORDER BY d.event_id, d.relay_url", TRY_LATER).fetchall()
+        return [(r['event_id'], Delivery(r['relay_url'], r['state'], r['attempts'], r['last_attempt_at'], r['message']))
+                for r in rows]
 
     def withdrawal(self, event_id: str) -> Withdrawal | None:
         """A withdrawal kept in the catalog (this computer's own, to send it again)."""

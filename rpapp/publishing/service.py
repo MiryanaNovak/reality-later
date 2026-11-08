@@ -17,7 +17,8 @@ and so does what reads or hashes files: the pages don't wait on the disk.
 Publishing a card (publish()): its file is kept in files/ and shared, its announcement signed and sent
 to the relays written to (deliver()), each relay's answer kept. The same card again, unchanged: the same
 announcement, sent again where it hasn't arrived (no new version). Withdrawing (withdraw()): a withdrawal
-sent the same way, and the file no longer shared.
+sent the same way, and the file no longer shared. What didn't arrive but may yet (a relay not reached, or
+one that said to try later) is sent again by itself while the app runs (retry_deliveries(), RETRY_AFTER).
 
 Downloading one (download(), in the background like discovery): its file from those who share it, checked
 (the torrent's description before anything else, then the file's SHA-256 and torrent: the announced
@@ -68,6 +69,12 @@ DEFAULT_RELAYS = (
 )
 DUE_AFTER = 3600  # seconds: opening the shared cards looks for new ones when the last look is older
 WATCH = 5.0       # seconds: how often what BitTorrent says is read (TorrentSession.poll())
+# Deliveries that didn't arrive but may yet (catalog.Delivery.may_arrive) are tried again by themselves,
+# after these waits since the last try (by the tries made so far), then every last one: as long as the relay
+# is written to, and the publication isn't withdrawn. Not those refused for good, nor those held ("Send
+# again" can send those, but held ones stay held while the format is a draft).
+RETRY_AFTER = (60, 5 * 60, 30 * 60, 2 * 3600, 6 * 3600)  # seconds
+RETRY_CHECK = 60.0  # seconds: how often what's due is looked for (the first time: once the app has started)
 
 # False while the format is a draft: nothing goes to public relays (see the module's notes).
 PUBLIC_PUBLISHING = False
@@ -75,6 +82,14 @@ HELD = ('Not sent: while card sharing\'s format is a draft, cards only go to rel
         'network.')
 
 T = TypeVar('T')
+
+
+def retry_at(d: Delivery) -> float | None:
+    """When a delivery that didn't arrive is tried again by itself (Unix seconds); None: it isn't."""
+    if not d.may_arrive:
+        return None
+    wait = RETRY_AFTER[min(max(d.attempts, 1), len(RETRY_AFTER)) - 1]
+    return (d.last_attempt_at or 0) + wait
 
 
 class SharingError(Exception):
@@ -144,6 +159,7 @@ class Sharing:
         self._task: asyncio.Task | None = None
         self._background: set[asyncio.Task] = set()
         self._watcher: asyncio.Task | None = None
+        self._retrier: asyncio.Task | None = None
 
     async def call(self, function: Callable[..., T], *args: Any, **kwargs: Any) -> T:
         """A catalog call (or any that waits on the disk), in a thread."""
@@ -288,11 +304,14 @@ class Sharing:
             deliveries += await self.deliver(withdrawal.event)
         return tuple(deliveries)
 
-    async def deliver(self, event: Event) -> tuple[Delivery, ...]:
-        """Send one of this computer's events to the relays written to, where it hasn't arrived yet, at the
-        same time; each answer kept. A relay that can't be reached: pending, for later."""
+    async def deliver(self, event: Event, *, only: Iterable[str] | None = None) -> tuple[Delivery, ...]:
+        """Send one of this computer's events to the relays written to (or `only` those of them), where it
+        hasn't arrived yet, at the same time; each answer kept. A relay that can't be reached: pending, tried
+        again later (retry_deliveries())."""
         done = {d.relay_url for d in await self.call(self.catalog.deliveries, event.id) if d.state == 'accepted'}
-        relays = [r.url for r in await self.call(self.catalog.relays) if r.write and r.url not in done]
+        chosen = None if only is None else set(only)
+        relays = [r.url for r in await self.call(self.catalog.relays)
+                  if r.write and r.url not in done and (chosen is None or r.url in chosen)]
 
         async def one(url: str) -> None:
             if not self.public_publishing and not is_local(url):
@@ -314,23 +333,56 @@ class Sharing:
         entry = await self.call(self.catalog.get, event_id)
         if entry is not None and entry.withdrawn is not None:
             raise SharingError('It was withdrawn: it isn\'t sent again (its withdrawal can be).')
-        event = entry.publication.event if entry else None
-        if event is None:
-            withdrawal = await self.call(self.catalog.withdrawal, event_id)
-            event = withdrawal.event if withdrawal else None
+        event = await self._sendable(event_id)
         if event is None:
             raise SharingError('It isn\'t in the catalog any more.')
         return await self.deliver(event)
+
+    async def retry_deliveries(self, *, now: float | None = None) -> int:
+        """Send again, by itself, what didn't arrive but may yet, where it's due (retry_at()): each event to
+        its relays due at once. How many events were sent."""
+        now = time.time() if now is None else now
+        due: dict[str, list[str]] = {}
+        for event_id, d in await self.call(self.catalog.undelivered):
+            if (at := retry_at(d)) is not None and at <= now:
+                due.setdefault(event_id, []).append(d.relay_url)
+        sent = 0
+        for event_id, urls in due.items():
+            event = await self._sendable(event_id)
+            if event is None:  # (a publication withdrawn since: its withdrawal goes instead)
+                continue
+            await self.deliver(event, only=urls)
+            sent += 1
+        return sent
+
+    async def _sendable(self, event_id: str) -> Event | None:
+        """One of this computer's events, to send: a publication not withdrawn, or a withdrawal."""
+        entry = await self.call(self.catalog.get, event_id)
+        if entry is not None:
+            return entry.publication.event if entry.withdrawn is None else None
+        withdrawal = await self.call(self.catalog.withdrawal, event_id)
+        return withdrawal.event if withdrawal else None
+
+    async def _retry(self) -> None:
+        """While the app runs: what didn't arrive, sent again when it's due."""
+        while True:
+            await asyncio.sleep(RETRY_CHECK)
+            try:
+                await self.retry_deliveries()
+            except Exception:  # (the disk...: tried again next time)
+                log.warning('Sending again what didn\'t arrive failed', exc_info=True)
 
     # --- sharing the files --------------------------------------------------------------------------
 
     async def resume_sharing(self) -> None:
         """When the app starts: share again the files shared when it stopped, but those withdrawn since, and
         delete what's left of downloads stopped midway. A file missing or changed isn't replaced:
-        seeding_problems says so."""
+        seeding_problems says so. From then on, what didn't arrive on relays is sent again when it's due."""
         await asyncio.to_thread(shutil.rmtree, self.downloading, True)
         if self._watcher is None:
             self._watcher = asyncio.create_task(self._watch())
+        if self._retrier is None:  # (what didn't arrive, sent again)
+            self._retrier = asyncio.create_task(self._retry())
         await self._tidy_sharing()
         items = await self.call(self.catalog.seeding, enabled_only=True)
         if items and (problem := torrent_problem()):
@@ -516,7 +568,8 @@ class Sharing:
     async def close(self) -> None:
         """When the app stops: discovery and downloads stop (what discovery got is kept; what downloads got
         is deleted), and the catalog is closed."""
-        for task in [self._task, self._watcher, *self._background, *(f.task for f in self.fetches.values())]:
+        for task in [self._task, self._watcher, self._retrier, *self._background,
+                     *(f.task for f in self.fetches.values())]:
             if task is not None and not task.done():
                 task.cancel()
                 try:
