@@ -26,8 +26,9 @@ ones), then added as a new character (`importer`, given by the app), and shared 
 `share_downloads`. Withdrawn, or its publisher blocked: no longer shared (and the file goes); the character
 stays.
 
-**While the format is a draft** (docs/card-announcements.md), PUBLIC_PUBLISHING is False: events only go
-to relays on this computer or its network (tools/test_relay.py makes one); the others are "held".
+**Until card sharing is released** (its format, docs/card-announcements.md, is fixed: what's left is trying it
+for real), PUBLIC_PUBLISHING is False: events only go to relays on this computer or its network
+(tools/test_relay.py makes one); the others are "held".
 """
 from __future__ import annotations
 
@@ -75,13 +76,13 @@ WATCH = 5.0       # seconds: how often what BitTorrent says is read (TorrentSess
 # Deliveries that didn't arrive but may yet (catalog.Delivery.may_arrive) are tried again by themselves,
 # after these waits since the last try (by the tries made so far), then every last one: as long as the relay
 # is written to, and the publication isn't withdrawn. Not those refused for good, nor those held ("Send
-# again" can send those, but held ones stay held while the format is a draft).
+# again" can send those, but held ones stay held until card sharing is released).
 RETRY_AFTER = (60, 5 * 60, 30 * 60, 2 * 3600, 6 * 3600)  # seconds
 RETRY_CHECK = 60.0  # seconds: how often what's due is looked for (the first time: once the app has started)
 
-# False while the format is a draft: nothing goes to public relays (see the module's notes).
+# False until card sharing is released: nothing goes to public relays (see the module's notes).
 PUBLIC_PUBLISHING = False
-HELD = ('Not sent: while card sharing\'s format is a draft, cards only go to relays on this computer or its '
+HELD = ('Not sent: until card sharing is released, cards only go to relays on this computer or its '
         'network.')
 
 T = TypeVar('T')
@@ -301,12 +302,14 @@ class Sharing:
                                    'this computer.')
             by_key.setdefault(entry.publication.publisher_id, []).append(event_id)
         deliveries: list[Delivery] = []
-        for key, ids in by_key.items():  # (one withdrawal per key: each signs its own)
-            withdrawal = fmt.build_withdrawal(ids, secret=own[key].secret, reason=reason)
-            await self.call(self.catalog.add, withdrawal)
-            for event_id in ids:
-                await self.stop_sharing(event_id)
-            deliveries += await self.deliver(withdrawal.event)
+        for key, ids in by_key.items():  # (one withdrawal per key, each signing its own; several for a card of
+            for start in range(0, len(ids), fmt.MAX_WITHDRAWN):  # many versions: an event has 100 tags at most)
+                some = ids[start:start + fmt.MAX_WITHDRAWN]
+                withdrawal = fmt.build_withdrawal(some, secret=own[key].secret, reason=reason)
+                await self.call(self.catalog.add, withdrawal)
+                for event_id in some:
+                    await self.stop_sharing(event_id)
+                deliveries += await self.deliver(withdrawal.event)
         return tuple(deliveries)
 
     async def deliver(self, event: Event, *, only: Iterable[str] | None = None) -> tuple[Delivery, ...]:
@@ -322,7 +325,7 @@ class Sharing:
 
     async def _send(self, url: str, events: list[Event]) -> None:
         """Send events to one relay, one after the other on one connection; each answer kept. A public relay's
-        are held while the format is a draft. The relay can't be reached, or the connection breaks: those not
+        are held until card sharing is released. The relay can't be reached, or the connection breaks: those not
         answered yet, pending (tried again by itself)."""
         if not self.public_publishing and not is_local(url):
             for event in events:
@@ -344,7 +347,7 @@ class Sharing:
         """A relay added (Settings): discovery reads it, and publishing writes to it. Your cards not withdrawn
         (each one's latest version, with any of your keys) go to it, in the background, and your withdrawals
         (a card withdrawn that reaches it some other way is known as such); what doesn't arrive is tried again
-        by itself. How many of your cards go to it (none to a public relay while the format is a draft: held).
+        by itself. How many of your cards go to it (none to a public relay until card sharing is released: held).
         ValueError if it isn't a relay's address."""
         info = await self.call(self.catalog.add_relay, url)
         own = await self.call(self.own_keys)
@@ -631,7 +634,7 @@ async def shared_card_or_error(content: bytes, *, doing: str, file_name: str = '
     """A card file within the safeguards for shared cards (cards.check_shared_card), checked in a thread;
     SharingError if it isn't: "It can't be <doing>: its picture is ..."."""
     try:
-        await asyncio.to_thread(check_shared_card, file_name, content, size_limit=fmt.DEFAULT_SIZE_LIMIT)
+        await asyncio.to_thread(check_shared_card, file_name, content, size_limit=fmt.MAX_FILE_BYTES)
     except SafeguardError as e:
         raise SharingError(f'It can\'t be {doing}: {e}.') from None
     except CardError as e:

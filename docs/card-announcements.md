@@ -5,8 +5,8 @@ people's computers read, and that can't be changed once it's out (a signed event
 wherever it was copied). Everything else (the catalog, the API, the user interface) can change from one
 version of the app to the next; this can only be extended (see [Changes](#changes)).
 
-**Status: draft.** It becomes fixed with the first release that publishes to public relays. Until
-then, publish only to a test relay.
+**Status: fixed** — schema 1, as of 8 November 2026. Nothing in it changes any more; it can only be
+extended, as [Changes](#changes) says.
 
 It builds on these Nostr specifications ("NIPs"):
 
@@ -88,14 +88,14 @@ Required, exactly once each (except the first, which may appear among the card's
 |---|---|---|
 | `["t", "ai-roleplay-character-card"]` | | What makes it a card, for relays and apps (see [Finding them](#finding-them)). |
 | `["schema", "1"]` | this format's version | Apps skip events of a schema they don't know. |
-| `["title", <name>]` | the card's name, 1–200 characters | NIP-35's title. |
-| `["uuid", <uuid>]` | a version 4 UUID, lowercase, `8-4-4-4-12` | With `pubkey`, the card's identity. |
-| `["publisher", <name>]` | the publisher's name, 1–100 characters | As chosen when publishing: the *published name*. |
+| `["title", <name>]` | the card's name, 1–200 characters, not [empty](#text) | NIP-35's title. |
+| `["uuid", <uuid>]` | a UUID, lowercase, `8-4-4-4-12`: 32 hex digits in all | With `pubkey`, the card's identity. Any version; publishers SHOULD make version 4 ones (random). |
+| `["publisher", <name>]` | the publisher's name, 1–100 characters, not empty | As chosen when publishing: the *published name*. |
 | `["spec", <spec>]` | `chara_card_v1`, `chara_card_v2`, `chara_card_v3`, or a later one: `[a-z0-9_]{1,32}` | The card's format: the card specifications' own `spec` values (V1 cards have none: `chara_card_v1`). |
 | `["rating", <rating>]` | `sfw` or `nsfw` | Stated by the publisher. |
 | `["sha256", <hash>]` | 64 lowercase hex digits | The file's SHA-256: the file's identity. |
 | `["x", <infohash>]` | 40 lowercase hex digits | The BitTorrent v1 infohash (NIP-35). |
-| `["file", <name>, <size>]` | `<sha256>.<extension>`, and the size in bytes | NIP-35's file tag. The extension is `png`, `json` or `charx`. The size is a decimal number, without leading zeros, at least 1. |
+| `["file", <name>, <size>]` | `<sha256>.<extension>`, and the size in bytes | NIP-35's file tag. The extension is `png`, `json` or `charx`. The size is a decimal number, without leading zeros, from 1 to 104,857,600 (100 MiB): see [The file](#the-file-and-its-torrent). |
 
 Optional:
 
@@ -109,9 +109,9 @@ Optional:
 
 Any other tag is **ignored**: later versions of this format may add some (see [Changes](#changes)).
 The order of the tags doesn't matter, but it is part of what's signed: publishers write them in the
-order of the example.
+order of the example, with `content-warning` right after `rating`.
 
-From the module spec's metadata to the event:
+What the app calls each of them (`Publication`, in rpapp/publishing/announcements.py):
 
 | Metadata | In the event |
 |---|---|
@@ -132,13 +132,18 @@ From the module spec's metadata to the event:
 
 ### Text
 
-- Every string (the content and each tag's values) is UTF-8. Publishers write names, titles, tags and
-  descriptions in Unicode NFC, with `\n` for line breaks (not `\r\n`).
+- Every string (the content and each tag's name and values) is UTF-8, of valid Unicode: no lone
+  surrogate, which JSON can write (`\ud800`). Publishers write names, titles, tags and descriptions in
+  Unicode NFC, with `\n` for line breaks (not `\r\n`).
 - No string may contain a control character (U+0000–U+001F) other than tab, line feed and carriage
-  return. NIP-01 wants the other ones written as they are when computing the id, but JSON libraries
+  return. NIP-01 wants most of them written as they are when computing the id, but JSON libraries
   write them as `\u00XX`: the apps would disagree on the event's id (rust-nostr does, with
-  [the test vector](#test-vectors) that has one).
-- Lengths are in characters (Unicode code points), except the description's (in bytes).
+  [the test vector](#test-vectors) that has one). Backspace and form feed, which NIP-01 does escape,
+  are refused too: no card needs them.
+- Lengths are in characters (Unicode code points), except the description's and the trackers' (in
+  bytes).
+- *Spaces*, here, are Unicode's White_Space characters (the space, the no-break space, the ideographic
+  space...). A name or a title of nothing but spaces is *empty*.
 
 ### Card tags
 
@@ -146,8 +151,8 @@ Publishers write the card's tags normalized; apps receiving them normalize them 
 ones that are then empty, too long or repeated, without rejecting the event:
 
 1. Unicode NFC, then lowercase;
-2. spaces at the ends removed, then a leading `#`; each run of spaces inside replaced with one `-`
-   (`Slice of Life` → `slice-of-life`, `#Anime` → `anime`);
+2. spaces at the ends removed, then a leading `#` and the spaces after it; each run of spaces inside
+   replaced with one `-` (`Slice of Life` → `slice-of-life`, `#Anime` → `anime`, `# Anime` → `anime`);
 3. kept if 1–32 characters long, not `ai-roleplay-character-card`, and not already there; at most 20.
 
 
@@ -172,6 +177,12 @@ ones that are then empty, too long or repeated, without rejecting the event:
 The file is the card as a file: a PNG (a picture with the card inside), a JSON card, or a CharX
 archive. Its SHA-256 identifies it, whoever publishes it.
 
+It is **100 MiB at most** (104,857,600 bytes): enough for a card with many pictures (a CharX card's
+expressions, say), and a bound on what downloading a card can take of a computer's disk. Publishers
+MUST NOT publish a bigger file, and apps reject an event announcing one (`file_too_big`). Apps SHOULD
+read any card within that limit, and what it unpacks to up to 100 MiB too (a CharX's members, a PNG's
+compressed text; beyond, it's a decompression bomb more than a card): this app does.
+
 Its torrent is made **the same way every time**, so that the same file always has the same infohash:
 whoever publishes it, and however often. Publishers of the same file then share one swarm. A torrent's
 info dictionary is exactly, bencoded:
@@ -193,8 +204,7 @@ Downloading, the app gets the torrent's info dictionary from peers by its infoha
 before downloading the file itself, rejects it unless:
 
 - it's one file (no `files` key), named exactly as the `file` tag says;
-- its `length` is the `file` tag's size, and within the size limit (the app's setting, 20 MiB by
-  default).
+- its `length` is the `file` tag's size (so 100 MiB at most).
 
 Once downloaded, the file's SHA-256 MUST be the `sha256` tag's, and its torrent, made as above, the `x`
 tag's infohash; otherwise it's deleted. The file is then read like any card file the user would import,
@@ -202,7 +212,8 @@ with the same limits, and one more: its picture (a PNG card's own, or a JSON or 
 is 50 megapixels at most, as its header says (width × height), before anything is decoded. A small file
 can hold a huge picture (a plain color compresses to almost nothing), and an app decodes it whole. A card
 beyond these limits isn't added, and its file is deleted; publishing apps SHOULD refuse to publish one
-(this app does, saying why).
+(this app does, saying why). Apps that use a card's other pictures too (a CharX card's expressions, say)
+hold each of them to the same 50 megapixels.
 
 Those who downloaded a file may share it in turn (the app does, unless its user says not to), until it's
 withdrawn: that's how cards stay available while their publisher is away. Everyone in a swarm sees the
@@ -233,12 +244,17 @@ key, with one `e` tag per withdrawn publication.
 - It withdraws only publications with the **same pubkey**: an `e` tag naming someone else's is ignored.
 - `k` (NIP-09) and `t` are what apps find it by. `content` is the reason, optional: plain text, of which
   apps keep the first 1,000 characters.
-- One version at a time: to withdraw a whole card, one `e` tag per version. When the latest version is
-  withdrawn, the one before is the latest again.
+- One version at a time: to withdraw a whole card, one `e` tag per version (98 at most in one
+  withdrawal, with its `k` and `t`, as an event has 100 tags at most: more take several). When the
+  latest version is withdrawn, the one before is the latest again.
+- A withdrawal is final: publishing the same card unchanged afterwards makes a new publication (a new
+  `created_at`, so a new id), not the withdrawn one again.
 
 What a withdrawal does:
 
-- **No new downloads**: apps no longer offer a withdrawn publication to download, and stop seeding it.
+- **No new downloads**: apps no longer offer a withdrawn publication to download, and stop seeding its
+  file, unless it's also the file of a publication they still share (another version, or another
+  publisher's card, with the same file).
 - **Those who have it keep it**: a copy already downloaded stays, with the conversations made with it.
   The app tells its user that it was withdrawn, when, and why if the publisher said.
 - Apps keep the withdrawal (date and reason included). Kept, it also stops a relay that still has the
@@ -257,7 +273,7 @@ Relays only search the tags with one-letter names: apps find publications by
 | New publications | `{"kinds": [2003], "#t": ["ai-roleplay-character-card"], "since": <checkpoint − 24 h>, "limit": 500}` |
 | Older ones | the same, with `"until": <the oldest created_at received>`, page after page, until a page brings nothing new |
 | Withdrawals | `{"kinds": [5], "#k": ["2003"], "since": <checkpoint − 24 h>, "limit": 500}`, and older ones the same way |
-| One publisher's | `{"kinds": [2003], "authors": [<pubkey>], "#t": ["ai-roleplay-character-card"]}` (after unblocking them, or for their page) |
+| One publisher's | `{"kinds": [2003], "authors": [<pubkey>], "#t": ["ai-roleplay-character-card"]}` and `{"kinds": [5], "authors": [<pubkey>], "#k": ["2003"]}` (after unblocking them, or for their page) |
 | One publication | `{"ids": [<id>]}` |
 
 - The checkpoint is per relay, and per filter: when its last complete discovery started (the first
@@ -288,7 +304,7 @@ are those of the test vectors):
 
 1. `malformed`: it isn't an object with `id` (64 lowercase hex digits), `pubkey` (64), `created_at`
    (an integer, 0 or more), `kind` (an integer), `tags` (a list of non-empty lists of strings),
-   `content` (a string) and `sig` (128).
+   `content` (a string) and `sig` (128); or a string isn't valid Unicode (see [Text](#text)).
 2. `too_large`: more than 48 KiB (49,152 bytes) as compact JSON in UTF-8, or more than 100 tags.
 3. `wrong_kind`: its kind isn't 2003.
 4. `not_a_card`: no `["t", "ai-roleplay-character-card"]`.
@@ -304,12 +320,14 @@ are those of the test vectors):
     `too_long:publisher`, `bad_spec`, `bad_rating`, `bad_sha256`, `bad_infohash`, `bad_file`,
     `file_too_big`, then `too_long:description`.
 
-Then, without rejecting it: the card's tags are normalized; trackers that aren't valid URLs, repeated,
-or past the fifth, are dropped; a language that isn't two lowercase letters with the `ISO-639-1` label is
-ignored; and a `content-warning` makes it `nsfw`.
+Then, without rejecting it: the card's tags are normalized; the trackers are taken without the spaces
+at their ends, and those that aren't `udp://`, `http://` or `https://` followed by a host, without
+spaces, of 256 bytes at most, are dropped, then the repeated ones and those past the fifth; a language
+that isn't two lowercase letters with the `ISO-639-1` label is ignored (the first that is counts); and
+a `content-warning` makes it `nsfw`.
 
-A withdrawal is checked by steps 1, 2 and 6 to 10, for kind 5, and needs at least one `e` tag of 64
-lowercase hex digits (`nothing_withdrawn`).
+A withdrawal is checked by steps 1 to 3 (its kind being 5) and 6 to 10, and needs at least one `e`
+tag of 64 lowercase hex digits (`nothing_withdrawn`). Its other `e` tags are ignored.
 
 Receiving the same event again (from another relay, or another time) changes nothing.
 
@@ -325,8 +343,8 @@ Receiving the same event again (from another relay, or another time) changes not
 | Description | 16 KiB (UTF-8) |
 | Card tags | 20, of 1–32 characters |
 | Trackers | 5, of 256 bytes at most |
-| File | 1 byte to the app's limit (20 MiB by default) |
-| Its picture | 50 megapixels (width × height) |
+| File | 1 byte to 100 MiB (104,857,600 bytes) |
+| Each of its pictures | 50 megapixels (width × height) |
 | Date | at most 15 minutes ahead of the app's clock |
 
 All of them fit relays' common limits, with room to spare: the example is about 1 KiB.
@@ -357,12 +375,14 @@ All of them fit relays' common limits, with room to spare: the example is about 
 [`tests/card_announcements.json`](../tests/card_announcements.json) has:
 
 - the example's card file (in base64), its SHA-256, its torrent's bencoded info dictionary and infohash;
-- 7 valid publications, with what an app stores of each (`expected`), among them the example, a new
-  version of it, the same UUID and file under another key, and the edge cases (unknown tags, a content
-  warning on an `sfw` card, tags to normalize, a date 15 minutes ahead);
-- a withdrawal;
-- 28 invalid events, each with one problem, and the code it's rejected with;
-- `now`, the time to check them against, and the size limit.
+- 8 valid publications, with what an app stores of each (`expected`), among them the example, a new
+  version of it, the same UUID and file under another key, and the edge cases (a version 7 UUID,
+  unknown tags, a content warning on an `sfw` card, tags to normalize, a date 15 minutes ahead);
+- 2 withdrawals: the example's, and another publisher's naming it, which withdraws nothing; with what
+  each names (`names`), and what it withdraws of the valid publications (`withdraws`);
+- 33 invalid publications and 3 invalid withdrawals, each with one problem, and the code it's rejected
+  with: every code above but `blocked`, which depends on the app's user;
+- `now`, the time to check them against, and the file limit (`size_limit`).
 
 Its two keys are **public test keys**: never publish with them. Its signatures were made with no
 auxiliary randomness, so they can be made again identically; real signatures are random: apps check

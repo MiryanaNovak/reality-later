@@ -233,9 +233,26 @@ def test_only_the_publisher_withdraws(catalog):
 
 
 def test_the_vectors_withdrawal(catalog):
-    catalog.receive_all([event('example'), event('new_version'), VECTORS['retraction']['event']], now=NOW)
-    assert catalog.get(event('example')['id']).withdrawn.reason == VECTORS['retraction']['reason']
+    withdrawal = next(w for w in VECTORS['withdrawals'] if w['name'] == 'example_withdrawn')
+    catalog.receive_all([event('example'), event('new_version'), withdrawal['event']], now=NOW)
+    assert catalog.get(event('example')['id']).withdrawn.reason == withdrawal['reason']
     assert ids(catalog.cards()) == [event('new_version')['id']]
+
+
+@pytest.mark.parametrize('item', VECTORS['withdrawals'], ids=lambda v: v['name'])
+def test_what_the_vectors_withdrawals_withdraw(catalog, item):
+    catalog.receive_all([v['event'] for v in VECTORS['valid']], now=NOW)
+    [got] = catalog.receive_all([item['event']], now=NOW)  # (what they withdraw of the valid publications)
+    assert got.status == 'withdrawal' and list(got.withdrawn) == item['withdraws']
+    assert {v['event']['id'] for v in VECTORS['valid'] if catalog.get(v['event']['id']).withdrawn} == \
+        set(item['withdraws'])
+
+
+@pytest.mark.parametrize('item', VECTORS['invalid_withdrawals'], ids=lambda v: v['name'])
+def test_the_vectors_invalid_withdrawals(catalog, item):
+    catalog.receive_all([v['event'] for v in VECTORS['valid']], now=NOW)
+    before = ids(catalog.cards())
+    assert catalog.receive(item['event'], now=NOW).code == item['error'] and ids(catalog.cards()) == before
 
 
 # --- blocking ---------------------------------------------------------------------------------------

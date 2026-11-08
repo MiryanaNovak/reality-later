@@ -9,11 +9,13 @@ import zlib
 
 import pytest
 
+from rpapp import cards
 from rpapp.cards import (MAX_PICTURE_PIXELS, PNG_SIGNATURE, CardError, SafeguardError, card_data, card_png,
                          check_shared_card, megabytes)
 from rpapp.characters import new_character
+from rpapp.publishing.announcements import MAX_FILE_BYTES
 
-LIMIT = 20 * 1024 * 1024
+LIMIT = MAX_FILE_BYTES  # (the format's: 100 MiB)
 
 
 def chunk(kind: bytes, data: bytes) -> bytes:
@@ -61,7 +63,13 @@ def test_a_file_too_big():
     with pytest.raises(SafeguardError) as e:
         check_shared_card('aria.png', content, size_limit=len(content) - 1)
     assert e.value.what == 'file' and str(e.value).startswith('its file is ')
-    assert megabytes(LIMIT) == '20 MB' and megabytes(int(23.4 * 1024 * 1024)) == '23.4 MB'
+    assert megabytes(LIMIT) == '100 MB' and megabytes(int(23.4 * 1024 * 1024)) == '23.4 MB'
+
+
+def test_any_card_within_the_format_is_read():
+    """What a card file may unpack to (its JSON, a CharX's picture) is no less than a shared file may be: this app
+    never refuses for its size a card the format allows."""
+    assert cards.MAX_CARD_BYTES >= MAX_FILE_BYTES and cards.MAX_PICTURE_BYTES >= MAX_FILE_BYTES
 
 
 def test_a_picture_too_big_isnt_decoded():

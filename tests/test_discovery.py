@@ -20,6 +20,7 @@ from rpapp.publishing.relay import Relay, RelayError  # noqa: E402
 
 VECTORS = json.loads((Path(__file__).parent / 'card_announcements.json').read_text(encoding='utf-8'))
 NOW = VECTORS['now']
+WITHDRAWAL = next(w for w in VECTORS['withdrawals'] if w['name'] == 'example_withdrawn')
 KEY1 = bytes.fromhex(VECTORS['keys']['publisher_1']['secret'])
 PUB1 = nostr.public_key(KEY1)
 T0 = 1767225600
@@ -56,16 +57,16 @@ async def test_a_first_discovery_then_whats_new(catalog):
     async with FakeRelay() as relay:
         invalid = [v['event'] for v in VECTORS['invalid'] if v['name'] in (
             'bad_id', 'wrong_kind', 'not_a_card', 'missing_schema', 'future_schema', 'missing_uuid')]
-        relay.add(*valid(), VECTORS['retraction']['event'], *invalid)
+        relay.add(*valid(), WITHDRAWAL['event'], *invalid)
         catalog.add_relay(relay.url)
         progress = []
         result = await discovery(catalog).discover(on_progress=lambda url, n: progress.append((url, n)))
         [r] = result.relays
         assert r.success and not r.truncated and not result.incomplete and r.error is None
         assert (r.added, r.withdrawals) == (len(valid()), 1)
-        assert result.added == len(valid()) and result.withdrawn == (VECTORS['retraction']['withdraws'][0],)
+        assert result.added == len(valid()) and result.withdrawn == (WITHDRAWAL['withdraws'][0],)
         assert r.rejected == 4  # (two of the invalid ones aren't cards: the relay doesn't send them)
-        withdrawn = set(VECTORS['retraction']['withdraws'])
+        withdrawn = set(WITHDRAWAL['withdraws'])
         assert known(catalog) == {e['id'] for e in valid()} - withdrawn
         assert all(catalog.get(i).withdrawn for i in withdrawn)
         assert progress and progress[-1] == (relay.url, r.received)

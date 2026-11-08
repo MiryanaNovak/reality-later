@@ -74,10 +74,12 @@ PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
 # The most a card may unpack to. Compressed data can be made to unpack to gigabytes (a "zip
 # bomb"): it's read up to these sizes only, and refused beyond.
 SHARED_EXTENSION = 'reality_later'  # data.extensions.reality_later.card_uuid: its UUID as a shared card
-SHARED_UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')
-MAX_CARD_BYTES = 50_000_000     # a card's JSON (the biggest real ones, with large lore books, are a few MB)
-MAX_PICTURE_BYTES = 30_000_000  # a picture inside a CharX file
-TOO_BIG = 'This card is too big to be a real one: it unpacks to more than {} MB.'
+SHARED_UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')  # (any version)
+# What a card file may unpack to: as much as a shared card's file may be (publishing/announcements.py's
+# MAX_FILE_BYTES, 100 MiB), so that any card within the format is one this app reads.
+MAX_CARD_BYTES = 100 * 1024 * 1024     # a card's JSON (the biggest real ones, with large lore books, are a few MB)
+MAX_PICTURE_BYTES = 100 * 1024 * 1024  # a picture inside a CharX file
+TOO_BIG = 'This card is too big to be a real one: it unpacks to more than {}.'
 # Shared cards (publishing/): what a card file from someone else may be, for this computer to add it without
 # harm, and so what one published from here must be, for everyone to add it (check_shared_card). Its file's
 # size: the format's limit (publishing/announcements.py). Its picture's: a picture is decoded whole to be
@@ -267,7 +269,7 @@ def _inflate(data: bytes) -> bytes:
     inflater = zlib.decompressobj()
     out = inflater.decompress(data, MAX_CARD_BYTES)
     if inflater.unconsumed_tail:
-        raise CardError(TOO_BIG.format(MAX_CARD_BYTES // 1_000_000))
+        raise CardError(TOO_BIG.format(megabytes(MAX_CARD_BYTES)))
     return out
 
 
@@ -276,7 +278,7 @@ def _read_member(archive: zipfile.ZipFile, name: str, limit: int) -> bytes:
     with archive.open(name) as f:
         data = f.read(limit + 1)
     if len(data) > limit:
-        raise CardError(TOO_BIG.format(limit // 1_000_000))
+        raise CardError(TOO_BIG.format(megabytes(limit)))
     return data
 
 

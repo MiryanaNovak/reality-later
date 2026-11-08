@@ -233,7 +233,7 @@ async def test_beyond_the_safeguards_said_first(user, tmp_path, sharing, relay, 
     from rpapp.lorebooks import lore_book_store, new_lore_book
     sharing.create_identity()
     store, character = aria(tmp_path)
-    monkeypatch.setattr(fmt, 'DEFAULT_SIZE_LIMIT', 2_000)  # (its picture alone is bigger)
+    monkeypatch.setattr(fmt, 'MAX_FILE_BYTES', 2_000)  # (its picture alone is bigger)
     await user.open(f'/characters/{character.id}')
     user.find(marker='menu-publish-to-shared-cards').click()
     await user.should_see(marker='publish-beyond-safeguards', retries=SLOW)
@@ -249,7 +249,7 @@ async def test_beyond_the_safeguards_said_first(user, tmp_path, sharing, relay, 
     lore_book_store(tmp_path).save(book)
     character.add_lorebook(book.id, book.name)
     store.save(character)
-    monkeypatch.setattr(fmt, 'DEFAULT_SIZE_LIMIT', 50_000)
+    monkeypatch.setattr(fmt, 'MAX_FILE_BYTES', 50_000)
     await user.open(f'/characters/{character.id}')
     user.find(marker='menu-publish-to-shared-cards').click()
     await user.should_see('Most of it is its texts and lore books', retries=SLOW)

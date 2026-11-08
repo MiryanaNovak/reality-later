@@ -19,7 +19,7 @@ from fake_relay import FakeRelay  # noqa: E402
 from rpapp.cards import card_data, card_png  # noqa: E402
 from rpapp.characters import new_character  # noqa: E402
 from rpapp.publishing import announcements as fmt  # noqa: E402
-from rpapp.publishing import nostr  # noqa: E402
+from rpapp.publishing import nostr, torrents  # noqa: E402
 from rpapp.publishing.announcements import PublicationDraft, Rejected  # noqa: E402
 from rpapp.publishing.seeder import TorrentSession  # noqa: E402
 from rpapp.publishing import service  # noqa: E402
@@ -94,7 +94,7 @@ async def test_where_it_goes(sharing, relay):
     with socket.socket() as s:
         s.bind(('127.0.0.1', 0))
         closed = f'ws://127.0.0.1:{s.getsockname()[1]}'
-    sharing.catalog.add_relay('wss://relay.example.com')  # (public: held while the format is a draft)
+    sharing.catalog.add_relay('wss://relay.example.com')  # (public: held until card sharing is released)
     sharing.catalog.add_relay(closed)                     # (local, but nobody answers: pending)
     sharing.catalog.add_relay('ws://192.168.1.20:7777', write=False)  # (read only: not sent to)
     published = await sharing.publish(DRAFT, aria_card(), card_uuid=fmt.new_card_uuid())
@@ -136,8 +136,8 @@ def test_when_its_tried_again():
 
 async def test_sent_again_by_itself(sharing, relay):
     """What didn't arrive but may yet is sent again when it's due: to a relay that couldn't be reached, or
-    that said to try later; not to one that refused it for good, nor to a public one while the format is a
-    draft. A publication withdrawn since isn't: its withdrawal is."""
+    that said to try later; not to one that refused it for good, nor to a public one until card sharing is
+    released. A publication withdrawn since isn't: its withdrawal is."""
     port = free_port()
     down = f'ws://127.0.0.1:{port}'
     sharing.catalog.add_relay(down)
@@ -305,6 +305,22 @@ async def test_withdrawing(sharing, relay, tmp_path):
             await others.withdraw([p.event_id])
     finally:
         await others.close()
+
+
+async def test_withdrawing_a_card_of_many_versions(sharing, relay):
+    published = await sharing.publish(DRAFT, aria_card(), card_uuid=fmt.new_card_uuid())
+    p, me = published.publication, sharing.identity()
+    for n in range(fmt.MAX_WITHDRAWN + 1):  # (more versions than one withdrawal can name: 100 tags at most)
+        sharing.catalog.add(fmt.build_publication(replace(DRAFT, card_description=f'Version {n + 2}.'),
+                                                  torrents.card_file(aria_card()), card_uuid=p.card_uuid,
+                                                  secret=me.secret, created_at=p.created_at + n + 1))
+    versions = sharing.catalog.versions(me.public_key, p.card_uuid)
+    assert len(versions) == fmt.MAX_WITHDRAWN + 2
+    deliveries = await sharing.withdraw([v.publication.event_id for v in versions], reason='All of it.')
+    assert [d.state for d in deliveries] == ['accepted', 'accepted']  # (two withdrawals, both arrived)
+    assert sharing.catalog.versions(me.public_key, p.card_uuid) == []
+    assert sorted(len([t for t in e['tags'] if t[0] == 'e']) for e in relay.events.values() if e['kind'] == 5) == \
+        [2, fmt.MAX_WITHDRAWN]
 
 
 async def test_withdrawing_with_a_key_replaced_since(sharing, relay):

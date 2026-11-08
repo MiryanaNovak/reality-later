@@ -471,13 +471,13 @@ class Catalog:
 
     # --- receiving --------------------------------------------------------------------------------
 
-    def receive(self, data: Any, *, now: int | None = None, size_limit: int = fmt.DEFAULT_SIZE_LIMIT) -> Received:
+    def receive(self, data: Any, *, now: int | None = None, size_limit: int = fmt.MAX_FILE_BYTES) -> Received:
         """An event from a relay (parsed JSON, or an Event): a publication or a withdrawal, checked, then kept.
         Rejected ones are reported, not raised."""
         return self.receive_all([data], now=now, size_limit=size_limit)[0]
 
     def receive_all(self, events: Iterable[Any], *, now: int | None = None,
-                    size_limit: int = fmt.DEFAULT_SIZE_LIMIT) -> list[Received]:
+                    size_limit: int = fmt.MAX_FILE_BYTES) -> list[Received]:
         """Several, in one transaction (a relay's page of events)."""
         now = int(time.time()) if now is None else now
         checked: list[Publication | Withdrawal | Received] = []

@@ -27,7 +27,7 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
-from .announcements import DEFAULT_SIZE_LIMIT, KIND_CARD, KIND_WITHDRAWAL, MARKER
+from .announcements import MAX_FILE_BYTES, KIND_CARD, KIND_WITHDRAWAL, MARKER
 from .catalog import Catalog, Received, SyncPoint, normalize_relay_url
 from .relay import TIMEOUT, Relay, RelayError
 
@@ -92,7 +92,7 @@ class _Run:
 
 class Discovery:
     def __init__(self, catalog: Catalog, *, page_size: int = PAGE, max_pages: int = MAX_PAGES,
-                 timeout: float = TIMEOUT, size_limit: int = DEFAULT_SIZE_LIMIT,
+                 timeout: float = TIMEOUT, size_limit: int = MAX_FILE_BYTES,
                  clock: Callable[[], float] = time.time) -> None:
         self.catalog = catalog
         self.page_size = page_size

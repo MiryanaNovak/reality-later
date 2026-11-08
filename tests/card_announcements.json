@@ -1,7 +1,7 @@
 {
  "_about": "Test vectors for docs/card-announcements.md (schema 1). The two keys are public test keys: never publish with them. Signatures were made with zero auxiliary randomness, so they are reproducible; real ones are random: check them, never compare them. \"now\" is the time to validate against.",
  "now": 1780272000,
- "size_limit": 20971520,
+ "size_limit": 104857600,
  "keys": {
   "publisher_1": {
    "secret": "121b8e779f95054fd9e2935076bc15a72738eeda17a4f787f86dffcb386f71cc",
@@ -167,6 +167,55 @@
     "language": null,
     "tags": [],
     "trackers": []
+   }
+  },
+  {
+   "name": "uuid_version_7",
+   "about": "Another card of publisher 1, the same in all but its UUID, a version 7 one (as Python 3.14's uuid.uuid7() makes): any UUID version is accepted; publishers should make version 4 ones.",
+   "event": {
+    "id": "b8c9a1c1acf83bf6c7efba49822f12d07f839f805d616d9d03147bc1b1553757",
+    "pubkey": "d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6",
+    "created_at": 1767225660,
+    "kind": 2003,
+    "tags": [
+     ["t", "ai-roleplay-character-card"],
+     ["schema", "1"],
+     ["alt", "Character card: Reika Shichijo"],
+     ["title", "Reika Shichijo"],
+     ["uuid", "019b76db-9260-77a1-af4c-91d06e3b58a7"],
+     ["publisher", "Marie"],
+     ["spec", "chara_card_v2"],
+     ["rating", "sfw"],
+     ["sha256", "3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6"],
+     ["x", "ce8146057fbe15141ebc751c78d2e972568c6bac"],
+     ["file", "3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6.png", "1326"],
+     ["t", "anime"],
+     ["t", "university"],
+     ["t", "roleplay"],
+     ["L", "ISO-639-1"],
+     ["l", "en", "ISO-639-1"],
+     ["tracker", "udp://tracker.opentrackr.org:1337/announce"]
+    ],
+    "content": "A university student and martial artist.\n\nReika trains every morning before class. Calm, precise, and a little too competitive: « Encore une fois ? » 🥋",
+    "sig": "3401cd124b6c929a41657e039b2d60c534fc561e99249797245e45e180ba9ea8e56b0b3ce58bda1baea12877e4842434eb39b547e4a8ee2374b1842beab15bbd"
+   },
+   "serialized": "[0,\"d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6\",1767225660,2003,[[\"t\",\"ai-roleplay-character-card\"],[\"schema\",\"1\"],[\"alt\",\"Character card: Reika Shichijo\"],[\"title\",\"Reika Shichijo\"],[\"uuid\",\"019b76db-9260-77a1-af4c-91d06e3b58a7\"],[\"publisher\",\"Marie\"],[\"spec\",\"chara_card_v2\"],[\"rating\",\"sfw\"],[\"sha256\",\"3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6\"],[\"x\",\"ce8146057fbe15141ebc751c78d2e972568c6bac\"],[\"file\",\"3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6.png\",\"1326\"],[\"t\",\"anime\"],[\"t\",\"university\"],[\"t\",\"roleplay\"],[\"L\",\"ISO-639-1\"],[\"l\",\"en\",\"ISO-639-1\"],[\"tracker\",\"udp://tracker.opentrackr.org:1337/announce\"]],\"A university student and martial artist.\\n\\nReika trains every morning before class. Calm, precise, and a little too competitive: « Encore une fois ? » 🥋\"]",
+   "expected": {
+    "publisher_key": "d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6",
+    "card_uuid": "019b76db-9260-77a1-af4c-91d06e3b58a7",
+    "created_at": 1767225660,
+    "published_name": "Marie",
+    "title": "Reika Shichijo",
+    "description": "A university student and martial artist.\n\nReika trains every morning before class. Calm, precise, and a little too competitive: « Encore une fois ? » 🥋",
+    "sha256": "3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6",
+    "infohash": "ce8146057fbe15141ebc751c78d2e972568c6bac",
+    "file_name": "3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6.png",
+    "size": 1326,
+    "spec": "chara_card_v2",
+    "rating": "sfw",
+    "language": "en",
+    "tags": ["anime", "university", "roleplay"],
+    "trackers": ["udp://tracker.opentrackr.org:1337/announce"]
    }
   },
   {
@@ -362,26 +411,119 @@
    }
   }
  ],
- "retraction": {
-  "about": "Publisher 1 withdraws the example (its first version only), saying why.",
-  "event": {
-   "id": "bc4f6c91164acf39ce64ea2e028b21ca8bdaea2d971780d7ecbd0da3b42f1885",
-   "pubkey": "d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6",
-   "created_at": 1779278400,
-   "kind": 5,
-   "tags": [
-    ["e", "41168a4ca9e73ca12bd41553ce96a97c2afe1e8755fccea1bcc37ccb45c75cd5"],
-    ["k", "2003"],
-    ["t", "ai-roleplay-character-card"]
-   ],
-   "content": "Published by mistake.",
-   "sig": "6868debffadc46a5fb9716b7ea25bc25a82dfc6f4c4263328d2d3a874d8861c52c4cdf96026a6879ef0935318c15159f0c3f5c7e9c39c2f48e37df1566d14eae"
+ "withdrawals": [
+  {
+   "name": "example_withdrawn",
+   "about": "Publisher 1 withdraws the example (its first version only), saying why.",
+   "event": {
+    "id": "bc4f6c91164acf39ce64ea2e028b21ca8bdaea2d971780d7ecbd0da3b42f1885",
+    "pubkey": "d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6",
+    "created_at": 1779278400,
+    "kind": 5,
+    "tags": [
+     ["e", "41168a4ca9e73ca12bd41553ce96a97c2afe1e8755fccea1bcc37ccb45c75cd5"],
+     ["k", "2003"],
+     ["t", "ai-roleplay-character-card"]
+    ],
+    "content": "Published by mistake.",
+    "sig": "6868debffadc46a5fb9716b7ea25bc25a82dfc6f4c4263328d2d3a874d8861c52c4cdf96026a6879ef0935318c15159f0c3f5c7e9c39c2f48e37df1566d14eae"
+   },
+   "serialized": "[0,\"d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6\",1779278400,5,[[\"e\",\"41168a4ca9e73ca12bd41553ce96a97c2afe1e8755fccea1bcc37ccb45c75cd5\"],[\"k\",\"2003\"],[\"t\",\"ai-roleplay-character-card\"]],\"Published by mistake.\"]",
+   "names": ["41168a4ca9e73ca12bd41553ce96a97c2afe1e8755fccea1bcc37ccb45c75cd5"],
+   "reason": "Published by mistake.",
+   "withdraws": ["41168a4ca9e73ca12bd41553ce96a97c2afe1e8755fccea1bcc37ccb45c75cd5"]
   },
-  "serialized": "[0,\"d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6\",1779278400,5,[[\"e\",\"41168a4ca9e73ca12bd41553ce96a97c2afe1e8755fccea1bcc37ccb45c75cd5\"],[\"k\",\"2003\"],[\"t\",\"ai-roleplay-character-card\"]],\"Published by mistake.\"]",
-  "withdraws": ["41168a4ca9e73ca12bd41553ce96a97c2afe1e8755fccea1bcc37ccb45c75cd5"],
-  "reason": "Published by mistake."
- },
+  {
+   "name": "someone_elses",
+   "about": "Publisher 2 names publisher 1's example: a valid withdrawal, that withdraws nothing (only a publisher's own publications can be withdrawn).",
+   "event": {
+    "id": "91ea8ea3b708ddb364e75e20566942b876da6027dac17065cb8b343253484010",
+    "pubkey": "5bcb7616a592987b4ef99a5e853c05357b99ca484b72200437ad65121f071251",
+    "created_at": 1779278400,
+    "kind": 5,
+    "tags": [
+     ["e", "41168a4ca9e73ca12bd41553ce96a97c2afe1e8755fccea1bcc37ccb45c75cd5"],
+     ["k", "2003"],
+     ["t", "ai-roleplay-character-card"]
+    ],
+    "content": "",
+    "sig": "4d524132ec7c2ce9ec05473469acbf63df72390de760003be62d6b33781ea65e8d6f11c380206f4f69cc37c802332a975b6110adab409fea6876a55e5ff3e7ec"
+   },
+   "serialized": "[0,\"5bcb7616a592987b4ef99a5e853c05357b99ca484b72200437ad65121f071251\",1779278400,5,[[\"e\",\"41168a4ca9e73ca12bd41553ce96a97c2afe1e8755fccea1bcc37ccb45c75cd5\"],[\"k\",\"2003\"],[\"t\",\"ai-roleplay-character-card\"]],\"\"]",
+   "names": ["41168a4ca9e73ca12bd41553ce96a97c2afe1e8755fccea1bcc37ccb45c75cd5"],
+   "reason": "",
+   "withdraws": []
+  }
+ ],
  "invalid": [
+  {
+   "name": "created_at_not_a_number",
+   "about": "created_at written as a string.",
+   "event": {
+    "id": "41168a4ca9e73ca12bd41553ce96a97c2afe1e8755fccea1bcc37ccb45c75cd5",
+    "pubkey": "d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6",
+    "created_at": "1767225600",
+    "kind": 2003,
+    "tags": [
+     ["t", "ai-roleplay-character-card"],
+     ["schema", "1"],
+     ["alt", "Character card: Reika Shichijo"],
+     ["title", "Reika Shichijo"],
+     ["uuid", "550e8400-e29b-41d4-a716-446655440000"],
+     ["publisher", "Marie"],
+     ["spec", "chara_card_v2"],
+     ["rating", "sfw"],
+     ["sha256", "3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6"],
+     ["x", "ce8146057fbe15141ebc751c78d2e972568c6bac"],
+     ["file", "3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6.png", "1326"],
+     ["t", "anime"],
+     ["t", "university"],
+     ["t", "roleplay"],
+     ["L", "ISO-639-1"],
+     ["l", "en", "ISO-639-1"],
+     ["tracker", "udp://tracker.opentrackr.org:1337/announce"]
+    ],
+    "content": "A university student and martial artist.\n\nReika trains every morning before class. Calm, precise, and a little too competitive: « Encore une fois ? » 🥋",
+    "sig": "68b1815819e88582bee9ff404f2c9cc250a400ecf841246de0c84b24c20fb0f327d8632ddaeb88a1938ccb229a4217a341698e6a3671a23d25cd521adcc75b95"
+   },
+   "error": "malformed"
+  },
+  {
+   "name": "size_not_a_string",
+   "about": "The file tag's size written as a number: every tag value is a string.",
+   "event": {
+    "id": "41168a4ca9e73ca12bd41553ce96a97c2afe1e8755fccea1bcc37ccb45c75cd5",
+    "pubkey": "d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6",
+    "created_at": 1767225600,
+    "kind": 2003,
+    "tags": [
+     ["t", "ai-roleplay-character-card"],
+     ["schema", "1"],
+     ["alt", "Character card: Reika Shichijo"],
+     ["title", "Reika Shichijo"],
+     ["uuid", "550e8400-e29b-41d4-a716-446655440000"],
+     ["publisher", "Marie"],
+     ["spec", "chara_card_v2"],
+     ["rating", "sfw"],
+     ["sha256", "3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6"],
+     ["x", "ce8146057fbe15141ebc751c78d2e972568c6bac"],
+     [
+      "file",
+      "3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6.png",
+      1326
+     ],
+     ["t", "anime"],
+     ["t", "university"],
+     ["t", "roleplay"],
+     ["L", "ISO-639-1"],
+     ["l", "en", "ISO-639-1"],
+     ["tracker", "udp://tracker.opentrackr.org:1337/announce"]
+    ],
+    "content": "A university student and martial artist.\n\nReika trains every morning before class. Calm, precise, and a little too competitive: « Encore une fois ? » 🥋",
+    "sig": "68b1815819e88582bee9ff404f2c9cc250a400ecf841246de0c84b24c20fb0f327d8632ddaeb88a1938ccb229a4217a341698e6a3671a23d25cd521adcc75b95"
+   },
+   "error": "malformed"
+  },
   {
    "name": "bad_id",
    "about": "One hex digit of the id changed.",
@@ -512,7 +654,7 @@
   },
   {
    "name": "not_a_card",
-   "about": "No t = character-card: some other torrent.",
+   "about": "No t = ai-roleplay-character-card: some other torrent.",
    "event": {
     "id": "6a418c09c2b5367646f50906c46ef3238845f6357c968f4c2cbe8751fb2e109c",
     "pubkey": "d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6",
@@ -603,6 +745,39 @@
     "sig": "6358e7526832b7abe3087f9307f64a68a3d9253dc9503ba53c93b5ed5e3f5d16aad2b882c21dcc4360ee7754194e73b20e2f8b29a86196fdc3d0170207fa8808"
    },
    "error": "unsupported_schema"
+  },
+  {
+   "name": "two_schemas",
+   "about": "",
+   "event": {
+    "id": "087632fc1ec0edfaa9535613485fd8a8e806f1fcded45097df696146b454e2a6",
+    "pubkey": "d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6",
+    "created_at": 1767225600,
+    "kind": 2003,
+    "tags": [
+     ["t", "ai-roleplay-character-card"],
+     ["schema", "1"],
+     ["schema", "1"],
+     ["alt", "Character card: Reika Shichijo"],
+     ["title", "Reika Shichijo"],
+     ["uuid", "550e8400-e29b-41d4-a716-446655440000"],
+     ["publisher", "Marie"],
+     ["spec", "chara_card_v2"],
+     ["rating", "sfw"],
+     ["sha256", "3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6"],
+     ["x", "ce8146057fbe15141ebc751c78d2e972568c6bac"],
+     ["file", "3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6.png", "1326"],
+     ["t", "anime"],
+     ["t", "university"],
+     ["t", "roleplay"],
+     ["L", "ISO-639-1"],
+     ["l", "en", "ISO-639-1"],
+     ["tracker", "udp://tracker.opentrackr.org:1337/announce"]
+    ],
+    "content": "A university student and martial artist.\n\nReika trains every morning before class. Calm, precise, and a little too competitive: « Encore une fois ? » 🥋",
+    "sig": "6e0460284c0871fc181c0b821b16a26057ff88eba7f151616f11f6c11717c1e4ffb421246917fdabcc65ae964761b4a0ae887757a6349b39f0b0296c08138876"
+   },
+   "error": "duplicate_tag:schema"
   },
   {
    "name": "control_character",
@@ -728,6 +903,37 @@
    "error": "missing_tag:sha256"
   },
   {
+   "name": "missing_file",
+   "about": "",
+   "event": {
+    "id": "55703764e3529525608aa79ab89cdb5281f1a4abe2ccc4b1a146a361ac2127d4",
+    "pubkey": "d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6",
+    "created_at": 1767225600,
+    "kind": 2003,
+    "tags": [
+     ["t", "ai-roleplay-character-card"],
+     ["schema", "1"],
+     ["alt", "Character card: Reika Shichijo"],
+     ["title", "Reika Shichijo"],
+     ["uuid", "550e8400-e29b-41d4-a716-446655440000"],
+     ["publisher", "Marie"],
+     ["spec", "chara_card_v2"],
+     ["rating", "sfw"],
+     ["sha256", "3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6"],
+     ["x", "ce8146057fbe15141ebc751c78d2e972568c6bac"],
+     ["t", "anime"],
+     ["t", "university"],
+     ["t", "roleplay"],
+     ["L", "ISO-639-1"],
+     ["l", "en", "ISO-639-1"],
+     ["tracker", "udp://tracker.opentrackr.org:1337/announce"]
+    ],
+    "content": "A university student and martial artist.\n\nReika trains every morning before class. Calm, precise, and a little too competitive: « Encore une fois ? » 🥋",
+    "sig": "dca3ca100fe410f1a1b961ab30b743bf466ebb479fffd9160f37b705d4bf2e6270a98c58021b980fc873eb02b8b609c2bf485899411135538a549fb3c2229544"
+   },
+   "error": "missing_tag:file"
+  },
+  {
    "name": "two_titles",
    "about": "",
    "event": {
@@ -793,10 +999,10 @@
    "error": "bad_uuid"
   },
   {
-   "name": "not_a_v4_uuid",
-   "about": "A version 1 UUID.",
+   "name": "uuid_without_dashes",
+   "about": "32 hex digits, without the dashes.",
    "event": {
-    "id": "b6541af123bd7569ddb89fd810cb07a3937e236d6d5772252773ccfe0a642a87",
+    "id": "d67c59755d124dd0d3d98f8585eb24ba2fcd6f9c5fe4b276198662d5d90f485b",
     "pubkey": "d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6",
     "created_at": 1767225600,
     "kind": 2003,
@@ -805,7 +1011,7 @@
      ["schema", "1"],
      ["alt", "Character card: Reika Shichijo"],
      ["title", "Reika Shichijo"],
-     ["uuid", "550e8400-e29b-11d4-a716-446655440000"],
+     ["uuid", "550e8400e29b41d4a716446655440000"],
      ["publisher", "Marie"],
      ["spec", "chara_card_v2"],
      ["rating", "sfw"],
@@ -820,7 +1026,7 @@
      ["tracker", "udp://tracker.opentrackr.org:1337/announce"]
     ],
     "content": "A university student and martial artist.\n\nReika trains every morning before class. Calm, precise, and a little too competitive: « Encore une fois ? » 🥋",
-    "sig": "be5b0c7fea16c5fbd6dea22c9c287c6b0f88898c5414824a8ba83488461ae87056c86ae7089d0fd199998d1dae652e08baefae9b58eef5ef07e219e96ab0c18c"
+    "sig": "60f045b01e872cfba2935c27afe69dd3b46003979d9e2dbf0fcaa729e316a279e1f702deb7196529af3a47d3d30b74bae54ffff5e592ccfa35f2da3b05443875"
    },
    "error": "bad_uuid"
   },
@@ -1018,9 +1224,9 @@
   },
   {
    "name": "too_big",
-   "about": "One byte over the default limit (20 MiB).",
+   "about": "One byte over the limit (100 MiB: 104,857,600 bytes).",
    "event": {
-    "id": "6f08cb1cd48fe744eb1579994f228903c7dc971fac3b208608a5e579c9edc6c9",
+    "id": "3614dbadc4ffb52e4d62e8c4cc1638533ee49152f5791af3476d3d2a0e84743a",
     "pubkey": "d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6",
     "created_at": 1767225600,
     "kind": 2003,
@@ -1035,7 +1241,7 @@
      ["rating", "sfw"],
      ["sha256", "3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6"],
      ["x", "ce8146057fbe15141ebc751c78d2e972568c6bac"],
-     ["file", "3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6.png", "20971521"],
+     ["file", "3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6.png", "104857601"],
      ["t", "anime"],
      ["t", "university"],
      ["t", "roleplay"],
@@ -1044,7 +1250,7 @@
      ["tracker", "udp://tracker.opentrackr.org:1337/announce"]
     ],
     "content": "A university student and martial artist.\n\nReika trains every morning before class. Calm, precise, and a little too competitive: « Encore une fois ? » 🥋",
-    "sig": "b5381ebda0334a83595fc39d7704256ff25b5e3ecda7121897ff355ca2d92392db3710740074255d64ff45c0060ccbedc63bb8a7c05f2912141dffa07ca3cd45"
+    "sig": "3f08569a3cd41162ea142462d790dc2ece0972a31c1511609841c19f1adc7e9c02b7ddabda8f9ef68dfefd2e00ff400e9d69b8c5354d30708530b344a94b9d4c"
    },
    "error": "file_too_big"
   },
@@ -1175,6 +1381,38 @@
     "sig": "d12349d08a43aabbce2428ca4bd99b3a6483021cc3e38a7859d33a56ae785fdd47136ab3b7732140f3d830bd08e0eab9b9cd7c4c40d566789789bb28cdf13c94"
    },
    "error": "too_long:title"
+  },
+  {
+   "name": "empty_publisher",
+   "about": "",
+   "event": {
+    "id": "5a28df6cae8962a2947f0848834c1db2b088769468f0db3a5e44c5bb32d1099c",
+    "pubkey": "d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6",
+    "created_at": 1767225600,
+    "kind": 2003,
+    "tags": [
+     ["t", "ai-roleplay-character-card"],
+     ["schema", "1"],
+     ["alt", "Character card: Reika Shichijo"],
+     ["title", "Reika Shichijo"],
+     ["uuid", "550e8400-e29b-41d4-a716-446655440000"],
+     ["publisher", ""],
+     ["spec", "chara_card_v2"],
+     ["rating", "sfw"],
+     ["sha256", "3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6"],
+     ["x", "ce8146057fbe15141ebc751c78d2e972568c6bac"],
+     ["file", "3efa2138076c56aafa32042fb5b36c789f956645e643783ebe66a5a3b0b2e0e6.png", "1326"],
+     ["t", "anime"],
+     ["t", "university"],
+     ["t", "roleplay"],
+     ["L", "ISO-639-1"],
+     ["l", "en", "ISO-639-1"],
+     ["tracker", "udp://tracker.opentrackr.org:1337/announce"]
+    ],
+    "content": "A university student and martial artist.\n\nReika trains every morning before class. Calm, precise, and a little too competitive: « Encore une fois ? » 🥋",
+    "sig": "22e579cb3ea485e00b4ff9b423f921ef487db51696b895cefb4bc60a1bb66c8b50274ce8b03fb10807615cf02e30452c22a76e122f08a905a53d7d6c75c2cf9d"
+   },
+   "error": "empty:publisher"
   },
   {
    "name": "publisher_too_long",
@@ -1321,6 +1559,61 @@
     "sig": "f5df2349cfa3d562c739ded7f4eb98499064a35f2e2fac995f4d0fb9aeb5b5d777f6c4036813e8b7ac8c5ed26dede2f26daa98c1a5b10dc3d0e3ece2b43a4bf3"
    },
    "error": "too_large"
+  }
+ ],
+ "invalid_withdrawals": [
+  {
+   "name": "nothing_named",
+   "about": "No e tag.",
+   "event": {
+    "id": "5a3d46af803b1a24ebdacbc23999511a8f1943d064aca70d8dba80c985a62170",
+    "pubkey": "d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6",
+    "created_at": 1779278400,
+    "kind": 5,
+    "tags": [
+     ["k", "2003"],
+     ["t", "ai-roleplay-character-card"]
+    ],
+    "content": "",
+    "sig": "e4ed13b37e45086c6589b311cd8f4e58528f621dfd205499f004b38ba4695c145c8306424f2b363e922db183cde49ea6229e8933f3536b09bc68cfb76403ccb5"
+   },
+   "error": "nothing_withdrawn"
+  },
+  {
+   "name": "not_an_event_id",
+   "about": "An e tag that isn't 64 lowercase hex digits.",
+   "event": {
+    "id": "3716d19298454af70913c56522e900330e4866b90c86c7018f0178ee446a4304",
+    "pubkey": "d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6",
+    "created_at": 1779278400,
+    "kind": 5,
+    "tags": [
+     ["e", "41168A4CA9E73CA12BD41553CE96A97C2AFE1E8755FCCEA1BCC37CCB45C75CD5"],
+     ["k", "2003"],
+     ["t", "ai-roleplay-character-card"]
+    ],
+    "content": "",
+    "sig": "311790f108e4fd7aefc9483f5ee790dbb200703fcc64d908aeae158b446c2967a78e411ee2cfe38020fcc81cb2a231a563c6bc7b8b4d38b98b748c19504866ce"
+   },
+   "error": "nothing_withdrawn"
+  },
+  {
+   "name": "withdrawal_bad_signature",
+   "about": "The example withdrawal, one hex digit of its signature changed.",
+   "event": {
+    "id": "bc4f6c91164acf39ce64ea2e028b21ca8bdaea2d971780d7ecbd0da3b42f1885",
+    "pubkey": "d26a1ef2eb3e3e72c32641593d2d0d335c008a09ddded309b481d1ff0a3f42f6",
+    "created_at": 1779278400,
+    "kind": 5,
+    "tags": [
+     ["e", "41168a4ca9e73ca12bd41553ce96a97c2afe1e8755fccea1bcc37ccb45c75cd5"],
+     ["k", "2003"],
+     ["t", "ai-roleplay-character-card"]
+    ],
+    "content": "Published by mistake.",
+    "sig": "0868debffadc46a5fb9716b7ea25bc25a82dfc6f4c4263328d2d3a874d8861c52c4cdf96026a6879ef0935318c15159f0c3f5c7e9c39c2f48e37df1566d14eae"
+   },
+   "error": "bad_signature"
   }
  ]
 }

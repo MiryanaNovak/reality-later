@@ -41,14 +41,15 @@ MAX_CARD_TAG = 32
 MAX_TRACKERS = 5
 MAX_TRACKER_BYTES = 256
 MAX_REASON = 1000                      # characters of a withdrawal's reason kept
+MAX_WITHDRAWN = MAX_TAGS - 2           # publications one withdrawal names (besides its k and t tags)
 FUTURE = 15 * 60                       # seconds ahead of our clock still accepted
-DEFAULT_SIZE_LIMIT = 20 * 1024 * 1024  # bytes: the module's setting (the same for publishing and downloading)
+MAX_FILE_BYTES = 100 * 1024 * 1024    # a card file at most: the format's limit, publishing and downloading
 
 EXTENSIONS = ('png', 'json', 'charx')
 REQUIRED = ('title', 'uuid', 'publisher', 'spec', 'rating', 'sha256', 'x', 'file')
 RATINGS = ('sfw', 'nsfw')
 
-_UUID4 = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}')
+_UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')  # (any version: this app makes v4)
 _SPEC = re.compile(r'[a-z0-9_]{1,32}')
 _HEX = re.compile(r'[0-9a-f]+')
 _CONTROL = re.compile('[\x00-\x08\x0b\x0c\x0e-\x1f]')  # (tab, line feed and carriage return are fine)
@@ -116,13 +117,14 @@ class Withdrawal:
 # --- building ---------------------------------------------------------------------------------------
 
 def new_card_uuid() -> str:
-    """A new card's UUID: its identity, with its publisher's key, for all its versions."""
+    """A new card's UUID: its identity, with its publisher's key, for all its versions. Version 4 (random), as
+    the format says publishers should make (any version is accepted)."""
     return str(uuid.uuid4())
 
 
 def build_publication(draft: PublicationDraft, file: CardFile, *, card_uuid: str, secret: bytes,
                       trackers: Iterable[str] = (), created_at: int | None = None,
-                      size_limit: int = DEFAULT_SIZE_LIMIT, aux: bytes | None = None) -> Publication:
+                      size_limit: int = MAX_FILE_BYTES, aux: bytes | None = None) -> Publication:
     """A new publication of `file`, signed with `secret`. The text is tidied (Unicode NFC, \\n for line
     breaks, spaces at the ends removed), the tags normalized, the language reduced to its two letters.
     Rejected if what's left breaks a rule: a title too long, a file too big..."""
@@ -148,7 +150,8 @@ def build_publication(draft: PublicationDraft, file: CardFile, *, card_uuid: str
 
 def build_withdrawal(event_ids: Iterable[str], *, secret: bytes, reason: str = '', created_at: int | None = None,
                      aux: bytes | None = None) -> Withdrawal:
-    """A withdrawal of these publications (the publisher's own: others' would be ignored)."""
+    """A withdrawal of these publications (the publisher's own: others' would be ignored). MAX_WITHDRAWN at most
+    (Rejected 'too_large' beyond): more take several."""
     created_at = int(time.time()) if created_at is None else created_at
     tags = [['e', i] for i in dict.fromkeys(event_ids)] + [['k', str(KIND_CARD)], ['t', MARKER]]
     event = nostr.sign(secret, kind=KIND_WITHDRAWAL, tags=tags, content=tidy(reason).strip()[:MAX_REASON],
@@ -158,7 +161,7 @@ def build_withdrawal(event_ids: Iterable[str], *, secret: bytes, reason: str = '
 
 # --- checking (docs/card-announcements.md, "Checking a publication") --------------------------------
 
-def check_publication(data: Any, *, now: int | None = None, size_limit: int = DEFAULT_SIZE_LIMIT,
+def check_publication(data: Any, *, now: int | None = None, size_limit: int = MAX_FILE_BYTES,
                       blocked: Container[str] = ()) -> Publication:
     """A publication received (an Event, or the event's parsed JSON), checked in the format's order.
     Rejected with the first problem found."""
@@ -202,7 +205,7 @@ def _read(event: Event, size_limit: int) -> Publication:
         raise Rejected('empty:title')
     if len(title) > MAX_TITLE:
         raise Rejected('too_long:title', f'{len(title)} characters')
-    if not _UUID4.fullmatch(first('uuid')):
+    if not _UUID.fullmatch(first('uuid')):
         raise Rejected('bad_uuid', first('uuid'))
     if not publisher.strip():
         raise Rejected('empty:publisher')

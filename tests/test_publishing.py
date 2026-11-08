@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import stat
+import uuid
 from dataclasses import replace
 from pathlib import Path
 
@@ -56,10 +57,20 @@ def test_invalid_publications(item):
     assert rejected.value.code == item['error']
 
 
-def test_the_withdrawal():
-    w = fmt.check_withdrawal(VECTORS['retraction']['event'], now=NOW)
-    assert list(w.withdrawn) == VECTORS['retraction']['withdraws'] and w.reason == VECTORS['retraction']['reason']
-    assert w.publisher_id == VECTORS['keys']['publisher_1']['public']
+@pytest.mark.parametrize('item', VECTORS['withdrawals'], ids=lambda v: v['name'])
+def test_withdrawals_of_the_vectors(item):
+    w = fmt.check_withdrawal(item['event'], now=NOW)
+    assert list(w.withdrawn) == item['names'] and w.reason == item['reason']
+    assert w.event_id == item['event']['id'] and w.publisher_id == item['event']['pubkey']
+    assert nostr.serialize(item['event']['pubkey'], item['event']['created_at'], item['event']['kind'],
+                           item['event']['tags'], item['event']['content']) == item['serialized']
+
+
+@pytest.mark.parametrize('item', VECTORS['invalid_withdrawals'], ids=lambda v: v['name'])
+def test_invalid_withdrawals(item):
+    with pytest.raises(Rejected) as rejected:
+        fmt.check_withdrawal(item['event'], now=NOW)
+    assert rejected.value.code == item['error']
 
 
 def test_the_file_and_its_torrent():
@@ -105,9 +116,10 @@ def test_building_makes_the_vectors_again():
                                   created_at=vector('other_publisher')['event']['created_at'], aux=ZERO)
     assert other.event.to_dict() == vector('other_publisher')['event']
 
-    withdrawal = fmt.build_withdrawal([example.event_id], secret=KEY1, reason='Published by mistake.',
-                                      created_at=VECTORS['retraction']['event']['created_at'], aux=ZERO)
-    assert withdrawal.event.to_dict() == VECTORS['retraction']['event']
+    for item, secret in zip(VECTORS['withdrawals'], (KEY1, KEY2)):  # (the example's, then publisher 2's)
+        withdrawal = fmt.build_withdrawal(item['names'], secret=secret, reason=item['reason'],
+                                          created_at=item['event']['created_at'], aux=ZERO)
+        assert withdrawal.event.to_dict() == item['event']
 
 
 def test_signatures_are_random():
@@ -156,7 +168,7 @@ def test_building_refuses_a_file_too_big():
 
 def test_new_card_uuids():
     a, b = fmt.new_card_uuid(), fmt.new_card_uuid()
-    assert a != b and fmt._UUID4.fullmatch(a)
+    assert a != b and fmt._UUID.fullmatch(a) and uuid.UUID(a).version == 4
 
 
 # --- checking: beyond the vectors -------------------------------------------------------------------

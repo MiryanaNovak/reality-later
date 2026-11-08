@@ -116,7 +116,7 @@ def rejected_text(e: Rejected) -> str:
         'too_long:publisher': f'Your publisher name is too long: {fmt.MAX_PUBLISHER} characters at most.',
         'too_long:description': f'The description is too long: {fmt.MAX_DESCRIPTION_BYTES // 1024} KB at most '
                                 f'(about {fmt.MAX_DESCRIPTION_BYTES // 1000},000 letters).',
-        'file_too_big': f'The card\'s file is too big to share: {megabytes(fmt.DEFAULT_SIZE_LIMIT)} at most.',
+        'file_too_big': f'The card\'s file is too big to share: {megabytes(fmt.MAX_FILE_BYTES)} at most.',
         'control_character': 'The name or the description has invisible control characters: remove them.',
         'too_large': 'Its announcement would be too big: shorten the description, or remove tags.',
     }.get(e.code, f'It can\'t be published ({e}).')
@@ -124,7 +124,7 @@ def rejected_text(e: Rejected) -> str:
 
 DELIVERY = {  # state: (icon, color, what it means)
     'accepted': ('check_circle', 'positive', 'Arrived'),
-    'held': ('pause_circle', 'grey', 'Held: public relays get cards once the format is final'),
+    'held': ('pause_circle', 'grey', 'Held: public relays get cards once card sharing is released'),
     'pending': ('schedule', 'warning', 'Not reached yet'),
     'refused': ('block', 'negative', 'Refused'),
 }
@@ -156,7 +156,7 @@ def _in(seconds: float) -> str:
 
 def delivery_summary(deliveries: Iterable[Delivery]) -> str:
     """'arrived on 2 relays, 1 not reached yet (tried again by itself), refused by 1, 6 held (public relays,
-    while the format is a draft)'."""
+    until card sharing is released)'."""
     deliveries = list(deliveries)
     if not deliveries:
         return 'no relay to send it to (Settings › Sharing cards)'
@@ -170,7 +170,7 @@ def delivery_summary(deliveries: Iterable[Delivery]) -> str:
     if refused := counts['pending'] + counts['refused'] - later:
         parts.append(f'refused by {plural(refused, "relay")}')
     if counts['held']:
-        parts.append(f'{counts["held"]} held (public relays, while the format is a draft)')
+        parts.append(f'{counts["held"]} held (public relays, until card sharing is released)')
     return ', '.join(parts)
 
 
@@ -1228,7 +1228,7 @@ class SharingSection:
             return None
         try:  # (beyond the safeguards others' apps check it against: said now, not after the wizard)
             content = await asyncio.to_thread(export, character)
-            await asyncio.to_thread(check_shared_card, 'card.png', content, size_limit=fmt.DEFAULT_SIZE_LIMIT)
+            await asyncio.to_thread(check_shared_card, 'card.png', content, size_limit=fmt.MAX_FILE_BYTES)
         except SafeguardError as e:
             await self._beyond_safeguards(character, content, e)
             return None
