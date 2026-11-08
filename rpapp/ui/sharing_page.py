@@ -42,7 +42,7 @@ from urllib.parse import urlencode
 from nicegui import ui
 
 from ..cards import SafeguardError, check_shared_card, megabytes, png_text_chunks
-from ..publishing import runtime_problem
+from ..publishing import runtime_problem, sentence
 from ..publishing import announcements as fmt
 from ..publishing.announcements import PublicationDraft, Rejected
 from ..publishing.catalog import CardQuery, CatalogEntry, Delivery, normalize_relay_url
@@ -1193,7 +1193,7 @@ class SharingSection:
     def _unavailable(self) -> None:
         with ui.column().classes('panel gap-1').mark('shared-unavailable'):
             ui.label('Sharing cards isn\'t available here').classes('panel-title')
-            ui.label(self.problem or f'It needs Python 3.13 or earlier: {runtime_problem()}.') \
+            ui.label(self.problem or sentence(runtime_problem())) \
                 .classes('muted break-words')
 
     # --- publishing -------------------------------------------------------------------------------

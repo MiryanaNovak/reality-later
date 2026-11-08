@@ -121,7 +121,8 @@ def torrent_problem() -> str:
     try:
         import libtorrent  # noqa: F401
     except Exception as e:  # (ImportError, or a library that fails to load)
-        return f'a library it needs is missing ({e})'
+        from . import missing_library
+        return missing_library(e)
     return ''
 
 

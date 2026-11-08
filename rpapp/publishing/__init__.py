@@ -21,11 +21,26 @@ libtorrent too (seeder.torrent_problem()); looking at the cards people share doe
 """
 from __future__ import annotations
 
+import sys
+
 
 def runtime_problem() -> str:
     """Why cards can't be shared on this computer ('' if they can): a missing library."""
     try:
         import coincurve  # noqa: F401
     except Exception as e:  # (ImportError, or a library that fails to load)
-        return f'a library it needs is missing ({e})'
+        return missing_library(e)
     return ''
+
+
+def missing_library(e: Exception) -> str:
+    """A library that didn't load, said in the middle of a sentence: on Python 3.14 and later, there are none of
+    them for it yet (see pyproject.toml); otherwise it's missing, or broken (a packaged program without it)."""
+    if sys.version_info >= (3, 14):
+        return f'it needs Python 3.13 or earlier, for now: a library it needs isn\'t made for this one yet ({e})'
+    return f'a library it needs is missing ({e})'
+
+
+def sentence(text: str) -> str:
+    """'a library it needs is missing (...)' → 'A library it needs is missing (...).'"""
+    return text[:1].upper() + text[1:].rstrip('.') + '.' if text else ''

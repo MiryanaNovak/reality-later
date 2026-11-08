@@ -25,9 +25,12 @@ The program is a folder (`Reality Later\`):
   the same release);
 - or run it by hand (Actions › Windows › Run workflow): the files are in the run's artifacts.
 
-Before handing them out, it checks them there: the tests, on Windows; the program starts, and its
-pages, files and HTTPS answer (`packaging/smoke_test.py`, used for the Flatpak too); and the installer installs it, installs again over a
-running copy (which it must stop properly first), and uninstalls it (`installer_test.py`).
+Before handing them out, it checks them there: the tests, on Windows; card sharing works in the program
+(its `check-sharing` command publishes a card and downloads it by BitTorrent, on the machine only: its
+libraries, libtorrent's and coincurve's, must be in it, and work); the program starts, and its pages,
+files and HTTPS answer (`packaging/smoke_test.py`, used for the Flatpak too); and the installer installs
+it, installs again over a running copy (which it must stop properly first), and uninstalls it
+(`installer_test.py`).
 
 ## On a Windows computer
 
@@ -56,7 +59,8 @@ Windows (`packaging/smoke_test.py` runs on those too).
 - **"Windows protected your PC"**: Windows' SmartScreen says so for programs that aren't signed, the
   first time. *More info › Run anyway* starts it.
 - **Windows Firewall** asks, on the first start, whether Reality Later may use the network: allow it on
-  private networks, for your phone and other devices to reach it. (This computer reaches it either way.)
+  private networks, for your phone and other devices to reach it, and for others to download the cards
+  you share (BitTorrent). (This computer reaches it either way, and downloading works either way.)
 - **Where things are**: the program in `%LOCALAPPDATA%\Programs\Reality Later`; the settings file, the
   certificate and the log (`reality-later.log`) in `%APPDATA%\Reality Later`, and the data in its
   `data` folder. The "This computer" page shows where, and opens them. Updates and uninstalling leave
@@ -66,7 +70,7 @@ Windows (`packaging/smoke_test.py` runs on those too).
   It's turned off in Settings › Apps › Startup, or by installing again without ticking it.
 - **A new version** installs over the old one: run its installer (it stops the running copy first).
 - **The commands**, in a terminal: `"%LOCALAPPDATA%\Programs\Reality Later\reality-later.exe" pair`
-  (or `approve`, `deny`, `quit`, `--help`).
+  (or `approve`, `deny`, `quit`, `check-sharing`, `--help`).
 
 ## Signing
 

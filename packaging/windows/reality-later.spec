@@ -40,6 +40,9 @@ if (ROOT / 'LICENSE').is_file():
 hiddenimports = [
     *collect_submodules('rpapp'),       # (the parts it imports only when needed, like the tray icon's)
     'engineio.async_drivers.asgi',      # NiceGUI's live connection to the browser: engineio loads it by name
+    # Card sharing's signatures: coincurve's compiled part imports its own cffi backend from C, where
+    # PyInstaller can't see it (without it: "No module named 'coincurve._cffi_backend'", and no sharing)
+    'coincurve._cffi_backend',
 ]
 
 

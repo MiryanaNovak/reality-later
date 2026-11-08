@@ -199,7 +199,8 @@ def _sharing(data_dir: str | Path, settings: SettingsStore, relays: Iterable[str
     """Card sharing (publishing/service.py), or why it can't run here: a missing library, a damaged catalog.
     The publisher key: in `key_folder`'s certificates/ (the settings folder's, with HTTPS's own key)."""
     if problem := sharing_problem():
-        return SharingSection(None, settings, problem=f'It needs Python 3.13 or earlier: {problem}.')
+        from ..publishing import sentence
+        return SharingSection(None, settings, problem=sentence(problem))
     from ..publishing.catalog import CatalogError
     from ..publishing.identity import key_path
     from ..publishing.seeder import TorrentSession

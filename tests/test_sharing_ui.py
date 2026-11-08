@@ -334,7 +334,8 @@ async def test_when_sharing_cant_run(tmp_path, monkeypatch):
     async with user_simulation(build_root(tmp_path)) as user:
         await user.open('/shared')
         await user.should_see('Sharing cards isn\'t available here')
-        await user.should_see('coincurve', retries=SLOW)
+        await user.should_see('A library it needs is missing (coincurve).', retries=SLOW)
+        await user.should_not_see('Python 3.13')  # (not the reason, on this Python: a library missing, or broken)
         await user.open('/settings')
         await user.should_see(marker='sharing-unavailable')  # (what the packages' smoke test looks for)
         assert 'isn\'t available here' in user.find(marker='sharing-unavailable').elements.pop().text

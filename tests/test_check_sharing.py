@@ -37,3 +37,12 @@ def test_too_long(monkeypatch):
     said = []
     assert selfcheck.run(lambda ok, what: said.append((ok, what))) is False
     assert said == [(False, 'it took more than 0 seconds')]
+
+
+def test_what_a_missing_library_is_said_to_be(monkeypatch):
+    from rpapp import publishing
+    assert publishing.missing_library(ImportError('No module named x')) == 'a library it needs is missing (No module named x)'
+    monkeypatch.setattr(publishing.sys, 'version_info', (3, 14, 0))  # (none of them made for it yet)
+    assert publishing.missing_library(ImportError('x')).startswith('it needs Python 3.13 or earlier, for now')
+    assert publishing.sentence('a library it needs is missing (x)') == 'A library it needs is missing (x).'
+    assert publishing.sentence('') == ''
