@@ -62,6 +62,44 @@ class FetchProgress:
     stage: str                # 'looking' (for people sharing it, and its description), 'downloading'
     progress: float           # 0 to 1
     peers: int                # connected now
+    note: str = ''            # the last of those found: connected to, or gone and why (PeerEvent.text)
+
+
+@dataclass(frozen=True, slots=True)
+class PeerEvent:
+    """Someone found while downloading: connected to, or gone, and why (libtorrent's reason, in plain words).
+    What a download that doesn't come says of those it found (FetchProgress.note, and its FetchError)."""
+    ip: str
+    port: int
+    left: bool                # gone (else: connected)
+    why: str = ''             # gone: why
+
+    @property
+    def who(self) -> str:
+        return f'{self.ip} (on your network)' if _on_this_network(self.ip) else self.ip
+
+    @property
+    def text(self) -> str:
+        return f'{self.who} left: {self.why}' if self.left else f'Connected to {self.who}, asking for the card…'
+
+
+# libtorrent's reasons for closing a connection (close_reason_t), and its errors, in plain words
+GONE_REASONS = {
+    'self_connection': 'it was this computer itself',
+    'duplicate_peer_id': 'it was connected already',
+    'invalid_info_hash': 'it doesn\'t share this card',
+    'timed_out_handshake': 'it didn\'t answer',
+    'encryption_error': 'the connection couldn\'t be encrypted',
+    'too_many_connections': 'it has too many connections already',
+    'blocked': 'this computer blocks it', 'port_blocked': 'this computer blocks it',
+}
+GONE_ERRORS = (
+    (('end of file', 'connection reset', 'broken pipe'), 'it closed the connection (it may not share this card)'),
+    (('connection refused',), 'it refused the connection: nothing listens on that port any more'),
+    (('timed out',), 'no answer: a firewall may be in the way'),
+    (('no route to host', 'network is unreachable', 'host is unreachable'), 'it can\'t be reached from here'),
+)
+PEER_ALERTS = frozenset({'peer_connect', 'peer_disconnected'})
 
 
 def torrent_problem() -> str:
@@ -141,6 +179,7 @@ class TorrentSession:
         self._handles: dict[str, object] = {}   # infohash → torrent handle, of the files shared
         self._fetching: dict[str, object] = {}  # infohash → torrent handle, of the files being downloaded
         self._errors: dict[str, tuple[str, str]] = {}  # infohash → what went wrong with it: (alert, message)
+        self._peers_seen: dict[str, list[PeerEvent]] = {}  # infohash → who was found, of the files being downloaded
         # How others reach this computer (network()), from libtorrent's alerts
         # (TCP or UDP, IP version 4 or 6) → port; IP version → why TCP can't listen. IPv4 is what counts: most
         # peers have it, and an IPv6 that works doesn't make up for it (nor does one that fails matter much)
@@ -163,7 +202,8 @@ class TorrentSession:
             category = lt.alert.category_t
             settings = dict(self.settings)
             settings['alert_mask'] = (category.error_notification | category.status_notification
-                                      | category.port_mapping_notification | category.peer_notification)
+                                      | category.port_mapping_notification | category.peer_notification
+                                      | category.connect_notification)
             self._session = lt.session(settings)
             self._asking_since = time.time() if settings['enable_upnp'] or settings['enable_natpmp'] else None
 
@@ -246,6 +286,7 @@ class TorrentSession:
             raise FetchError(f'It couldn\'t be downloaded: {e}') from None
         self._fetching[infohash] = handle
         self._errors.pop(infohash, None)
+        self._peers_seen[infohash] = seen = []
         for peer in self.peers:
             handle.connect_peer(peer)
         done = False
@@ -270,7 +311,7 @@ class TorrentSession:
                         wanted, changed = True, now
                     elif now - started > find_timeout:
                         raise FetchError('Nobody sharing it was found: its publisher, and those who have it, may '
-                                         'be away. Try again later.')
+                                         'be away. Try again later.' + _found_meanwhile(seen))
                 elif s.is_seeding:
                     done = True
                     break
@@ -280,11 +321,13 @@ class TorrentSession:
                     raise FetchError('It stopped coming: those sharing it went away. Try again later.')
                 if on_progress is not None:
                     on_progress(FetchProgress('downloading' if wanted else 'looking',
-                                              s.progress if wanted else 0.0, s.num_peers))
+                                              s.progress if wanted else 0.0, s.num_peers,
+                                              seen[-1].text if seen and not wanted else ''))
                 await asyncio.sleep(POLL)
         finally:
             self._fetching.pop(infohash, None)
             self._errors.pop(infohash, None)
+            self._peers_seen.pop(infohash, None)
             await self._remove(infohash, handle, delete=not done)
         return folder / name
 
@@ -362,6 +405,9 @@ class TorrentSession:
             if what in NETWORK_ALERTS:
                 self._network_alert(what, alert)
                 continue
+            if what in PEER_ALERTS and handle is not None:
+                self._peer_alert(what, alert, handle)
+                continue
             if handle is None or 'error' not in what and 'failed' not in what:
                 continue
             if what not in TORRENT_ERRORS:
@@ -373,6 +419,21 @@ class TorrentSession:
                 continue
             self._errors[infohash] = (what, alert.message()[:300])
             log.warning('Sharing %s: %s', infohash, alert.message())
+
+    def _peer_alert(self, what: str, alert, handle) -> None:
+        """Someone connected to, or gone, while a file is being downloaded: kept for what it says of them."""
+        try:
+            seen = self._peers_seen.get(str(handle.info_hashes().v1))
+            ip, port = alert.ip
+        except Exception:  # (a handle no longer valid)
+            return
+        if seen is None:  # (a file shared, not downloaded)
+            return
+        left = what == 'peer_disconnected'
+        seen.append(PeerEvent(str(ip), int(port), left, _why_gone(alert) if left else ''))
+        del seen[:-50]
+        if left:
+            log.info('BitTorrent: %s', alert.message())
 
     def _network_alert(self, what: str, alert) -> None:
         import libtorrent as lt
@@ -424,6 +485,43 @@ def _ip_version(address) -> int:
         return ipaddress.ip_address(str(address).strip('[]')).version
     except ValueError:  # (a device name, from listen_interfaces: said as IPv4's)
         return 4
+
+
+def _why_gone(alert) -> str:
+    """Why a connection closed, in plain words (libtorrent's error or reason, else)."""
+    error = alert.error.message() if alert.error.value() else ''
+    for words, said in GONE_ERRORS:
+        if any(w in error.lower() for w in words):
+            return said
+    reason = str(getattr(alert, 'reason', '')).rsplit('.', 1)[-1]
+    return GONE_REASONS.get(reason) or error or reason.replace('_', ' ') or 'unknown'
+
+
+def _found_meanwhile(seen: list[PeerEvent]) -> str:
+    """What a download that didn't come says of those it found: each one's last reason for leaving."""
+    last: dict[str, PeerEvent] = {}
+    for event in seen:
+        if event.left:
+            last[f'{event.ip}:{event.port}'] = event
+    if not last:
+        return ''
+    found = [f'{e.who}: {e.why}' for e in list(last.values())[-3:]]
+    return ' Found meanwhile, but none of them sent it: ' + '; '.join(found) + '.'
+
+
+# Addresses of a local network (or this computer): not Python's is_private, which counts documentation and
+# other reserved ranges in
+LOCAL_NETWORKS = tuple(ipaddress.ip_network(n) for n in (
+    '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '127.0.0.0/8', '169.254.0.0/16',
+    '::1/128', 'fe80::/10', 'fc00::/7'))
+
+
+def _on_this_network(ip: str) -> bool:
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(address in network for network in LOCAL_NETWORKS if network.version == address.version)
 
 
 def _is_tcp(lt, socket_type) -> bool:

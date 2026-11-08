@@ -111,6 +111,7 @@ class Fetch:
     stage: Literal['looking', 'downloading', 'adding', 'done', 'failed'] = 'looking'
     progress: float = 0.0     # 0 to 1, while downloading
     peers: int = 0
+    note: str = ''            # while looking: the last of those found, connected to or gone (and why)
     error: str = ''           # failed: why
     character_id: str = ''    # done: the character it became
     message: str = ''         # done: what the import said
@@ -649,7 +650,7 @@ def _same(a: Event, b: Event) -> bool:
 
 
 def _progressed(fetch: Fetch, now: FetchProgress) -> None:
-    fetch.stage, fetch.progress, fetch.peers = now.stage, now.progress, now.peers
+    fetch.stage, fetch.progress, fetch.peers, fetch.note = now.stage, now.progress, now.peers, now.note
 
 
 _CARD_FILE = re.compile(r'[0-9a-f]{64}\.(png|json|charx)')

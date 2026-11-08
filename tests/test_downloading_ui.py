@@ -187,12 +187,16 @@ async def test_nobody_shares_it(user, mine):
     lonely = fmt.build_publication(DRAFT, torrents.card_file(aria_card()), card_uuid=fmt.new_card_uuid(),
                                    secret=nostr.new_secret())
     mine.catalog.receive(lonely.event.to_dict())
-    mine.session.find_timeout = 1
+    mine.session.find_timeout = 3
     await user.open(f'/shared/{lonely.event_id}')
     await user.should_see(marker='shared-add')
     user.find(marker='shared-add').click()
     await user.should_see('Looking for people sharing it', retries=SLOW)
+    # (Marie's app, found, doesn't share this one: who was found, and why they left, said as it looks)
+    await user.should_see(marker='shared-fetch-note', retries=SLOW)
+    await user.should_see('127.0.0.1 (on your network) left: it closed the connection', retries=SLOW)
     await user.should_see('Nobody sharing it was found', retries=SLOW)
+    await user.should_see('Found meanwhile, but none of them sent it: 127.0.0.1 (on your network)')
     await user.should_see(marker='shared-add')  # (to try again)
 
 

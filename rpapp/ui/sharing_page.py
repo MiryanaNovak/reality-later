@@ -190,7 +190,7 @@ def fetch_text(fetch: Fetch) -> str:
 
 def _fetch_key(fetch: Fetch | None) -> tuple | None:
     """What a page shows of a download: when it changes, the page is drawn again."""
-    return (fetch.stage, round(fetch.progress, 2), fetch.peers, fetch.character_id) if fetch else None
+    return (fetch.stage, round(fetch.progress, 2), fetch.peers, fetch.note, fetch.character_id) if fetch else None
 
 
 def _listed(text: str) -> list[str]:
@@ -929,6 +929,8 @@ class SharingSection:
                     with ui.row().classes('items-center no-wrap gap-2 text-sm').mark('shared-fetching'):
                         ui.spinner(size='1.2em')
                         ui.label(fetch_text(fetch))
+                    if fetch.note:  # (who was found, and why they left: what to look at, if it doesn't come)
+                        ui.label(fetch.note).classes('text-sm muted break-words').mark('shared-fetch-note')
                     return
                 if fetch is not None and fetch.stage == 'failed':
                     with ui.row().classes('items-start no-wrap gap-2 text-sm').mark('shared-fetch-failed'):

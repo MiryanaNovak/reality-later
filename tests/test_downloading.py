@@ -258,3 +258,48 @@ def test_the_folder_of_files_before(tmp_path):
     s = Sharing(tmp_path, session=session())
     s.catalog.close()
     assert not old.exists() and [p.name for p in s.files.iterdir()] == [f'{hashlib.sha256(content).hexdigest()}.png']
+
+
+# --- who was found, and why they left ---------------------------------------------------------------------
+
+async def test_who_was_found(tmp_path):
+    """Someone found who doesn't share the card: what the download says of them as it looks, and when it
+    gives up (what to look at, rather than "nobody" alone)."""
+    from rpapp.publishing.seeder import FetchError
+    other = TorrentSession(listen='127.0.0.1:0', dht=False, local_discovery=False, port_mapping=False, trackers=())
+    other.start()  # (it shares nothing)
+    s = TorrentSession(listen='127.0.0.1:0', dht=False, local_discovery=False, port_mapping=False, trackers=(),
+                       peers=(('127.0.0.1', other.port),))
+    s.settings.update(enable_outgoing_utp=False, enable_incoming_utp=False)
+    notes = []
+    try:
+        with pytest.raises(FetchError) as e:
+            await s.fetch('1' * 40, tmp_path, name='x.png', size=10, find_timeout=2,
+                          on_progress=lambda now: notes.append(now.note))
+    finally:
+        s.close()
+        other.close()
+    said = str(e.value)
+    assert said.startswith('Nobody sharing it was found')
+    assert 'Found meanwhile, but none of them sent it: 127.0.0.1 (on your network): it closed the connection' in said
+    assert any(n.startswith('127.0.0.1 (on your network) left: it closed the connection (it may not share this '
+                            'card)') for n in notes)
+
+
+def test_why_they_left_in_words():
+    from types import SimpleNamespace
+
+    from rpapp.publishing.seeder import PeerEvent, _found_meanwhile, _why_gone
+
+    def alert(error='', reason='none'):
+        return SimpleNamespace(error=SimpleNamespace(value=lambda: 1 if error else 0, message=lambda: error),
+                               reason=f'close_reason_t.{reason}')
+    assert _why_gone(alert('Connection refused')) == 'it refused the connection: nothing listens on that port any more'
+    assert _why_gone(alert('Connection timed out')) == 'no answer: a firewall may be in the way'
+    assert _why_gone(alert('No route to host')) == 'it can\'t be reached from here'
+    assert _why_gone(alert(reason='self_connection')) == 'it was this computer itself'
+    assert _why_gone(alert(reason='invalid_info_hash')) == 'it doesn\'t share this card'
+    assert _why_gone(alert('Something new')) == 'Something new'
+    assert PeerEvent('203.0.113.7', 6881, left=False).text == 'Connected to 203.0.113.7, asking for the card…'
+    assert PeerEvent('192.168.1.20', 6881, left=True, why='no answer').who == '192.168.1.20 (on your network)'
+    assert _found_meanwhile([PeerEvent('192.168.1.20', 6881, left=False)]) == ''  # (connected, never gone: said)
