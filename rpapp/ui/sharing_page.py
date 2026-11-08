@@ -29,6 +29,7 @@ elsewhere (no pictures: those come with the files, later).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -849,11 +850,76 @@ class SharingSection:
         except ValueError:  # (a damaged file)
             return None
 
-    async def character_note(self, character_id: str) -> None:
-        """On a character's page (characters_page.py): the shared card it was downloaded from, if it was;
-        withdrawn since (it's kept: said), or a newer version out."""
+    async def character_note(self, character: Character, *, fingerprint: Callable[[Character], str] | None = None,
+                             export: Callable[[Character], bytes] | None = None,
+                             publish: Callable[[], object] | None = None) -> None:
+        """On a character's page (characters_page.py): the card you published from it, if you did (changed
+        since, or not; withdrawn), and the shared card it was downloaded from, if it was (withdrawn since, or a
+        newer version out)."""
         if self.sharing is None:
             return
+        await self._published_note(character, fingerprint, export, publish)
+        await self._downloaded_note(character.id)
+
+    async def _published_note(self, character: Character, fingerprint: Callable[[Character], str] | None,
+                              export: Callable[[Character], bytes] | None,
+                              publish: Callable[[], object] | None) -> None:
+        """Published by you (with any of your keys), as which card; whether the character changed since, as
+        it's edited. Its card's fingerprint then (kept since this was added), or else its file (from before:
+        the card that would be published now, against the one that was)."""
+        sharing = self.sharing
+        if not character.shared_uuid:
+            return
+        versions = await sharing.call(sharing.own_versions, character.shared_uuid)
+        if not versions:
+            return
+        entry = next((v for v in versions if v.withdrawn is None), versions[0])  # (the latest not withdrawn)
+        p = entry.publication
+        source = await sharing.call(sharing.catalog.source, p.event_id)
+
+        async def changed() -> bool | None:
+            if source is not None and fingerprint is not None:
+                return fingerprint(character) != source.fingerprint
+            if export is not None:
+                content = await asyncio.to_thread(export, character)
+                return hashlib.sha256(content).hexdigest() != p.card_sha256
+            return None
+
+        @ui.refreshable
+        async def note() -> None:
+            with ui.row().classes('items-start no-wrap gap-2 text-sm w-full').mark('character-published'):
+                ui.icon('cloud_upload', size='1.3em', color='primary')
+                with ui.column().classes('gap-0 min-w-0'):
+                    with ui.row().classes('items-center gap-1'):
+                        ui.label('Published by you as').classes('muted')
+                        ui.link(f'"{p.card_name}"', f'/shared/{p.event_id}').mark('character-published-link')
+                        ui.label(f'· {date_text(p.created_at)}').classes('muted')
+                    if entry.withdrawn is not None:
+                        ui.label(f'You withdrew it {time_ago(_when(entry.withdrawn.at))}.').classes('muted') \
+                            .mark('character-published-withdrawn')
+                        return
+                    now = await changed()
+                    if now:
+                        with ui.row().classes('items-center gap-x-2 gap-y-0').mark('character-changed'):
+                            ui.label('Changed since: the shared card isn\'t up to date.') \
+                                .classes('text-weight-medium')
+                            if publish is not None:
+                                ui.button('Publish it again', icon='publish', on_click=publish) \
+                                    .props('flat dense').mark('character-publish-again')
+                    elif now is False:
+                        ui.label('The shared card is up to date.').classes('muted').mark('character-up-to-date')
+
+        await note()
+        seen = {'character': character.model_dump_json()}
+
+        def tick() -> None:  # (edited here: said as soon as it's saved)
+            now = character.model_dump_json()
+            if now != seen['character']:
+                seen['character'] = now
+                note.refresh()
+        ui.timer(2, tick)
+
+    async def _downloaded_note(self, character_id: str) -> None:
         sharing = self.sharing
         records = await sharing.call(sharing.catalog.downloads, character_id=character_id)
         if not records:
@@ -932,10 +998,12 @@ class SharingSection:
             return None
 
     async def publish_dialog(self, character: Character, export: Callable[[Character], bytes],
-                             save: Callable[[Character], None]) -> Published | None:
+                             save: Callable[[Character], None], *,
+                             fingerprint: Callable[[Character], str] | None = None) -> Published | None:
         """Publish a character as a shared card (from its editor's ⋮ menu): ask how it's announced, then
         publish its card file (`export`) and open its page. `save` saves the character, given its card UUID
-        the first time. What was published, or None.
+        the first time; `fingerprint`, its card's, kept with the publication (to tell, later, whether it
+        changed since: character_note()). What was published, or None.
 
         The first time (until it's been through once: settings.sharing.publishing_accepted), a wizard comes
         first: what publishing means (agreed to), the publisher key (made or imported, and backed up), how
@@ -1209,6 +1277,9 @@ class SharingSection:
                 fields['button'].props(remove='loading')
             if given:
                 save(character)
+            if fingerprint is not None:  # (what it was published from, as it was)
+                await sharing.call(sharing.catalog.record_source, published.publication.event_id, character.id,
+                                   fingerprint(character))
             try:
                 current = self.settings.load()
                 if current.sharing.publisher_name != publisher:

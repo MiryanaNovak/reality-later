@@ -14,7 +14,7 @@ from fake_relay import FakeRelay  # noqa: E402
 from rpapp.cards import read_card  # noqa: E402
 from rpapp.characters import CharacterStore, new_character  # noqa: E402
 from rpapp.publishing import announcements as fmt  # noqa: E402
-from rpapp.publishing import identity, nostr  # noqa: E402
+from rpapp.publishing import identity, nostr, torrents  # noqa: E402
 from rpapp.publishing.announcements import PublicationDraft  # noqa: E402
 from rpapp.publishing.seeder import TorrentSession  # noqa: E402
 from rpapp.publishing.service import Sharing  # noqa: E402
@@ -372,6 +372,83 @@ async def test_the_key_gone_since(user, tmp_path, sharing):
     set_value(user, 'wizard-saved', True)
     user.find(marker='wizard-key-next').click()
     await user.should_see('Step 2 of 2: Your card')
+
+
+# --- the character's page: published by you, changed since ---------------------------------------------
+
+def scenario_field(user):
+    return next(e for e in user.find(ui.textarea).elements if e.props.get('label') == 'Scenario')
+
+
+async def test_published_by_you_and_changed_since(user, tmp_path, sharing, relay):
+    sharing.create_identity()
+    accept_notice(tmp_path)
+    store, character = aria(tmp_path)
+    await open_publishing(user, character)
+    await user.should_see(marker='publish-name')
+    user.find(marker='publish-publisher').type('Marie')
+    set_value(user, 'publish-rating', 'sfw')
+    user.find(marker='publish-confirm').click()
+    await user.should_see(marker='own-sharing', retries=SLOW)
+    [event_id] = relay.events
+    assert sharing.catalog.source(event_id).character_id == character.id  # (what it was published from)
+
+    await user.open(f'/characters/{character.id}')
+    await user.should_see(marker='character-published', retries=SLOW)
+    await user.should_see('"Aria the Wanderer"', retries=SLOW)
+    await user.should_see(marker='character-up-to-date', retries=SLOW)
+
+    scenario_field(user).set_value('{{char}} sings, and now she fights too.')  # (edited here)
+    await user.should_see(marker='character-changed', retries=SLOW)
+    await user.should_see('Changed since: the shared card isn\'t up to date.', retries=SLOW)
+    scenario_field(user).set_value('{{char}} sings of old roads.')  # (as it was: up to date again)
+    await user.should_see(marker='character-up-to-date', retries=SLOW)
+
+    scenario_field(user).set_value('{{char}} sings, and fights.')
+    await user.should_see(marker='character-publish-again', retries=SLOW)
+    user.find(marker='character-publish-again').click()  # (straight to the form)
+    await user.should_see(marker='publish-new-version', retries=SLOW)
+
+
+async def test_published_before_fingerprints(user, tmp_path, sharing):
+    """Published before the fingerprint was kept: the card file that would be published now, against the
+    one that was."""
+    from rpapp.cards import card_data, card_png
+    from rpapp.ui.list_view import initials
+    sharing.create_identity()
+    store, character = aria(tmp_path)
+    character.shared_uuid = fmt.new_card_uuid()
+    store.save(character)
+    content = card_png(card_data(character, []), None, initials=initials(character.title))  # (as Export makes it)
+    await sharing.publish(PublicationDraft(publisher_name='Marie', card_name='Aria'), content,
+                          card_uuid=character.shared_uuid)
+    await user.open(f'/characters/{character.id}')
+    await user.should_see(marker='character-up-to-date', retries=SLOW)
+    character.description = 'Changed outside the page.'
+    store.save(character)
+    await user.open(f'/characters/{character.id}')
+    await user.should_see(marker='character-changed', retries=SLOW)
+
+
+async def test_withdrawn_and_not_yours(user, tmp_path, sharing):
+    store, character = aria(tmp_path)
+    character.shared_uuid = fmt.new_card_uuid()
+    store.save(character)
+    other = fmt.build_publication(PublicationDraft(publisher_name='Juno', card_name='Aria'),
+                                  torrents.card_file(b'theirs'), card_uuid=character.shared_uuid,
+                                  secret=nostr.new_secret())
+    sharing.catalog.receive(other.event.to_dict())  # (the same card's UUID, someone else's: not yours)
+    await user.open(f'/characters/{character.id}')
+    await user.should_see('Description', retries=SLOW)
+    await user.should_not_see(marker='character-published')
+
+    sharing.create_identity()
+    mine = await sharing.publish(PublicationDraft(publisher_name='Marie', card_name='Aria'), b'\x89PNG\r\n\x1a\nx',
+                                 card_uuid=character.shared_uuid)
+    await sharing.withdraw([mine.publication.event_id])
+    await user.open(f'/characters/{character.id}')
+    await user.should_see(marker='character-published-withdrawn', retries=SLOW)
+    await user.should_not_see(marker='character-changed')
 
 
 async def test_no_publishing_where_sharing_cant_run(tmp_path, monkeypatch):

@@ -10,6 +10,8 @@
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from collections import Counter
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
@@ -96,7 +98,19 @@ class CharactersSection(ProfileSection[Character]):
     async def publish(self, character: Character) -> None:
         """The card file is the one Export makes (with the card's UUID in it); the character is saved with that
         UUID when it's first published."""
-        await self.sharing.publish_dialog(character, lambda c: self.export_card(c)[0], self.store.save)
+        await self.sharing.publish_dialog(character, lambda c: self.export_card(c)[0], self.store.save,
+                                          fingerprint=self.card_fingerprint)
+
+    def card_fingerprint(self, character: Character) -> str:
+        """What its card holds, as a fingerprint: the card's data (its lore books in it) and its picture (by
+        its file's name, made from its content). Kept when it's published (sharing_page.py), to tell whether
+        it changed since: unlike the card's file, it doesn't change when the app's libraries draw or compress
+        the PNG differently."""
+        books = [book for ref in character.lorebooks if (book := self._lore_book(ref.id)) is not None]
+        whole = character.image_full or character.image
+        held = {'card': card_data(character, books), 'picture': whole or '',
+                'initials': '' if whole else initials(character.title)}
+        return hashlib.sha256(json.dumps(held, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
 
     def _lore_book(self, book_id: str) -> LoreBook | None:
         try:
@@ -156,8 +170,10 @@ class CharactersSection(ProfileSection[Character]):
                         'Title, Picture, Description')
         if self.sharing is not None and self.sharing.sharing is not None:
             # From a shared card? Said once the catalog answered (withdrawn since, a newer version...)
-            with ui.element('div').classes('w-full'):
-                ui.timer(0.01, lambda: self.sharing.character_note(character.id), once=True)
+            with ui.column().classes('w-full gap-2'):
+                ui.timer(0.01, lambda: self.sharing.character_note(
+                    character, fingerprint=self.card_fingerprint, export=lambda c: self.export_card(c)[0],
+                    publish=lambda: self.publish(character)), once=True)
 
     def panels(self, character: Character, form: Form) -> None:
         with panel('Description', 'What the character is about, in a sentence or two, to help you pick them: it\'s '

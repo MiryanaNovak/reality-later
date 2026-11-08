@@ -227,6 +227,13 @@ class Sharing:
     def own_keys(self) -> tuple[str, ...]:
         return tuple(i.public_key for i in self.own_identities())
 
+    def own_versions(self, card_uuid: str) -> list[CatalogEntry]:
+        """A card's versions published with your keys (the one in use, or one it replaced), the newest
+        first, the withdrawn ones too. (In a thread: it reads the catalog.)"""
+        found = [v for key in self.own_keys()
+                 for v in self.catalog.versions(key, card_uuid, include_withdrawn=True)] if card_uuid else []
+        return sorted(found, key=lambda v: (-v.publication.created_at, v.publication.event_id))
+
     # --- publishing ---------------------------------------------------------------------------------
 
     async def publish(self, draft: PublicationDraft, content: bytes, *, card_uuid: str) -> Published:

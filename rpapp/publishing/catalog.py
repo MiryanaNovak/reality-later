@@ -24,7 +24,8 @@ Blocking a publisher deletes all they published, and refuses what comes from the
     relays(), add_relay(), remove_relay(); save_sync(), sync_failed(): how far discovery is (discovery.py)
 
 And what this computer did with them: the files it shares (seeding()), where its own events went
-(deliveries()), and the publications it downloaded, with the character each became (downloads()).
+(deliveries()), what its own were published from (source()), and the publications it downloaded, with the
+character each became (downloads()).
 
 Its calls wait for the database (milliseconds; longer when the disk is busy): from asyncio code, they
 run in a thread, as the sharing service will do. A lock makes them safe from several threads.
@@ -209,6 +210,16 @@ MIGRATIONS = [
            search_words(json_extract(event_json, '$.content')), search_words(published_name)
     FROM publications;
     """,
+    # 7: what this computer's publications were published from: a character, as it was then (its card's
+    # fingerprint, made by the app: characters_page.py), to tell whether it changed since
+    """
+    CREATE TABLE publication_sources (
+        event_id     TEXT PRIMARY KEY CHECK (length(event_id) = 64),
+        character_id TEXT NOT NULL,
+        fingerprint  TEXT NOT NULL,
+        recorded_at  INTEGER NOT NULL
+    );
+    """,
 ]
 
 
@@ -365,6 +376,16 @@ class Download:
     file_name: str
     character_id: str
     downloaded_at: int
+
+
+@dataclass(frozen=True, slots=True)
+class Source:
+    """What one of this computer's publications was published from: a character, and its card's fingerprint
+    then."""
+    event_id: str
+    character_id: str
+    fingerprint: str
+    recorded_at: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -782,6 +803,20 @@ class Catalog:
                 found |= {row[0] for row in self._db.execute(
                     f'SELECT event_id FROM downloads WHERE event_id IN ({",".join("?" * len(chunk))})', chunk)}
             return found
+
+    def record_source(self, event_id: str, character_id: str, fingerprint: str) -> None:
+        """One of this computer's publications: published from that character, its card as fingerprinted."""
+        with self._write():
+            self._db.execute('INSERT INTO publication_sources (event_id, character_id, fingerprint, recorded_at) '
+                             'VALUES (?, ?, ?, ?) ON CONFLICT (event_id) DO UPDATE SET character_id = '
+                             'excluded.character_id, fingerprint = excluded.fingerprint, recorded_at = '
+                             'excluded.recorded_at', (event_id, character_id, fingerprint, int(time.time())))
+
+    def source(self, event_id: str) -> Source | None:
+        with self._lock:
+            row = self._db.execute('SELECT * FROM publication_sources WHERE event_id = ?', (event_id,)).fetchone()
+            return Source(row['event_id'], row['character_id'], row['fingerprint'], row['recorded_at']) \
+                if row else None
 
     def record_delivery(self, event_id: str, relay_url: str, state: str, *, message: str = '',
                         attempted: bool = True) -> None:

@@ -185,8 +185,9 @@ def test_a_catalog_from_before_word_search(tmp_path):
     path = tmp_path / 'old.sqlite3'
     with Catalog(path) as c:
         p = publish(c, KEY1, at=T0, title='Le Café des Ombres', name='Zoë', description='Une barista fantôme.')
-    with sqlite3.connect(path) as db:  # (as it was: no publication_text, version 5)
+    with sqlite3.connect(path) as db:  # (as it was: version 5, without what came after)
         db.execute('DROP TABLE publication_text')
+        db.execute('DROP TABLE publication_sources')
         db.execute('PRAGMA user_version = 5')
     with Catalog(path) as c:
         assert [e.publication.event_id for e in c.cards(CardQuery(card_name='cafe omb')).items] == [p.event_id]
