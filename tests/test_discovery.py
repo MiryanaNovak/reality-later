@@ -277,5 +277,21 @@ async def test_the_relay_trying_tool(monkeypatch, capsys):
         assert (report['write'], report['kept']) == ('accepted', 'yes')
         assert report['withdrawal'].startswith('kept the withdrawal')  # (this one doesn't delete)
         assert report['discovery'].startswith(f'{len(valid())} publications')
+        assert (report['nsfw_write'], report['nsfw_kept']) == ('accepted', 'yes')  # (marked as adult cards are)
+        nsfw = [e for e in relay.events.values()
+                if ['t', tool.TEST_TAG] in e['tags'] and ['content-warning', 'nsfw'] in e['tags']]
+        assert len(nsfw) == 1 and ['rating', 'nsfw'] in nsfw[0]['tags']
+        assert ['t', fmt.MARKER] not in nsfw[0]['tags']  # (a test: never shown as a card)
         tool.show(report)
-        assert 'publishing:   accepted' in capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert 'publishing:   accepted' in out and 'NSFW-marked:  accepted' in out
+
+    # A relay that says it's SFW only, and refuses what's marked NSFW: said so
+    tool.show({'url': 'wss://strict.example', 'info': {'name': 'Strict', 'description': 'Nudity filtering.',
+                                                       'tags': ['sfw-only'], 'relay_countries': ['FR']},
+               'connect': '0.1 s', 'answer': '0.1 s', 'torrents': 0, 'cards': 0, 'write': 'accepted',
+               'nsfw_write': 'refused (blocked: no adult content)', 'discovery': '0 publications', 'notices': []})
+    out = capsys.readouterr().out
+    for said in ('describes it: Nudity filtering.', 'tags:         sfw-only', 'countries:    FR',
+                 'NOTE:         it says it\'s SFW only', 'NSFW-marked:  refused (blocked: no adult content)'):
+        assert said in out
