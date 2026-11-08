@@ -376,6 +376,9 @@ HEAD = f'''
   /* A line whose text changes in place (a character's "changed since" / "up to date"): the height of a dense
      button, which one of them has, so that going from one to the other doesn't move the page */
   .status-line {{ min-height: 32px; display: flex; align-items: center; }}
+  /* A chips field's placeholder, shown only when it's clicked (as a text field's is): with chips in it, Quasar
+     shows it beside them all the time */
+  .placeholder-on-focus:not(.q-field--focused) .q-field__input::placeholder {{ color: transparent; }}
   .fingerprint {{
     font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: .8rem; overflow-wrap: anywhere;
     background: var(--page); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%;

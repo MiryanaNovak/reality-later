@@ -609,6 +609,7 @@ async def test_stopping_sharing_the_file(user, sharing, tmp_path):
     published = await publish(sharing)
     await user.open(f'/shared/{published.publication.event_id}')
     await user.should_see('Shared from this computer while the app runs', retries=SLOW)
+    await user.should_see(marker='own-stop', retries=SLOW)  # (drawn after the relays: read from the disk first)
     user.find(marker='own-stop').click()
     await user.should_see(marker='confirm-dialog')
     with user.scope(marker='confirm-dialog'):
@@ -626,7 +627,7 @@ async def test_withdrawing(user, sharing, relay):
     first = await publish(sharing, uuid=uuid)
     second = await publish(sharing, content=b'Aria sings, and fights.', uuid=uuid)
     await user.open(f'/shared/{second.publication.event_id}')
-    await user.should_see(marker='own-sharing', retries=SLOW)
+    await user.should_see(marker='own-withdraw', retries=SLOW)  # (drawn after the relays: read from the disk first)
     user.find(marker='own-withdraw').click()
     await user.should_see(marker='withdraw-dialog')
     assert value_of(user, 'withdraw-all') is True  # (its older version too)

@@ -317,15 +317,15 @@ class SharingSection:
                         .props('outlined dense clearable debounce=300').classes('w-full').mark('shared-by')
                     tags_ = keep_typed(ui.input_chips('Tags', value=start_tags, new_value_mode='add-unique'),
                                        split=',') \
-                        .props('outlined dense clearable hide-bottom-space').classes('w-full').mark('shared-tags')
-                    ui.label('Cards with any of these.').classes('text-sm muted -mt-2')
+                        .props('outlined dense clearable hide-bottom-space placeholder="Cards with any of these"') \
+                        .classes('w-full placeholder-on-focus').mark('shared-tags')
                     exclude_ = keep_typed(ui.input_chips('Excluded tags', value=_listed(exclude),
                                                          new_value_mode='add-unique'), split=',') \
-                        .props('outlined dense clearable hide-bottom-space').classes('w-full').mark('shared-exclude')
-                    hidden = settings.sharing.hidden_tags
-                    ui.label('Cards with none of these.' + (f' Always hidden besides (Settings › Sharing cards): '
-                                                             f'{", ".join(hidden)}.' if hidden else '')) \
-                        .classes('text-sm muted -mt-2').mark('shared-exclude-hint')
+                        .props('outlined dense clearable hide-bottom-space placeholder="Cards with none of these"') \
+                        .classes('w-full placeholder-on-focus').mark('shared-exclude')
+                    if hidden := settings.sharing.hidden_tags:
+                        ui.label(f'Always hidden too (Settings › Sharing cards): {", ".join(hidden)}.') \
+                            .classes('text-sm muted -mt-2').mark('shared-exclude-hint')
                     nsfw = ui.switch('Show NSFW', value=settings.sharing.show_nsfw).mark('shared-nsfw')
             if publisher:
                 who = await sharing.call(sharing.catalog.publisher, publisher)
@@ -336,9 +336,9 @@ class SharingSection:
                         .props('dense outline')
 
         def on() -> int:
-            """How many filters are on (said on the folded panel)."""
-            return sum((where_.value == 'all', bool((by_.value or '').strip()), bool(tags_.value),
-                        bool(exclude_.value), bool(nsfw.value)))
+            """How many filters are on (said on the folded panel): the fields filled in. Not the switches (where
+            the words are searched, NSFW shown): settings of the search, always one way or the other."""
+            return sum((bool((by_.value or '').strip()), bool(tags_.value), bool(exclude_.value)))
 
         def query(cursor_: str | None) -> CardQuery:
             return CardQuery(card_name=search.value or None, in_description=where_.value == 'all',
@@ -360,7 +360,7 @@ class SharingSection:
         def results() -> None:
             if not shown:
                 with ui.column().classes('panel gap-1').mark('shared-empty'):
-                    if search.value or publisher or on() - bool(nsfw.value):
+                    if search.value or publisher or on():
                         ui.label('No card matches').classes('panel-title')
                     else:
                         ui.label('No shared cards yet').classes('panel-title')
@@ -407,7 +407,7 @@ class SharingSection:
 
         await fill()
         results()
-        if on() - bool(nsfw.value):
+        if on() or where_.value == 'all':  # (opened with filters on, or searching descriptions: shown)
             filters.open()
         for field in (search, where_, by_, tags_, exclude_):
             field.on_value_change(changed)

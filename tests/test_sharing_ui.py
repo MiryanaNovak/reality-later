@@ -114,7 +114,7 @@ async def test_words_from_their_start(user):
     await user.should_see('No card matches', retries=SLOW)
     set_value(user, 'shared-where', 'all')
     await user.should_see('Aria the Wanderer', retries=SLOW)
-    assert user.find(marker='shared-filters').elements.pop().props['caption'] == '1 filter on'
+    assert user.find(marker='shared-filters').elements.pop().props['caption'] == ''  # (a switch: not a filter)
 
 
 async def test_by_publisher_and_excluded_tags(user):
@@ -140,7 +140,33 @@ async def test_filters_from_the_address(user):
         ('wand', 'all', 'mar')
     assert value(user, 'shared-tags') == ['fantasy', 'travel'] and value(user, 'shared-exclude') == ['romance']
     filters = user.find(marker='shared-filters').elements.pop()
-    assert filters.value and filters.props['caption'] == '4 filters on'  # (opened: some are on)
+    assert filters.value and filters.props['caption'] == '3 filters on'  # (opened: some are on)
+
+
+async def test_what_counts_as_a_filter(user):
+    """The fields filled in: the publisher, the tags, those excluded. Not the switches (where the words are
+    searched, NSFW shown). What each field takes: said in it, when it's clicked."""
+    await user.open('/shared')
+    await user.should_see('Aria the Wanderer', retries=SLOW)
+    filters = user.find(marker='shared-filters').elements.pop()
+    set_value(user, 'shared-nsfw', True)
+    set_value(user, 'shared-where', 'all')
+    await user.should_see('Bram after Dark', retries=SLOW)  # (NSFW, shown)
+    assert filters.props['caption'] == ''
+    set_value(user, 'shared-tags', ['fantasy'])
+    await user.should_not_see('Cass of the Station', retries=SLOW)
+    assert filters.props['caption'] == '1 filter on'
+    set_value(user, 'shared-exclude', ['travel'])
+    set_value(user, 'shared-by', 'mar')
+    await user.should_see('No card matches', retries=SLOW)
+    assert filters.props['caption'] == '3 filters on'
+
+    for marker, text in (('shared-tags', 'Cards with any of these'), ('shared-exclude', 'Cards with none of these'),
+                         ('shared-by', 'Their name, now or before')):
+        field = user.find(marker=marker).elements.pop()
+        assert text in (field.props.get('placeholder'), getattr(field, 'placeholder', None))
+    labels = [e.text for e in user.find(ui.label).elements]
+    assert not any(t.startswith('Cards with') for t in labels)  # (not under the fields)
 
 
 async def test_yours_apart(user, tmp_path):
@@ -167,7 +193,12 @@ async def test_yours_apart(user, tmp_path):
     await user.should_see('Withdrawn just now: Too dark.', retries=SLOW)
     await user.should_see('with a key you used before', retries=SLOW)  # (Marie's: still yours)
 
-    await user.open(f'/shared?publisher={ARIA_2.publisher_id}')  # (yours: on their own page)
+    # Yours: on their own page. Gone to from within the app (as by "All their cards"): opened afresh, NiceGUI's
+    # simulated user can send the page's redirect to the page before, when the new one is built before it's told
+    # it's on it (its navigate goes to "the user's page", not the page that asks, as the app's own does)
+    await user.open('/shared')
+    await user.should_see(marker='shared-search', retries=SLOW)
+    user.navigate.to(f'/shared?publisher={ARIA_2.publisher_id}')
     await user.should_see(marker='published-list', retries=SLOW)
     await user.open(f'/shared/{ARIA_2.event_id}')
     await user.should_see('Published with a key you used before', retries=SLOW)
