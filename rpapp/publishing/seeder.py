@@ -27,6 +27,7 @@ libtorrent's packages exist for Python 3.13 and earlier (torrent_problem() says 
 from __future__ import annotations
 
 import asyncio
+import errno
 import ipaddress
 import logging
 import time
@@ -93,11 +94,24 @@ GONE_REASONS = {
     'too_many_connections': 'it has too many connections already',
     'blocked': 'this computer blocks it', 'port_blocked': 'this computer blocks it',
 }
+_CLOSED = 'it closed the connection (it may not share this card)'
+_REFUSED = 'it refused the connection: nothing listens on that port any more'
+_NO_ANSWER = 'no answer: a firewall may be in the way'
+_UNREACHABLE = 'it can\'t be reached from here'
+# The system's errors, by their number (not their message: Windows' are in its own language): this system's
+# (errno's), and Windows' own (WSAE...), whatever Python's errno says of them there
+GONE_ERRNOS = {
+    **dict.fromkeys((errno.ECONNRESET, errno.ECONNABORTED, errno.EPIPE, 10054, 10053), _CLOSED),
+    **dict.fromkeys((errno.ECONNREFUSED, 10061), _REFUSED),
+    **dict.fromkeys((errno.ETIMEDOUT, 10060), _NO_ANSWER),
+    **dict.fromkeys((errno.EHOSTUNREACH, errno.ENETUNREACH, 10065, 10051), _UNREACHABLE),
+}
+# Others (libtorrent's own, in English), by their message
 GONE_ERRORS = (
-    (('end of file', 'connection reset', 'broken pipe'), 'it closed the connection (it may not share this card)'),
-    (('connection refused',), 'it refused the connection: nothing listens on that port any more'),
-    (('timed out',), 'no answer: a firewall may be in the way'),
-    (('no route to host', 'network is unreachable', 'host is unreachable'), 'it can\'t be reached from here'),
+    (('end of file', 'connection reset', 'broken pipe'), _CLOSED),
+    (('connection refused',), _REFUSED),
+    (('timed out',), _NO_ANSWER),
+    (('no route to host', 'network is unreachable', 'host is unreachable'), _UNREACHABLE),
 )
 PEER_ALERTS = frozenset({'peer_connect', 'peer_disconnected'})
 
@@ -488,8 +502,16 @@ def _ip_version(address) -> int:
 
 
 def _why_gone(alert) -> str:
-    """Why a connection closed, in plain words (libtorrent's error or reason, else)."""
-    error = alert.error.message() if alert.error.value() else ''
+    """Why a connection closed, in plain words: by its error's number (the system's, or asio's end of file),
+    else its message, else libtorrent's reason; else as libtorrent says it."""
+    error = ''
+    if code := alert.error.value():
+        category = alert.error.category().name()
+        if category == 'system' and code in GONE_ERRNOS:
+            return GONE_ERRNOS[code]
+        if category == 'asio.misc' and code == 2:  # (end of file: it closed the connection)
+            return _CLOSED
+        error = alert.error.message()
     for words, said in GONE_ERRORS:
         if any(w in error.lower() for w in words):
             return said

@@ -287,16 +287,30 @@ async def test_who_was_found(tmp_path):
 
 
 def test_why_they_left_in_words():
+    import errno
     from types import SimpleNamespace
 
     from rpapp.publishing.seeder import PeerEvent, _found_meanwhile, _why_gone
 
-    def alert(error='', reason='none'):
-        return SimpleNamespace(error=SimpleNamespace(value=lambda: 1 if error else 0, message=lambda: error),
+    def alert(error='', reason='none', *, code=None, category='libtorrent'):
+        return SimpleNamespace(error=SimpleNamespace(value=lambda: code or (1 if error else 0), message=lambda: error,
+                                                     category=lambda: SimpleNamespace(name=lambda: category)),
                                reason=f'close_reason_t.{reason}')
+    closed = 'it closed the connection (it may not share this card)'
+    # By their number: whatever the system's language (Windows': in its own)
+    assert _why_gone(alert('Connection reset by peer', code=errno.ECONNRESET, category='system')) == closed
+    assert _why_gone(alert('Une connexion existante a dû être fermée par l\'hôte distant.', code=10054,
+                           category='system')) == closed  # (WSAECONNRESET, on a French Windows)
+    assert _why_gone(alert('End of file', code=2, category='asio.misc')) == closed
+    assert _why_gone(alert('Verbindungsaufbau abgelehnt', code=10061, category='system')) == \
+        'it refused the connection: nothing listens on that port any more'
+    assert _why_gone(alert('timed out', code=errno.ETIMEDOUT, category='system')) == \
+        'no answer: a firewall may be in the way'
+    assert _why_gone(alert('No route to host', code=errno.EHOSTUNREACH, category='system')) == \
+        'it can\'t be reached from here'
+    # Else by their message (libtorrent's own, in English)
     assert _why_gone(alert('Connection refused')) == 'it refused the connection: nothing listens on that port any more'
     assert _why_gone(alert('Connection timed out')) == 'no answer: a firewall may be in the way'
-    assert _why_gone(alert('No route to host')) == 'it can\'t be reached from here'
     assert _why_gone(alert(reason='self_connection')) == 'it was this computer itself'
     assert _why_gone(alert(reason='invalid_info_hash')) == 'it doesn\'t share this card'
     assert _why_gone(alert('Something new')) == 'Something new'
