@@ -107,8 +107,9 @@ class Fetch:
 
 
 # Adds a card file as a character: (file name, content, the user's languages) → (character id, what was
-# done). Called on the event loop, like the app's own Import.
-Importer = Callable[[str, bytes, tuple[str, ...]], tuple[str, str]]
+# done, what its card holds as added: its fingerprint, kept to tell whether it's edited since). Called on the
+# event loop, like the app's own Import.
+Importer = Callable[[str, bytes, tuple[str, ...]], tuple[str, str, str]]
 
 
 class Sharing:
@@ -461,12 +462,13 @@ class Sharing:
                 raise SharingError('The file received isn\'t the one announced: it was deleted.')
         fetch.stage = 'adding'
         try:  # (on the event loop, as the app's own Import: the stores' hooks expect it)
-            character_id, message = self.importer(p.file_name, content, fetch.languages)
+            character_id, message, fingerprint = self.importer(p.file_name, content, fetch.languages)
         except Exception as e:  # (cards.CardError: not a card this app reads; or the disk)
             if got is not None:
                 await asyncio.to_thread(got.unlink, missing_ok=True)
             raise SharingError(f'It can\'t be added as a character: {e}') from None
-        await self.call(self.catalog.record_download, p.event_id, p.torrent_infohash, p.file_name, character_id)
+        await self.call(self.catalog.record_download, p.event_id, p.torrent_infohash, p.file_name, character_id,
+                        fingerprint)
         if self.share_downloads:  # (shared from here in turn: kept in files/)
             async with self._files_lock:
                 if got is not None:

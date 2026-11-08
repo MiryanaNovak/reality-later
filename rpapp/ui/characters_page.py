@@ -90,10 +90,11 @@ class CharactersSection(ProfileSection[Character]):
             return ()
         return [('Publish to shared cards', lambda: self.publish(character), False)]
 
-    def import_shared(self, file_name: str, content: bytes, languages: Iterable[str]) -> tuple[str, str]:
-        """A shared card downloaded (publishing/service.py's importer): added as a new character, like Import."""
+    def import_shared(self, file_name: str, content: bytes, languages: Iterable[str]) -> tuple[str, str, str]:
+        """A shared card downloaded (publishing/service.py's importer): added as a new character, like Import;
+        its card's fingerprint then, to tell whether it's edited since."""
         character, said = self.import_card(file_name, content, languages=languages)
-        return character.id, said
+        return character.id, said, self.card_fingerprint(character)
 
     async def publish(self, character: Character) -> None:
         """The card file is the one Export makes (with the card's UUID in it); the character is saved with that

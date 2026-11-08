@@ -127,6 +127,62 @@ async def test_withdrawn_or_newer_since(user, marie, mine, tmp_path):
     await user.should_not_see(marker='shared-add')
 
 
+def scenario_field(user):
+    return next(e for e in user.find(ui.textarea).elements if e.props.get('label') == 'Scenario')
+
+
+async def test_edited_since(user, marie, mine, tmp_path):
+    """Its page says whether you edited it since you downloaded it, as you do; added again, it's another
+    character, and the one you had still comes from it. (With a picture: made again here, as a WebP.)"""
+    import io
+
+    from PIL import Image
+    picture = io.BytesIO()
+    Image.new('RGB', (300, 400), (180, 90, 60)).save(picture, 'PNG')
+    aria = new_character('Aria')
+    aria.description = 'A wandering bard.'
+    aria.scenario = '{{char}} sings of old roads.'
+    p = await published(marie, mine, card_png(card_data(aria), picture.getvalue()))
+    fetch = mine.download(p.event_id)
+    await fetch.task
+    character_id = fetch.character_id
+    assert CharacterStore(tmp_path).get(character_id).image  # (its picture, kept)
+    await user.open(f'/characters/{character_id}')
+    await user.should_see(marker='character-not-edited', retries=SLOW)  # (as added: nothing changed it since)
+    await user.should_see('Not edited since you downloaded it')
+
+    scenario_field(user).set_value('{{char}} sings, and fights.')
+    await user.should_see(marker='character-edited', retries=SLOW)
+    await user.should_see('Edited by you since you downloaded it')
+    scenario_field(user).set_value('{{char}} sings of old roads.')  # (as it was)
+    await user.should_see(marker='character-not-edited', retries=SLOW)
+    scenario_field(user).set_value('{{char}} sings, and fights.')
+    await user.should_see(marker='character-edited', retries=SLOW)
+
+    again = mine.download(p.event_id)
+    await again.task
+    assert again.character_id not in ('', character_id)
+    await user.open(f'/characters/{character_id}')  # (the one edited: still from it, still edited)
+    await user.should_see(marker='character-shared-from', retries=SLOW)
+    await user.should_see(marker='character-edited', retries=SLOW)
+    await user.open(f'/characters/{again.character_id}')
+    await user.should_see(marker='character-not-edited', retries=SLOW)
+
+
+async def test_downloaded_before_fingerprints(user, marie, mine, tmp_path):
+    """Added before what it was then was kept: when, but not whether it was edited since."""
+    p = await published(marie, mine)
+    store = CharacterStore(tmp_path)
+    aria = new_character('Aria')
+    store.save(aria)
+    mine.catalog.record_download(p.event_id, p.torrent_infohash, p.file_name, aria.id)  # (no fingerprint)
+    await user.open(f'/characters/{aria.id}')
+    await user.should_see(marker='character-shared-from', retries=SLOW)
+    await user.should_see('Downloaded on')
+    await user.should_not_see(marker='character-edited')
+    await user.should_not_see(marker='character-not-edited')
+
+
 async def test_nobody_shares_it(user, mine):
     lonely = fmt.build_publication(DRAFT, torrents.card_file(aria_card()), card_uuid=fmt.new_card_uuid(),
                                    secret=nostr.new_secret())

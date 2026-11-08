@@ -220,6 +220,24 @@ MIGRATIONS = [
         recorded_at  INTEGER NOT NULL
     );
     """,
+    # 8: the downloads, one per character (a card added again is another character: the one had before still
+    # comes from it), with what each character's card held when it was added (its fingerprint, made by the
+    # app: characters_page.py), to tell whether it was edited since; '' for those added before
+    """
+    CREATE TABLE downloads_new (
+        character_id  TEXT PRIMARY KEY,
+        event_id      TEXT NOT NULL CHECK (length(event_id) = 64),
+        infohash      TEXT NOT NULL,
+        file_name     TEXT NOT NULL,
+        downloaded_at INTEGER NOT NULL,
+        fingerprint   TEXT NOT NULL DEFAULT ''
+    );
+    INSERT INTO downloads_new (character_id, event_id, infohash, file_name, downloaded_at)
+    SELECT character_id, event_id, infohash, file_name, downloaded_at FROM downloads;
+    DROP TABLE downloads;
+    ALTER TABLE downloads_new RENAME TO downloads;
+    CREATE INDEX downloads_by_event ON downloads (event_id, downloaded_at);
+    """,
 ]
 
 
@@ -370,12 +388,14 @@ class Seeding:
 
 @dataclass(frozen=True, slots=True)
 class Download:
-    """A publication downloaded here, and the character it became (the last time it was added)."""
+    """A publication downloaded here, and a character it became (added again: another one)."""
     event_id: str
     infohash: str
     file_name: str
     character_id: str
     downloaded_at: int
+    fingerprint: str = ''  # what its card held when it was added (the app's), to tell whether it was edited
+    #                        since; '' if it was added before that was kept
 
 
 @dataclass(frozen=True, slots=True)
@@ -773,24 +793,30 @@ class Catalog:
             return {row[0] for row in self._db.execute('SELECT DISTINCT t.file_name FROM seeding s JOIN torrents t '
                                                        'ON t.infohash = s.infohash WHERE s.enabled = 1')}
 
-    def record_download(self, event_id: str, infohash: str, file_name: str, character_id: str) -> None:
-        """A publication downloaded, added as that character (again: the new one replaces the old)."""
+    def record_download(self, event_id: str, infohash: str, file_name: str, character_id: str,
+                        fingerprint: str = '') -> None:
+        """A publication downloaded, added as that character (again: another character, recorded too), its
+        card's fingerprint then."""
         with self._write():
-            self._db.execute('INSERT INTO downloads (event_id, infohash, file_name, character_id, downloaded_at) '
-                             'VALUES (?, ?, ?, ?, ?) ON CONFLICT (event_id) DO UPDATE SET character_id = '
-                             'excluded.character_id, downloaded_at = excluded.downloaded_at',
-                             (event_id, infohash, file_name, character_id, int(time.time())))
+            self._db.execute('INSERT INTO downloads (character_id, event_id, infohash, file_name, downloaded_at, '
+                             'fingerprint) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (character_id) DO UPDATE SET '
+                             'event_id = excluded.event_id, infohash = excluded.infohash, file_name = '
+                             'excluded.file_name, downloaded_at = excluded.downloaded_at, fingerprint = '
+                             'excluded.fingerprint',
+                             (character_id, event_id, infohash, file_name, int(time.time()), fingerprint))
 
     def download(self, event_id: str) -> Download | None:
+        """A publication's download: the last time it was added."""
         with self._lock:
-            row = self._db.execute('SELECT * FROM downloads WHERE event_id = ?', (event_id,)).fetchone()
+            row = self._db.execute('SELECT * FROM downloads WHERE event_id = ? ORDER BY downloaded_at DESC, '
+                                   'rowid DESC LIMIT 1', (event_id,)).fetchone()
             return _download(row) if row else None
 
     def downloads(self, *, character_id: str | None = None) -> tuple[Download, ...]:
         """The publications downloaded (those a character came from), the most recent first."""
         with self._lock:
             rows = self._db.execute('SELECT * FROM downloads WHERE ? IS NULL OR character_id = ? '
-                                    'ORDER BY downloaded_at DESC, event_id', (character_id, character_id))
+                                    'ORDER BY downloaded_at DESC, rowid DESC', (character_id, character_id))
             return tuple(_download(row) for row in rows)
 
     def downloaded(self, event_ids: Iterable[str]) -> set[str]:
@@ -1009,4 +1035,5 @@ def _cursor(cursor: str) -> tuple[int, str]:
 
 
 def _download(row: sqlite3.Row) -> Download:
-    return Download(row['event_id'], row['infohash'], row['file_name'], row['character_id'], row['downloaded_at'])
+    return Download(row['event_id'], row['infohash'], row['file_name'], row['character_id'], row['downloaded_at'],
+                    row['fingerprint'])

@@ -44,11 +44,11 @@ class Importer:
         self.added: list[tuple[str, bytes]] = []
         self.fail = fail
 
-    def __call__(self, file_name: str, content: bytes, languages=()) -> tuple[str, str]:
+    def __call__(self, file_name: str, content: bytes, languages=()) -> tuple[str, str, str]:
         if self.fail:
             raise self.fail
         self.added.append((file_name, content))
-        return f'aria-{len(self.added)}', f'Imported "Aria" ({len(self.added)})'
+        return f'aria-{len(self.added)}', f'Imported "Aria" ({len(self.added)})', f'fingerprint {len(self.added)}'
 
 
 @pytest.fixture
@@ -104,6 +104,7 @@ async def test_downloading_a_card(marie, juno, tmp_path):
     assert juno.importer.added == [(p.file_name, content)]  # (the file announced, checked)
     record = juno.catalog.download(p.event_id)
     assert (record.character_id, record.infohash, record.file_name) == ('aria-1', p.torrent_infohash, p.file_name)
+    assert record.fingerprint == 'fingerprint 1'  # (what the character was as added: the importer's)
 
     # Shared from here in turn: someone else gets it from Juno alone, Marie gone
     kept = tmp_path / 'juno' / 'sharing' / 'files' / p.file_name
@@ -127,6 +128,7 @@ async def test_again(marie, juno, tmp_path):
     again = await downloaded(juno, p.event_id)  # (the file kept here: not downloaded again)
     assert (again.stage, again.character_id) == ('done', 'aria-2')
     assert juno.catalog.download(p.event_id).character_id == 'aria-2'  # (the latest one it became)
+    assert [d.character_id for d in juno.catalog.downloads(character_id='aria-1')] == ['aria-1']  # (still from it)
     assert juno.catalog.downloaded([p.event_id, '0' * 64]) == {p.event_id}
 
 

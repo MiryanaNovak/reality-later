@@ -188,11 +188,34 @@ def test_a_catalog_from_before_word_search(tmp_path):
     with sqlite3.connect(path) as db:  # (as it was: version 5, without what came after)
         db.execute('DROP TABLE publication_text')
         db.execute('DROP TABLE publication_sources')
+        db.execute('DROP TABLE downloads')
+        db.executescript(MIGRATIONS[4])  # (the downloads of version 5)
         db.execute('PRAGMA user_version = 5')
     with Catalog(path) as c:
         assert [e.publication.event_id for e in c.cards(CardQuery(card_name='cafe omb')).items] == [p.event_id]
         assert len(c.cards(CardQuery(card_name='fantome', in_description=True)).items) == 1
         assert len(c.cards(CardQuery(publisher_name='zoe')).items) == 1
+
+
+def test_downloads_from_before_fingerprints(tmp_path):
+    """A catalog made before migration 8 (one download per publication, no fingerprint): its downloads kept;
+    added again, a card's both characters come from it."""
+    path = tmp_path / 'old.sqlite3'
+    with Catalog(path):
+        pass
+    event_id, infohash = 'a' * 64, 'b' * 40
+    with sqlite3.connect(path) as db:
+        db.execute('DROP TABLE downloads')
+        db.executescript(MIGRATIONS[4])
+        db.execute('INSERT INTO downloads VALUES (?, ?, ?, ?, ?)', (event_id, infohash, 'aria.png', 'aria-1', T0))
+        db.execute('PRAGMA user_version = 7')
+    with Catalog(path) as c:
+        [old] = c.downloads()
+        assert (old.event_id, old.character_id, old.downloaded_at, old.fingerprint) == (event_id, 'aria-1', T0, '')
+        c.record_download(event_id, infohash, 'aria.png', 'aria-2', 'its fingerprint')
+        assert [d.character_id for d in c.downloads()] == ['aria-2', 'aria-1']
+        assert (c.download(event_id).character_id, c.download(event_id).fingerprint) == ('aria-2', 'its fingerprint')
+        assert c.downloads(character_id='aria-1') == (old,) and c.downloaded([event_id]) == {event_id}
 
 
 def test_a_withdrawal_before_its_publication(catalog):

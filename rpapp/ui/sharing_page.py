@@ -962,12 +962,12 @@ class SharingSection:
                              export: Callable[[Character], bytes] | None = None,
                              publish: Callable[[], object] | None = None) -> None:
         """On a character's page (characters_page.py): the card you published from it, if you did (changed
-        since, or not; withdrawn), and the shared card it was downloaded from, if it was (withdrawn since, or a
-        newer version out)."""
+        since, or not; withdrawn), and the shared card it was downloaded from, if it was (edited by you since, or
+        not; withdrawn since, or a newer version out)."""
         if self.sharing is None:
             return
         await self._published_note(character, fingerprint, export, publish)
-        await self._downloaded_note(character.id)
+        await self._downloaded_note(character, fingerprint)
 
     async def _published_note(self, character: Character, fingerprint: Callable[[Character], str] | None,
                               export: Callable[[Character], bytes] | None,
@@ -1033,37 +1033,87 @@ class SharingSection:
                 note.refresh()
         ui.timer(2, tick)
 
-    async def _downloaded_note(self, character_id: str) -> None:
+    async def _downloaded_note(self, character: Character, fingerprint: Callable[[Character], str] | None) -> None:
+        """Downloaded from a shared card: which one (withdrawn since, or a newer version out), when, and whether
+        you edited the character since, as it's edited (its card's fingerprint as added, against now; not
+        known for those added before that was kept)."""
         sharing = self.sharing
-        records = await sharing.call(sharing.catalog.downloads, character_id=character_id)
+        records = await sharing.call(sharing.catalog.downloads, character_id=character.id)
         if not records:
             return
-        entry = await sharing.call(sharing.catalog.get, records[0].event_id)
+        record = records[0]
+        entry = await sharing.call(sharing.catalog.get, record.event_id)
         latest = None
         if entry is not None and entry.withdrawn is None and not entry.is_latest:
             p = entry.publication
             versions = await sharing.call(sharing.catalog.versions, p.publisher_id, p.card_uuid)
             latest = next((v for v in versions if v.is_latest), None)
+
+        def edited() -> bool | None:
+            if not record.fingerprint or fingerprint is None:
+                return None
+            try:
+                return fingerprint(character) != record.fingerprint
+            except Exception:  # (a damaged lore book...: can't tell)
+                log.warning('Can\'t tell whether %s was edited', character.id, exc_info=True)
+                return None
+
+        # (worked out first, then drawn at once, and only when it changes: see _published_note)
+        shown = {'edited': edited(), 'character': character.model_dump_json()}
+
+        @ui.refreshable
+        def since() -> None:
+            when = date_text(record.downloaded_at)
+            if shown['edited']:
+                ui.label(f'Edited by you since you downloaded it ({when}).').mark('character-edited')
+            elif shown['edited'] is False:
+                ui.label(f'Not edited since you downloaded it ({when}).').classes('muted') \
+                    .mark('character-not-edited')
+            else:
+                ui.label(f'Downloaded on {when}.').classes('muted')
+
         with ui.row().classes('items-start no-wrap gap-2 text-sm w-full').mark('character-shared-from'):
             ui.icon('travel_explore', size='1.3em', color='primary')
             with ui.column().classes('gap-0 min-w-0'):
                 if entry is None:  # (its publisher blocked since)
                     ui.label('From a shared card no longer in your catalog.').classes('muted')
-                    return
-                p = entry.publication
-                with ui.row().classes('items-center gap-1'):
-                    ui.label('From the shared card').classes('muted')
-                    ui.link(f'"{p.card_name}" by {entry.publisher_name}', f'/shared/{p.event_id}')
-                if entry.withdrawn is not None:
-                    reason = f' Their reason: {entry.withdrawn.reason}' if entry.withdrawn.reason else ''
-                    ui.label(f'Its publisher withdrew it {time_ago(_when(entry.withdrawn.at))}: it can no longer be '
-                             f'downloaded. You keep this character.{reason}') \
-                        .classes('text-negative break-words').mark('character-shared-withdrawn')
-                elif latest is not None:
-                    with ui.row().classes('items-center gap-1').mark('character-shared-newer'):
-                        ui.label('A newer version is out:').classes('muted')
-                        ui.link(f'see it ({date_text(latest.publication.created_at)})',
-                                f'/shared/{latest.publication.event_id}')
+                else:
+                    p = entry.publication
+                    with ui.row().classes('items-center gap-1'):
+                        ui.label('From the shared card').classes('muted')
+                        ui.link(f'"{p.card_name}" by {entry.publisher_name}', f'/shared/{p.event_id}')
+                since()
+                self._shared_since(entry, latest)
+
+        if shown['edited'] is None:
+            return
+
+        def tick() -> None:  # (edited here: said as soon as it's saved)
+            now = character.model_dump_json()
+            if now == shown['character']:
+                return
+            shown['character'] = now
+            answer = edited()
+            if answer != shown['edited']:
+                shown['edited'] = answer
+                since.refresh()
+        ui.timer(2, tick)
+
+    @staticmethod
+    def _shared_since(entry: CatalogEntry | None, latest: CatalogEntry | None) -> None:
+        """What became of the shared card a character was downloaded from: withdrawn, or a newer version."""
+        if entry is None:
+            return
+        if entry.withdrawn is not None:
+            reason = f' Their reason: {entry.withdrawn.reason}' if entry.withdrawn.reason else ''
+            ui.label(f'Its publisher withdrew it {time_ago(_when(entry.withdrawn.at))}: it can no longer be '
+                     f'downloaded. You keep this character.{reason}') \
+                .classes('text-negative break-words').mark('character-shared-withdrawn')
+        elif latest is not None:
+            with ui.row().classes('items-center gap-1').mark('character-shared-newer'):
+                ui.label('A newer version is out:').classes('muted')
+                ui.link(f'see it ({date_text(latest.publication.created_at)})',
+                        f'/shared/{latest.publication.event_id}')
 
     @staticmethod
     async def _withdraw_dialog(entry: CatalogEntry, versions: list[CatalogEntry]) -> tuple[list[str], str] | None:
