@@ -375,16 +375,20 @@ async def test_another_computer_gets_the_file(sharing):
     published = await sharing.publish(DRAFT, content, card_uuid=fmt.new_card_uuid())
     p = published.publication
     with tempfile.TemporaryDirectory() as folder:
+        # (TCP: on one computer, uTP can stall a while, on Windows especially)
         other = lt.session({'listen_interfaces': '127.0.0.1:0', 'enable_dht': False, 'enable_lsd': False,
-                            'enable_upnp': False, 'enable_natpmp': False})
+                            'enable_upnp': False, 'enable_natpmp': False, 'enable_outgoing_utp': False,
+                            'enable_incoming_utp': False})
         params = lt.parse_magnet_uri(f'magnet:?xt=urn:btih:{p.torrent_infohash}')
         params.save_path = folder
         handle = other.add_torrent(params)
         handle.connect_peer(('127.0.0.1', sharing.session.port))
-        for _ in range(100):
+        for _ in range(300):  # (30 s at most: GitHub's machines can be slow)
             if handle.status().is_seeding:
                 break
             await asyncio.sleep(0.1)
+        s = handle.status()
+        assert s.is_seeding, f'not all of it after 30 s: {s.progress:.0%}, {s.num_peers} peer(s), {s.state}'
         got = Path(folder) / p.file_name
         assert got.read_bytes() == content
         assert sharing.session.status(p.torrent_infohash).uploaded >= len(content)
@@ -424,7 +428,7 @@ async def test_a_tracker_that_fails_isnt_a_failure(tmp_path, caplog):
     caplog.set_level('DEBUG', logger='rpapp.publishing.seeder')
     try:
         infohash = session.seed(file.metainfo(), tmp_path)
-        for _ in range(100):
+        for _ in range(300):  # (15 s at most: GitHub's machines can be slow)
             if '/announce' in caplog.text:
                 break
             session.status(infohash)
