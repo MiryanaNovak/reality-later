@@ -389,7 +389,14 @@ async def test_another_computer_gets_the_file(sharing):
             await asyncio.sleep(0.1)
         s = handle.status()
         assert s.is_seeding, f'not all of it after 30 s: {s.progress:.0%}, {s.num_peers} peer(s), {s.state}'
+        # All of it received and checked, but maybe not all written yet (libtorrent writes in its own time):
+        # asked to write it, and given the time to (as the app's own downloads are: seeder.fetch)
+        handle.flush_cache()
         got = Path(folder) / p.file_name
+        for _ in range(100):
+            if got.is_file() and got.stat().st_size == len(content) and got.read_bytes() == content:
+                break
+            await asyncio.sleep(0.1)
         assert got.read_bytes() == content
         assert sharing.session.status(p.torrent_infohash).uploaded >= len(content)
 

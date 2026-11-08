@@ -317,3 +317,31 @@ def test_why_they_left_in_words():
     assert PeerEvent('203.0.113.7', 6881, left=False).text == 'Connected to 203.0.113.7, asking for the card…'
     assert PeerEvent('192.168.1.20', 6881, left=True, why='no answer').who == '192.168.1.20 (on your network)'
     assert _found_meanwhile([PeerEvent('192.168.1.20', 6881, left=False)]) == ''  # (connected, never gone: said)
+
+
+# --- all of it written, before it's read ------------------------------------------------------------------
+
+async def test_written_before_its_read():
+    """A file all received and checked may not all be written yet (libtorrent writes in its own time): it's
+    asked to, and the download waits until it says so (on a slow computer, GitHub's, the end was missing)."""
+    import time
+    from types import SimpleNamespace
+    s = TorrentSession(listen='127.0.0.1:0', dht=False, local_discovery=False, port_mapping=False, trackers=())
+    alerts = []
+    s._session = SimpleNamespace(pop_alerts=lambda: [alerts.pop()] if alerts else [])  # (as if started)
+    asked = []
+    handle = SimpleNamespace(flush_cache=lambda: asked.append('flush'),
+                             info_hashes=lambda: SimpleNamespace(v1='ab' * 20))
+
+    async def said_later():  # (libtorrent: written, a moment later; among what else it says)
+        await asyncio.sleep(0.3)
+        alerts.append(SimpleNamespace(what=lambda: 'cache_flushed', handle=handle))
+    asyncio.create_task(said_later())
+    started = time.monotonic()
+    await s._written('ab' * 20, handle)
+    assert asked == ['flush'] and time.monotonic() - started >= 0.25
+
+    started = time.monotonic()  # (never said: on all the same, after a while; its SHA-256 is checked next)
+    await s._written('cd' * 20, handle, timeout=0.2)
+    assert 0.2 <= time.monotonic() - started < 2
+    s._session = None

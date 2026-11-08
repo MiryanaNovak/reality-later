@@ -50,6 +50,7 @@ TORRENT_ERRORS = frozenset({'file_error', 'torrent_error', 'hash_failed'})
 FIND_TIMEOUT = 120.0  # seconds: nobody sharing the file found by then, a download gives up
 STALL_TIMEOUT = 120.0  # seconds: nothing more received for that long, too
 POLL = 0.25           # seconds between two looks at a download
+FLUSH_TIMEOUT = 30.0  # seconds: a file downloaded, libtorrent says when all of it is written, by then at most
 DEFAULT_PORT = 6881   # BitTorrent's usual one; taken, the next ones are tried (unless a port is set)
 ROUTER_WAIT = 30.0    # seconds: the router hasn't answered by then, it's said
 
@@ -195,6 +196,7 @@ class TorrentSession:
         self._fetching: dict[str, object] = {}  # infohash → torrent handle, of the files being downloaded
         self._errors: dict[str, tuple[str, str]] = {}  # infohash → what went wrong with it: (alert, message)
         self._peers_seen: dict[str, list[PeerEvent]] = {}  # infohash → who was found, of the files being downloaded
+        self._flushed: set[str] = set()  # infohashes whose files libtorrent said are all written (flush_cache)
         # How others reach this computer (network()), from libtorrent's alerts
         # (TCP or UDP, IP version 4 or 6) → port; IP version → why TCP can't listen. IPv4 is what counts: most
         # peers have it, and an IPv6 that works doesn't make up for it (nor does one that fails matter much)
@@ -218,7 +220,7 @@ class TorrentSession:
             settings = dict(self.settings)
             settings['alert_mask'] = (category.error_notification | category.status_notification
                                       | category.port_mapping_notification | category.peer_notification
-                                      | category.connect_notification)
+                                      | category.connect_notification | category.storage_notification)
             self._session = lt.session(settings)
             self._asking_since = time.time() if settings['enable_upnp'] or settings['enable_natpmp'] else None
 
@@ -328,6 +330,9 @@ class TorrentSession:
                         raise FetchError('Nobody sharing it was found: its publisher, and those who have it, may '
                                          'be away. Try again later.' + _found_meanwhile(seen))
                 elif s.is_seeding:
+                    # (all of it received and checked, but maybe not all written yet: libtorrent writes in
+                    # its own time, and the file read now could lack its end, on a busy computer)
+                    await self._written(infohash, handle)
                     done = True
                     break
                 elif s.total_wanted_done != received:
@@ -345,6 +350,20 @@ class TorrentSession:
             self._peers_seen.pop(infohash, None)
             await self._remove(infohash, handle, delete=not done)
         return folder / name
+
+    async def _written(self, infohash: str, handle, *, timeout: float = FLUSH_TIMEOUT) -> None:
+        """Wait until all of a torrent's file is written (libtorrent says so: cache_flushed): what the caller
+        reads next is all of it. Not said within `timeout`: on all the same (its SHA-256 is checked next)."""
+        self._flushed.discard(infohash)
+        handle.flush_cache()
+        deadline = time.monotonic() + timeout
+        while infohash not in self._flushed:
+            if time.monotonic() > deadline:
+                log.warning('BitTorrent: %s not said to be written after %.0f s', infohash, timeout)
+                return
+            self._read_alerts()
+            await asyncio.sleep(0.02)
+        self._flushed.discard(infohash)
 
     async def _remove(self, infohash: str, handle, *, delete: bool) -> None:
         """Remove a torrent, and wait until it's gone: libtorrent does it in its own time, and the same file
@@ -422,6 +441,12 @@ class TorrentSession:
                 continue
             if what in PEER_ALERTS and handle is not None:
                 self._peer_alert(what, alert, handle)
+                continue
+            if what == 'cache_flushed' and handle is not None:  # (see _written)
+                try:
+                    self._flushed.add(str(handle.info_hashes().v1))
+                except Exception:  # (a handle no longer valid)
+                    pass
                 continue
             if handle is None or 'error' not in what and 'failed' not in what:
                 continue
