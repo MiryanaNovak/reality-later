@@ -44,6 +44,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
+from ..cards import CardError, SafeguardError, check_shared_card
 from . import announcements as fmt
 from . import identity as keys
 from .announcements import Publication, PublicationDraft
@@ -262,6 +263,7 @@ class Sharing:
             raise SharingError('You need a publisher key to publish: make one in Settings › Sharing cards.')
         if problem := torrent_problem():
             raise SharingError(f'Cards can\'t be shared from this computer: {problem}.')
+        await shared_card_or_error(content, doing='published')  # (as others' apps will check it)
         file = await asyncio.to_thread(card_file, content)
         versions = await self.call(self.catalog.versions, me.public_key, card_uuid, include_withdrawn=True)
         # (a new version is always the newest: after the last one, even published within the same second)
@@ -549,6 +551,12 @@ class Sharing:
                 await asyncio.to_thread(got.unlink, missing_ok=True)
                 raise SharingError('The file received isn\'t the one announced: it was deleted.')
         fetch.stage = 'adding'
+        try:  # (within the safeguards: its picture's size, from its header...)
+            await shared_card_or_error(content, doing='added', file_name=p.file_name)
+        except SharingError:
+            if got is not None:
+                await asyncio.to_thread(got.unlink, missing_ok=True)
+            raise
         try:  # (on the event loop, as the app's own Import: the stores' hooks expect it)
             character_id, message, fingerprint = self.importer(p.file_name, content, fetch.languages)
         except Exception as e:  # (cards.CardError: not a card this app reads; or the disk)
@@ -614,6 +622,18 @@ class Sharing:
                     pass
         self.session.close()
         self.catalog.close()
+
+
+async def shared_card_or_error(content: bytes, *, doing: str, file_name: str = 'card.png') -> None:
+    """A card file within the safeguards for shared cards (cards.check_shared_card), checked in a thread;
+    SharingError if it isn't: "It can't be <doing>: its picture is ..."."""
+    try:
+        await asyncio.to_thread(check_shared_card, file_name, content, size_limit=fmt.DEFAULT_SIZE_LIMIT)
+    except SafeguardError as e:
+        raise SharingError(f'It can\'t be {doing}: {e}.') from None
+    except CardError as e:
+        raise SharingError(f'It can\'t be {doing} as a character: {e}' if doing == 'added' else
+                           f'It can\'t be {doing}: its card can\'t be read ({e})') from None
 
 
 def torrent_problem() -> str:

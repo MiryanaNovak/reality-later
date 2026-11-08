@@ -41,6 +41,7 @@ from urllib.parse import urlencode
 
 from nicegui import ui
 
+from ..cards import SafeguardError, check_shared_card, megabytes, png_text_chunks
 from ..publishing import runtime_problem
 from ..publishing import announcements as fmt
 from ..publishing.announcements import PublicationDraft, Rejected
@@ -115,8 +116,7 @@ def rejected_text(e: Rejected) -> str:
         'too_long:publisher': f'Your publisher name is too long: {fmt.MAX_PUBLISHER} characters at most.',
         'too_long:description': f'The description is too long: {fmt.MAX_DESCRIPTION_BYTES // 1024} KB at most '
                                 f'(about {fmt.MAX_DESCRIPTION_BYTES // 1000},000 letters).',
-        'file_too_big': f'The card\'s file is too big to share: {fmt.DEFAULT_SIZE_LIMIT // 1024 // 1024} MB at '
-                        f'most. Its picture is probably very large: try a smaller one.',
+        'file_too_big': f'The card\'s file is too big to share: {megabytes(fmt.DEFAULT_SIZE_LIMIT)} at most.',
         'control_character': 'The name or the description has invisible control characters: remove them.',
         'too_large': 'Its announcement would be too big: shorten the description, or remove tags.',
     }.get(e.code, f'It can\'t be published ({e}).')
@@ -1224,6 +1224,14 @@ class SharingSection:
         if problem := torrent_problem():
             ui.notify(f'Cards can\'t be shared from this computer: {problem}.', type='negative', multi_line=True)
             return None
+        try:  # (beyond the safeguards others' apps check it against: said now, not after the wizard)
+            content = await asyncio.to_thread(export, character)
+            await asyncio.to_thread(check_shared_card, 'card.png', content, size_limit=fmt.DEFAULT_SIZE_LIMIT)
+        except SafeguardError as e:
+            await self._beyond_safeguards(character, content, e)
+            return None
+        except Exception:  # (can't be told now: publishing says why, if it fails)
+            pass
         me, _ = self._key_or_problem()
         if settings.sharing.publishing_accepted < NOTICE_VERSION:
             steps = ['notice', 'key', 'sharing', 'card']
@@ -1505,6 +1513,33 @@ class SharingSection:
                               f'({summary})'}[published.action], type='positive', multi_line=True)
         ui.navigate.to(f'/shared/{published.publication.event_id}')
         return published
+
+    @staticmethod
+    async def _beyond_safeguards(character: Character, content: bytes, e: SafeguardError) -> None:
+        """Why a character can't be published (its card beyond the safeguards every app checks shared cards
+        against: it couldn't be added), and what can be done about it."""
+        if e.what == 'file':
+            text = len(png_text_chunks(content).get('chara', ''))  # (its texts and lore books, in the file)
+            if text * 2 >= len(content):
+                what_to_do = (f'Most of it is its texts and lore books ({megabytes(text)}): shorten them, or take '
+                              f'a lore book off the character.')
+            else:
+                what_to_do = 'Most of it is its picture: choose a smaller one.'
+        else:
+            what_to_do = 'Choose a smaller picture for the character.'
+        with ui.context.client.layout, ui.dialog() as dialog, ui.card().classes('dialog-card') \
+                .mark('publish-beyond-safeguards'):
+            ui.label(f'"{character.title}" can\'t be published').classes('panel-title')
+            ui.label(f'Its card is too big to share: {e}. Others\' apps would refuse it, so that a shared card '
+                     f'can\'t fill the memory or the disk of those who add it.').classes('break-words')
+            ui.label(what_to_do).classes('break-words')
+            with ui.row().classes('w-full justify-end'):
+                ui.button('OK', on_click=dialog.close).mark('publish-beyond-ok')
+        await dialog
+        try:
+            dialog.delete()
+        except (ValueError, KeyError):  # (the browser tab was closed meanwhile)
+            pass
 
     def _key_or_problem(self) -> tuple[Identity | None, str]:
         """This computer's publisher key, if there's one; or why its file can't be read."""

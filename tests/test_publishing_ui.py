@@ -227,6 +227,36 @@ async def test_publishing_a_character(user, tmp_path, sharing, relay):
     assert len(sharing.catalog.versions(sharing.identity().public_key, saved.shared_uuid)) == 2
 
 
+async def test_beyond_the_safeguards_said_first(user, tmp_path, sharing, relay, monkeypatch):
+    """A card others' apps wouldn't add (here: its file too big, the limit made small) isn't published: said
+    as soon as it's asked, before the wizard, with what makes it big."""
+    from rpapp.lorebooks import lore_book_store, new_lore_book
+    sharing.create_identity()
+    store, character = aria(tmp_path)
+    monkeypatch.setattr(fmt, 'DEFAULT_SIZE_LIMIT', 2_000)  # (its picture alone is bigger)
+    await user.open(f'/characters/{character.id}')
+    user.find(marker='menu-publish-to-shared-cards').click()
+    await user.should_see(marker='publish-beyond-safeguards', retries=SLOW)
+    await user.should_see('"Aria the Wanderer" can\'t be published')
+    await user.should_see('Its card is too big to share: its file is')
+    await user.should_see('Most of it is its picture: choose a smaller one.')
+    await user.should_not_see(marker='publish-dialog')  # (no wizard)
+    user.find(marker='publish-beyond-ok').click()
+    await user.should_not_see(marker='publish-beyond-safeguards')
+
+    book = new_lore_book('Old roads')  # (its texts make most of it)
+    book.add_entry(key=['road'], content='The old roads. ' * 4_000)
+    lore_book_store(tmp_path).save(book)
+    character.add_lorebook(book.id, book.name)
+    store.save(character)
+    monkeypatch.setattr(fmt, 'DEFAULT_SIZE_LIMIT', 50_000)
+    await user.open(f'/characters/{character.id}')
+    user.find(marker='menu-publish-to-shared-cards').click()
+    await user.should_see('Most of it is its texts and lore books', retries=SLOW)
+    await user.should_see('shorten them, or take a lore book off the character.')
+    assert relay.events == {} and sharing.catalog.published_by(sharing.own_keys()) == ((), ())  # (nothing sent)
+
+
 async def test_what_the_format_refuses(user, tmp_path, sharing):
     sharing.create_identity()
     accept_notice(tmp_path)
@@ -374,6 +404,14 @@ async def test_the_key_gone_since(user, tmp_path, sharing):
 
 
 # --- the character's page: published by you, changed since ---------------------------------------------
+
+def small_card(scenario='{{char}} sings.') -> bytes:
+    """A card file: shared cards are checked (cards.check_shared_card), so it must be a real one."""
+    from rpapp.cards import card_data, card_png
+    c = new_character('Aria')
+    c.scenario = scenario
+    return card_png(card_data(c), None)
+
 
 def scenario_field(user):
     return next(e for e in user.find(ui.textarea).elements if e.props.get('label') == 'Scenario')
@@ -528,7 +566,7 @@ async def test_no_character_here(user, tmp_path, sharing):
     character.shared_uuid = fmt.new_card_uuid()
     store.save(character)
     elsewhere = await publish(sharing, 'Juno')  # (no character here is that card)
-    gone = await sharing.publish(PublicationDraft(publisher_name='Marie', card_name='Aria'), b'\x89PNG\r\n\x1a\nx',
+    gone = await sharing.publish(PublicationDraft(publisher_name='Marie', card_name='Aria'), small_card(),
                                  card_uuid=character.shared_uuid)
     sharing.catalog.record_source(gone.publication.event_id, character.id, 'its fingerprint then')
     store.delete(character.id)
@@ -551,7 +589,7 @@ async def test_withdrawn_and_not_yours(user, tmp_path, sharing):
     await user.should_not_see(marker='character-published')
 
     sharing.create_identity()
-    mine = await sharing.publish(PublicationDraft(publisher_name='Marie', card_name='Aria'), b'\x89PNG\r\n\x1a\nx',
+    mine = await sharing.publish(PublicationDraft(publisher_name='Marie', card_name='Aria'), small_card(),
                                  card_uuid=character.shared_uuid)
     await sharing.withdraw([mine.publication.event_id])
     await user.open(f'/characters/{character.id}')

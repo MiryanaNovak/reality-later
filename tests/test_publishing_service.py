@@ -240,6 +240,21 @@ async def test_tried_again_while_the_app_runs(tmp_path, monkeypatch):
         await s.close()
 
 
+async def test_beyond_the_safeguards(sharing, relay, tmp_path):
+    """A card others' apps wouldn't add (its picture too big, its file too big) isn't published: said why,
+    and nothing sent, nor shared."""
+    from test_shared_card_safeguards import png_claiming
+    with pytest.raises(SharingError) as e:
+        await sharing.publish(DRAFT, png_claiming(20_000, 20_000), card_uuid=fmt.new_card_uuid())
+    assert str(e.value) == ('It can\'t be published: its picture is 20,000 × 20,000 pixels (400 megapixels), and a '
+                            'shared card\'s is 50 megapixels at most.')
+    with pytest.raises(SharingError, match='It can\'t be published: its card can\'t be read'):
+        await sharing.publish(DRAFT, b'\x89PNG\r\n\x1a\nx', card_uuid=fmt.new_card_uuid())
+    assert relay.events == {} and sharing.session.sharing() == ()
+    files = tmp_path / 'sharing' / 'files'
+    assert not files.exists() or not any(files.iterdir())
+
+
 async def test_public_relays_once_its_final(tmp_path, relay):
     s = Sharing(tmp_path, default_relays=['wss://relay.example.invalid'], session=local_session(),
                 public_publishing=True)

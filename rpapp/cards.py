@@ -78,6 +78,12 @@ SHARED_UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3
 MAX_CARD_BYTES = 50_000_000     # a card's JSON (the biggest real ones, with large lore books, are a few MB)
 MAX_PICTURE_BYTES = 30_000_000  # a picture inside a CharX file
 TOO_BIG = 'This card is too big to be a real one: it unpacks to more than {} MB.'
+# Shared cards (publishing/): what a card file from someone else may be, for this computer to add it without
+# harm, and so what one published from here must be, for everyone to add it (check_shared_card). Its file's
+# size: the format's limit (publishing/announcements.py). Its picture's: a picture is decoded whole to be
+# stored (images.py), and a small file can hold a huge one (a plain color compresses to almost nothing): 50
+# megapixels take about 200 MB of memory once decoded. Real ones have far fewer: this app's own, 1 at most.
+MAX_PICTURE_PIXELS = 50_000_000
 
 # A lore entry's SillyTavern settings, as cards keep them in the entry's "extensions": (ours, theirs)
 ENTRY_EXTENSIONS = (
@@ -103,6 +109,15 @@ class CardError(ValueError):
     """The file can't be read as a character card: the message says why, in plain words."""
 
 
+class SafeguardError(CardError):
+    """A card beyond the safeguards for shared cards (check_shared_card). `what`: 'file' (its size) or
+    'picture' (its pixels). Its message goes after "It can't be added: " or "It can't be published: "."""
+
+    def __init__(self, message: str, *, what: str) -> None:
+        super().__init__(message)
+        self.what = what
+
+
 @dataclass
 class Card:
     """A card read from a file, as this app's objects (nothing is saved yet)."""
@@ -126,6 +141,44 @@ def read_card(file_name: str, content: bytes, *, languages: list[str] = ()) -> C
     if picture is None:
         picture = _embedded_picture(fields)
     return _to_app(fields, version, picture, Path(file_name).stem, languages)
+
+
+def check_shared_card(file_name: str, content: bytes, *, size_limit: int) -> Card:
+    """A shared card's file as it must be, to be added here (from someone else) or published (for everyone
+    to add it): `size_limit` bytes at most, a card this app reads (CardError), and a picture of
+    MAX_PICTURE_PIXELS at most, as its header says: nothing is decoded (SafeguardError). A picture this app
+    can't read isn't one: the card comes without it, as with Import. The card, read."""
+    if len(content) > size_limit:
+        raise SafeguardError(f'its file is {megabytes(len(content))}, and a shared card\'s is '
+                             f'{megabytes(size_limit)} at most', what='file')
+    card = read_card(file_name, content)
+    if card.picture:
+        _check_picture(card.picture)
+    return card
+
+
+def _check_picture(picture: bytes) -> None:
+    limit = MAX_PICTURE_PIXELS // 1_000_000
+    if picture.startswith(PNG_SIGNATURE) and picture[12:16] == b'IHDR':  # (a PNG says its size first)
+        width, height = struct.unpack('>II', picture[16:24])
+    else:
+        from PIL import Image, UnidentifiedImageError
+        try:
+            with Image.open(io.BytesIO(picture)) as image:  # (its header only)
+                width, height = image.size
+        except Image.DecompressionBombError:  # (beyond Pillow's own limit, which is higher)
+            raise SafeguardError(f'its picture is more than {2 * Image.MAX_IMAGE_PIXELS // 1_000_000} '
+                                 f'megapixels, and a shared card\'s is {limit} at most', what='picture') from None
+        except (UnidentifiedImageError, OSError, ValueError):
+            return  # (not a picture this app reads: the card comes without one)
+    if width * height > MAX_PICTURE_PIXELS:
+        raise SafeguardError(f'its picture is {width:,} × {height:,} pixels ({width * height / 1e6:.0f} '
+                             f'megapixels), and a shared card\'s is {limit} megapixels at most', what='picture')
+
+
+def megabytes(size: int) -> str:
+    """'20 MB', '23.4 MB' (MiB, as the format's limits)."""
+    return f'{size / 1024 / 1024:.1f}'.removesuffix('.0') + ' MB'
 
 
 @dataclass

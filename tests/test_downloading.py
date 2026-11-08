@@ -219,6 +219,26 @@ async def test_not_a_card(marie, juno, tmp_path):
     assert not (tmp_path / 'juno' / 'sharing' / 'files' / p.file_name).exists()
 
 
+async def test_beyond_the_safeguards(marie, juno, tmp_path, monkeypatch):
+    """A card whose picture is too big (told by its header: nothing decoded) isn't added: said why, and its
+    file deleted. (Marie's app wouldn't publish it: here, it's made to.)"""
+    from rpapp.publishing import service
+    from test_shared_card_safeguards import png_claiming
+    with monkeypatch.context() as m:
+        async def anything(content, **_):
+            return None
+        m.setattr(service, 'shared_card_or_error', anything)
+        p = await published(marie, juno, png_claiming(20_000, 20_000))
+    failed = await downloaded(juno, p.event_id)
+    assert (failed.stage, failed.error) == ('failed', 'It can\'t be added: its picture is 20,000 × 20,000 pixels '
+                                                      '(400 megapixels), and a shared card\'s is 50 megapixels at '
+                                                      'most.')
+    assert juno.importer.added == [] and juno.catalog.download(p.event_id) is None
+    assert juno.session.sharing() == ()
+    assert not (tmp_path / 'juno' / 'sharing' / 'files' / p.file_name).exists()
+    assert not any((tmp_path / 'juno' / 'sharing' / 'downloading').rglob('*.png'))
+
+
 async def test_closing_stops_downloads(juno, tmp_path):
     lonely = fmt.build_publication(DRAFT, torrents.card_file(aria_card()), card_uuid=fmt.new_card_uuid(),
                                    secret=nostr.new_secret())

@@ -198,7 +198,11 @@ before downloading the file itself, rejects it unless:
 
 Once downloaded, the file's SHA-256 MUST be the `sha256` tag's, and its torrent, made as above, the `x`
 tag's infohash; otherwise it's deleted. The file is then read like any card file the user would import,
-with the same limits.
+with the same limits, and one more: its picture (a PNG card's own, or a JSON or CharX card's main one)
+is 50 megapixels at most, as its header says (width × height), before anything is decoded. A small file
+can hold a huge picture (a plain color compresses to almost nothing), and an app decodes it whole. A card
+beyond these limits isn't added, and its file is deleted; publishing apps SHOULD refuse to publish one
+(this app does, saying why).
 
 Those who downloaded a file may share it in turn (the app does, unless its user says not to), until it's
 withdrawn: that's how cards stay available while their publisher is away. Everyone in a swarm sees the
@@ -322,6 +326,7 @@ Receiving the same event again (from another relay, or another time) changes not
 | Card tags | 20, of 1–32 characters |
 | Trackers | 5, of 256 bytes at most |
 | File | 1 byte to the app's limit (20 MiB by default) |
+| Its picture | 50 megapixels (width × height) |
 | Date | at most 15 minutes ahead of the app's clock |
 
 All of them fit relays' common limits, with room to spare: the example is about 1 KiB.
