@@ -58,15 +58,17 @@ from .torrents import card_file
 
 log = logging.getLogger(__name__)
 
-# Tried from Paris in November 2026 (tools/try_relays.py): they answer, keep torrents, accept publishing,
-# and delete what's withdrawn. Free, from different operators: none of them is needed, several are better.
+# Tried from Paris in November 2026 (tools/try_relays.py --write): they answer, accept publishing, NSFW
+# cards included (marked as such: none of them filters them), keep it, and delete what's withdrawn. Free,
+# from different operators: none of them is needed, several are better. (nostr.mom, once among them, says
+# it filters nudity, and stopped answering publications: dropped.)
 DEFAULT_RELAYS = (
     'wss://relay.damus.io',
     'wss://relay.primal.net',
     'wss://relay.nostr.net',
     'wss://nostr.oxtr.dev',
     'wss://offchain.pub',
-    'wss://nostr.mom',
+    'wss://nostr-pub.wellorder.net',
 )
 DUE_AFTER = 3600  # seconds: opening the shared cards looks for new ones when the last look is older
 WATCH = 5.0       # seconds: how often what BitTorrent says is read (TorrentSession.poll())

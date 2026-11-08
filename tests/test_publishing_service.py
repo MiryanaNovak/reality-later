@@ -401,6 +401,16 @@ async def test_another_computer_gets_the_file(sharing):
         assert sharing.session.status(p.torrent_infohash).uploaded >= len(content)
 
 
+def test_the_default_relays():
+    """Written as the catalog writes addresses (Settings tells which are missing by comparing them), public, and
+    from different operators: several, none of them needed."""
+    from rpapp.publishing.catalog import normalize_relay_url
+    from rpapp.publishing.service import DEFAULT_RELAYS
+    assert all(normalize_relay_url(u) == u for u in DEFAULT_RELAYS) and len(set(DEFAULT_RELAYS)) >= 5
+    assert not any(is_local(u) for u in DEFAULT_RELAYS)
+    assert 'wss://nostr.mom' not in DEFAULT_RELAYS  # (filters nudity; stopped answering publications)
+
+
 def test_local_relays():
     for url in ('ws://127.0.0.1:7777', 'ws://localhost:7777', 'ws://192.168.1.20:7777', 'ws://10.0.0.5',
                 'ws://[::1]:7777', 'ws://nas.local:7777', 'ws://[fe80::1]:7777'):
