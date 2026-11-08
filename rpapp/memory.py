@@ -29,10 +29,10 @@ The prompt of a memory call is made of:
 
     system  the memory instructions (Settings › Memory: editable, DEFAULT_INSTRUCTIONS
             until you change them), then ANSWER_FORMAT (fixed)
-    user    MATERIAL, filled in: the scenario, your persona, the memories so far, the messages
+    user    MATERIAL_FORMAT, filled in: the scenario, your persona, the memories so far, the messages
 
 The answer format and the material are fixed so that editing the instructions
-can never break how the app reads the answer. Settings shows them read-only.
+can never break how the app reads the answer. Settings shows the answer format, read-only.
 """
 from __future__ import annotations
 
@@ -99,13 +99,6 @@ MATERIAL_FORMAT = """\
 
 # Messages to remember
 {messages}"""
-
-MATERIAL = MATERIAL_FORMAT.format(  # as shown in Settings
-    char='{{char}}', user='{{user}}', character="<the character's scenario>",
-    persona="<your persona's description>",
-    memories='<the chat\'s memories, each with its id, title, keys and text; "(none yet)" at first>',
-    messages='<the messages to remember, as "Name: text">',
-)
 
 BATCH_TOKENS = 6_000  # about how much chat one memory call reads at most; longer stretches take several calls
 

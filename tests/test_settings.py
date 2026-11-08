@@ -188,10 +188,10 @@ async def test_memory_settings(setup):
     assert memory.connection == ConnectionRef(id=cheap.id, name='Cheap')
     assert (memory.enabled, memory.temperature, memory.max_tokens, memory.budget_percent) == (False, 0.2, 3000, 10)
 
-    # The fixed part is shown, read-only.
+    # The fixed part is shown, read-only (not what each chat fills in: no use to read)
     await user.should_see(marker='memory-format')
     await user.should_see(ANSWER_FORMAT.splitlines()[0])
-    await user.should_see(marker='memory-material')
+    await user.should_not_see('Then, in a message of its own')
 
 
 async def test_memory_instructions_default_and_reset(setup):

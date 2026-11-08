@@ -20,7 +20,7 @@ from ..access import Access
 from ..connections import Connection
 from ..embeddings import SOURCES, DownloadError, EmbeddingModel, catalog, download, is_installed, runtime_problem, \
     uninstall
-from ..memory import ANSWER_FORMAT, DEFAULT_INSTRUCTIONS, DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, MATERIAL
+from ..memory import ANSWER_FORMAT, DEFAULT_INSTRUCTIONS, DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
 from ..prompts import DEFAULT_CONTEXT
 from ..presets import PromptPreset
 from ..settings import ConnectionRef, MemorySettings, PresetRef, Settings, SettingsStore
@@ -456,9 +456,6 @@ class SettingsSection:
         ui.label('Added after your instructions. It can\'t be changed, so the app can always read the answer:') \
             .classes('text-sm muted mt-2')
         ui.label(ANSWER_FORMAT).classes('prompt-text').mark('memory-format')
-        ui.label('Then, in a message of its own, what to work on (filled in for each chat):') \
-            .classes('text-sm muted mt-2')
-        ui.label(MATERIAL).classes('prompt-text').mark('memory-material')
 
     def _memory_instructions(self, memory: MemorySettings, form: Form) -> None:
         """The instructions, showing the default ones until you change them ('' is saved for the default)."""

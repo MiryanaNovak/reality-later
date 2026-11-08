@@ -44,7 +44,7 @@
     {
       "key": "multilingual-e5-small",
       "name": "multilingual-e5-small",
-      "languages": "About 100 languages, French included",
+      "languages": "About 100 languages",
       "multilingual": true,
       "about": "For chats in other languages than English. Bigger.",
       "license": "MIT",

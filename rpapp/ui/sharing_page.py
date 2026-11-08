@@ -1390,15 +1390,7 @@ class SharingSection:
                     .props('outlined dense').classes('min-w-40').mark('publish-language')
             ui.label('Your own rating: NSFW cards only show to those who choose to see them.') \
                 .classes('text-sm muted -mt-3')
-            with ui.column().classes('publish-notice gap-1 text-sm').mark('publish-notice'):
-                ui.label('Everything in the card becomes public: its picture, scenario, first messages, '
-                         'example dialogues and lore books. Anyone can download it; those who have it keep '
-                         'it, even if you withdraw it.')
-                ui.label('This computer shares its file while the app runs (BitTorrent): those who '
-                         'download it see this computer\'s internet address.')
-                if not sharing.public_publishing:
-                    ui.label('While card sharing\'s format is a draft, cards only go to relays on this '
-                             'computer or its network.').classes('muted')
+            # (what publishing means: said by the wizard's first step, the first time)
             fields['error'] = ui.label('').classes('text-negative text-sm break-words').mark('publish-error')
             fields['error'].set_visibility(False)
             fields['button'] = navigation('Publish', publish, marker='publish-confirm')

@@ -172,8 +172,7 @@ async def test_publishing_a_character(user, tmp_path, sharing, relay):
     await user.should_see('Step 4 of 4: Your card')
     assert value_of(user, 'publish-name') == 'Aria the Wanderer'
     assert value_of(user, 'publish-description') == 'A wandering bard.'
-    await user.should_see(marker='publish-notice')
-    await user.should_see('cards only go to relays on this computer or its network')
+    await user.should_not_see('Everything in the card becomes public')  # (said by the wizard's first step)
 
     user.find(marker='publish-confirm').click()
     await user.should_see('Give your publisher name')
