@@ -14,7 +14,9 @@ it can't disagree with them:
 Blocking a publisher deletes all they published, and refuses what comes from them next.
 
     receive() / receive_all()   events from a relay (or the app's own): checked, then kept
-    cards(CardQuery)            the latest version of each card (or every version), by filters, by pages
+    cards(CardQuery)            the latest version of each card (or every version), by filters, by pages;
+                                text found from the start of words (search_words())
+    published_by()              someone's cards (theirs: their keys), the withdrawn ones too
     tags(CardQuery)             the tags of those cards, with how many have each
     versions(), get()           a card's versions; one publication (withdrawn ones too)
     publishers(PublisherQuery), publisher()
@@ -32,7 +34,6 @@ catalog is opened, and the database records how far it is (PRAGMA user_version).
 """
 from __future__ import annotations
 
-import json
 import re
 import sqlite3
 import threading
@@ -194,6 +195,20 @@ MIGRATIONS = [
     );
     CREATE INDEX downloads_by_character ON downloads (character_id);
     """,
+    # 6: what's searched in a publication, as words (search_words()): its card's name and description, its
+    # publisher's name. Beside the publications, which never change; gone with them.
+    """
+    CREATE TABLE publication_text (
+        event_id    TEXT PRIMARY KEY REFERENCES publications (event_id) ON DELETE CASCADE,
+        title       TEXT NOT NULL,
+        description TEXT NOT NULL,
+        publisher   TEXT NOT NULL
+    ) WITHOUT ROWID;
+    INSERT INTO publication_text (event_id, title, description, publisher)
+    SELECT event_id, search_words(title_folded),
+           search_words(json_extract(event_json, '$.content')), search_words(published_name)
+    FROM publications;
+    """,
 ]
 
 
@@ -243,12 +258,16 @@ class Page(Generic[T]):
 
 @dataclass(frozen=True, slots=True)
 class CardQuery:
-    """Which cards: the latest version of each by default, newest first. Text is matched ignoring case
-    and accents, every word somewhere in it."""
+    """Which cards: the latest version of each by default, newest first. Text is matched ignoring case and
+    accents, each word typed at the start of a word ("sera" finds "Seraphina", "phina" doesn't), all of them
+    (in any order)."""
     publisher_id: str | None = None
+    publishers: tuple[str, ...] = ()     # any of these (their keys)
+    exclude_publishers: tuple[str, ...] = ()  # none of these
     publisher_name: str | None = None    # their current or a previous name
     card_uuid: str | None = None
     card_name: str | None = None
+    in_description: bool = False         # card_name's words in the card's name, or in its description too
     tags: tuple[str, ...] = ()
     match_all_tags: bool = False
     exclude_tags: tuple[str, ...] = ()   # none of these
@@ -377,6 +396,7 @@ class Catalog:
             self._db.row_factory = sqlite3.Row
             self._db.execute('PRAGMA busy_timeout = 5000')
             self._db.execute('PRAGMA foreign_keys = ON')
+            self._db.create_function('search_words', 1, search_words, deterministic=True)
             if self.path != ':memory:':
                 self._db.execute('PRAGMA journal_mode = WAL')
                 self._db.execute('PRAGMA synchronous = NORMAL')  # (with WAL: safe, and quicker)
@@ -446,6 +466,9 @@ class Catalog:
             return Received('duplicate', p.event_id)
         self._db.executemany('INSERT INTO publication_tags (event_id, tag) VALUES (?, ?) ON CONFLICT DO NOTHING',
                              [(p.event_id, tag) for tag in p.card_tags])
+        self._db.execute('INSERT INTO publication_text (event_id, title, description, publisher) VALUES (?, ?, ?, ?) '
+                         'ON CONFLICT DO NOTHING', (p.event_id, search_words(p.card_name),
+                                                    search_words(p.card_description), search_words(p.published_name)))
         return Received('added', p.event_id)
 
     def _add_withdrawal(self, w: Withdrawal, now: int) -> Received:
@@ -486,6 +509,32 @@ class Catalog:
         with self._lock:
             return [TagCount(row['tag'], row['cards'])
                     for row in self._db.execute(sql, (*args, max(1, min(limit, MAX_PAGE))))]
+
+    def published_by(self, publisher_ids: Iterable[str]) -> tuple[tuple[CatalogEntry, ...], tuple[CatalogEntry, ...]]:
+        """The cards of these publishers (someone's keys): the latest version of each, newest first; and
+        those withdrawn, version after version (each one's newest)."""
+        keys = tuple(dict.fromkeys(publisher_ids))
+        if not keys:
+            return (), ()
+        live: list[CatalogEntry] = []
+        cursor = None
+        while True:
+            page = self.cards(CardQuery(publishers=keys, limit=MAX_PAGE, cursor=cursor))
+            live += page.items
+            if not (cursor := page.next_cursor):
+                break
+        marks = ','.join('?' * len(keys))
+        with self._lock:
+            ids = [row[0] for row in self._db.execute(
+                f'SELECT p.event_id FROM publications p WHERE p.publisher_key IN ({marks}) '
+                f'AND NOT EXISTS (SELECT 1 FROM live_publications l WHERE l.publisher_key = p.publisher_key '
+                f'AND l.card_uuid = p.card_uuid) '
+                f'AND NOT EXISTS (SELECT 1 FROM publications q WHERE q.publisher_key = p.publisher_key '
+                f'AND q.card_uuid = p.card_uuid AND (q.created_at > p.created_at '
+                f'OR (q.created_at = p.created_at AND q.event_id < p.event_id))) '
+                f'ORDER BY p.created_at DESC, p.event_id', keys)]
+            withdrawn = tuple(entry for i in ids if (entry := self.get(i)) is not None)
+        return tuple(live), withdrawn
 
     def versions(self, publisher_id: str, card_uuid: str, *, include_withdrawn: bool = False) -> list[CatalogEntry]:
         """All the versions of a card, newest first."""
@@ -534,9 +583,9 @@ class Catalog:
         if query.publisher_id:
             where.append('p.publisher_key = ?')
             args.append(query.publisher_id)
-        if _words(query.name):
-            where.append(_NAMED)
-            args += _named(query.name)
+        if terms := search_terms(query.name):
+            where.append(_named(terms))
+            args += [f' {t}' for t in terms]
         limit = max(1, min(query.limit, MAX_PAGE))
         having = ''
         if query.cursor:
@@ -820,15 +869,19 @@ def normalize_relay_url(url: str) -> str:
     return text
 
 
+_WORD = re.compile(r'[^\W_]+')  # (letters and digits)
+# Scripts written without spaces between words: each letter a word of its own (as in lore.py)
+_SPACELESS_RANGES = ('\u0e00-\u0eff\u1000-\u109f\u1100-\u11ff\u1780-\u17ff\u3040-\u30ff\u3130-\u318f'
+                     '\u31f0-\u31ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff\U00020000-\U0003134f')
+_SPACELESS = re.compile(f'[{_SPACELESS_RANGES}]')
+_SPACELESS_LETTER = re.compile(f'[{_SPACELESS_RANGES}]|[^{_SPACELESS_RANGES}]+')
+
+
 def fold(text: str) -> str:
-    """Text as it's searched: without case or accents ('Café' → 'cafe')."""
+    """Text as it's searched: without case or accents ('Café' → 'cafe'). (Recomposed after: Korean's
+    syllables come apart to take accents off, and must come back.)"""
     decomposed = unicodedata.normalize('NFKD', text)
-    return ''.join(c for c in decomposed if not unicodedata.combining(c)).casefold()
-
-
-# A publisher who used a name: their current one or a previous one (a name as JSON list of folded words).
-_NAMED = """EXISTS (SELECT 1 FROM publisher_names n WHERE n.publisher_key = p.publisher_key
-    AND NOT EXISTS (SELECT 1 FROM json_each(?) w WHERE instr(n.name_folded, w.value) = 0))"""
+    return unicodedata.normalize('NFC', ''.join(c for c in decomposed if not unicodedata.combining(c))).casefold()
 
 
 def _conditions(query: CardQuery) -> tuple[str, list[str], list]:
@@ -838,15 +891,22 @@ def _conditions(query: CardQuery) -> tuple[str, list[str], list]:
     if query.publisher_id:
         where.append('p.publisher_key = ?')
         args.append(query.publisher_id)
+    for keys, negation in ((query.publishers, ''), (query.exclude_publishers, 'NOT ')):
+        if keys:
+            where.append(f'p.publisher_key {negation}IN ({",".join("?" * len(keys))})')
+            args += list(keys)
     if query.card_uuid:
         where.append('p.card_uuid = ?')
         args.append(query.card_uuid)
-    for word in _words(query.card_name):
-        where.append("p.title_folded LIKE ? ESCAPE '\\'")
-        args.append(f'%{_like(word)}%')
-    if _words(query.publisher_name):
-        where.append(_NAMED)
-        args += _named(query.publisher_name)
+    if terms := search_terms(query.card_name):
+        found = ' AND '.join('(instr(s.title, ?) > 0 OR instr(s.description, ?) > 0)' if query.in_description
+                             else 'instr(s.title, ?) > 0' for _ in terms)
+        # (the texts that have them first, once: then the cards among those, by date)
+        where.append(f'p.event_id IN (SELECT s.event_id FROM publication_text s WHERE {found})')
+        args += [f' {t}' for t in terms for _ in range(2 if query.in_description else 1)]
+    if terms := search_terms(query.publisher_name):
+        where.append(_named(terms))
+        args += [f' {t}' for t in terms]
     tags = fmt.normalize_tags(query.tags)
     if tags:  # (the tags' index first: the publications with them, then the rest of the conditions)
         marks = ','.join('?' * len(tags))
@@ -874,8 +934,27 @@ def _conditions(query: CardQuery) -> tuple[str, list[str], list]:
     return ('live_publications' if query.include_versions else 'latest_publications'), where, args
 
 
-def _named(name: str) -> list[str]:
-    return [json.dumps(_words(name))]
+def search_words(text: str | None) -> str:
+    """Text as it's searched: folded (fold()), cut into words, each preceded by a space, so that a word typed
+    is found at the start of one: instr(text, ' ' + typed). Punctuation separates words ("Jean-Luc": "jean"
+    and "luc"); each letter of the scripts written without spaces (Chinese, Japanese, Thai...) is a word."""
+    words: list[str] = []
+    for word in _WORD.findall(fold(text or '')):
+        words += _SPACELESS_LETTER.findall(word) if _SPACELESS.search(word) else [word]
+    return ' ' + ' '.join(words) + ' '
+
+
+def search_terms(text: str | None) -> list[str]:
+    """What's typed, as the words searched (search_words()), each once."""
+    return list(dict.fromkeys(search_words(text).split()))
+
+
+def _named(terms: list[str]) -> str:
+    """Publishers one of whose names (now or before, in what they didn't withdraw) has all these words."""
+    found = ' AND '.join('instr(t.publisher, ?) > 0' for _ in terms)
+    # (the texts that have them first, once: then, among their publications, those not withdrawn)
+    return (f'p.publisher_key IN (SELECT q.publisher_key FROM live_publications q WHERE q.event_id IN '
+            f'(SELECT t.event_id FROM publication_text t WHERE {found}))')
 
 
 def _words(text: str | None) -> list[str]:

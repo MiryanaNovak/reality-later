@@ -104,6 +104,20 @@ def import_identity(path: str | Path, text: str, *, replace: bool = False) -> Id
     return identity
 
 
+def replaced_identities(path: str | Path) -> list[Identity]:
+    """The keys this one replaced, kept beside it (nostr-key.replaced-<date>.txt), the most recent first;
+    those that can't be read, left out."""
+    path = Path(path)
+    found = []
+    for old in sorted(path.parent.glob(f'{path.stem}.replaced-*{path.suffix}'), reverse=True):
+        try:
+            if (identity := load_identity(old)) is not None:
+                found.append(identity)
+        except IdentityError:  # (damaged: not a key of anyone's any more)
+            continue
+    return found
+
+
 def _set_aside(path: Path) -> Path:
     """The key file replaced, kept beside the new one: nostr-key.replaced-<date>.txt."""
     stamp = datetime.now().strftime('%Y%m%d-%H%M%S')

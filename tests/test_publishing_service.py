@@ -160,6 +160,17 @@ async def test_withdrawing(sharing, relay, tmp_path):
         await others.close()
 
 
+async def test_withdrawing_with_a_key_replaced_since(sharing, relay):
+    old = sharing.identity()
+    published = await sharing.publish(DRAFT, aria_card(), card_uuid=fmt.new_card_uuid())
+    sharing.import_identity(nostr.to_nsec(nostr.new_secret()), replace=True)
+    assert sharing.own_keys() == (sharing.identity().public_key, old.public_key)
+    deliveries = await sharing.withdraw([published.publication.event_id], reason='Old.')
+    assert [d.state for d in deliveries] == ['accepted']
+    [withdrawal] = [e for e in relay.events.values() if e['kind'] == 5]
+    assert withdrawal['pubkey'] == old.public_key  # (signed by the key that published it)
+
+
 async def test_stopping_and_a_file_two_publications_share(sharing, tmp_path):
     content = aria_card()
     a = await sharing.publish(DRAFT, content, card_uuid=fmt.new_card_uuid())

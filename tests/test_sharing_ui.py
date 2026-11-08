@@ -11,7 +11,7 @@ pytest.importorskip('coincurve', reason='coincurve (sharing cards) is installed 
 from fake_relay import FakeRelay  # noqa: E402
 
 from rpapp.publishing import announcements as fmt  # noqa: E402
-from rpapp.publishing import nostr, torrents  # noqa: E402
+from rpapp.publishing import identity, nostr, torrents  # noqa: E402
 from rpapp.publishing.announcements import PublicationDraft  # noqa: E402
 from rpapp.publishing.catalog import Catalog  # noqa: E402
 from rpapp.settings import SettingsStore  # noqa: E402
@@ -91,6 +91,94 @@ async def test_searching_and_tags(user):
     await user.open('/shared?tag=fantasy')
     await user.should_see('Aria the Wanderer', retries=SLOW)
     await user.should_not_see('Cass of the Station')
+
+
+def value(user, marker):
+    return user.find(marker=marker).elements.pop().value
+
+
+def set_value(user, marker, new):
+    user.find(marker=marker).elements.pop().set_value(new)
+
+
+async def test_words_from_their_start(user):
+    await user.open('/shared')
+    await user.should_see('Aria the Wanderer', retries=SLOW)
+    search = user.find(marker='shared-search')
+    search.type('wand')
+    await user.should_see('Aria the Wanderer', retries=SLOW)
+    await user.should_not_see('Cass of the Station')
+    search.clear().type('ander')  # (not at the start of a word)
+    await user.should_see('No card matches', retries=SLOW)
+    search.clear().type('lute')  # (in the description: when asked)
+    await user.should_see('No card matches', retries=SLOW)
+    set_value(user, 'shared-where', 'all')
+    await user.should_see('Aria the Wanderer', retries=SLOW)
+    assert user.find(marker='shared-filters').elements.pop().props['caption'] == '1 filter on'
+
+
+async def test_by_publisher_and_excluded_tags(user):
+    await user.open('/shared')
+    await user.should_see('Cass of the Station', retries=SLOW)
+    set_value(user, 'shared-by', 'jun')  # (their name: from its start)
+    await user.should_see('Cass of the Station', retries=SLOW)
+    await user.should_not_see('Aria the Wanderer')
+    await user.should_see(f'Juno ({nostr.to_npub(CASS.publisher_id)[:10]}', retries=SLOW)  # (and their key)
+    set_value(user, 'shared-by', 'marie')  # (a name before: "Marie L." now)
+    await user.should_see('Aria the Wanderer', retries=SLOW)
+    await user.should_not_see('Cass of the Station')
+    set_value(user, 'shared-by', '')
+    set_value(user, 'shared-exclude', ['Sci-Fi'])
+    await user.should_see('Aria the Wanderer', retries=SLOW)
+    await user.should_not_see('Cass of the Station')
+
+
+async def test_filters_from_the_address(user):
+    await user.open('/shared?q=wand&where=all&tags=fantasy,travel&exclude=romance&by=mar')
+    await user.should_see('Aria the Wanderer', retries=SLOW)
+    assert (value(user, 'shared-search'), value(user, 'shared-where'), value(user, 'shared-by')) == \
+        ('wand', 'all', 'mar')
+    assert value(user, 'shared-tags') == ['fantasy', 'travel'] and value(user, 'shared-exclude') == ['romance']
+    filters = user.find(marker='shared-filters').elements.pop()
+    assert filters.value and filters.props['caption'] == '4 filters on'  # (opened: some are on)
+
+
+async def test_yours_apart(user, tmp_path):
+    key_file = identity.key_path(tmp_path)  # (the app's key: Marie's)
+    identity.import_identity(key_file, nostr.to_nsec(MARIE))
+    await user.open('/shared')
+    await user.should_see('Cass of the Station', retries=SLOW)
+    await user.should_not_see('Aria the Wanderer')  # (yours: not among the others')
+
+    await user.open('/published')
+    await user.should_see(marker='published-list', retries=SLOW)
+    await user.should_see('Aria the Wanderer', retries=SLOW)
+    await user.should_see('Bram after Dark', retries=SLOW)  # (NSFW: yours all the same)
+    await user.should_see('Its file isn\'t shared from this computer, not sent to relays from this computer',
+                          retries=SLOW)
+    await user.should_not_see('Cass of the Station')
+
+    withdrawal = fmt.build_withdrawal([BRAM.event_id], secret=MARIE, reason='Too dark.')
+    with Catalog(tmp_path / 'sharing' / 'catalog.sqlite3') as catalog:
+        catalog.receive(withdrawal.event.to_dict())
+    identity.import_identity(key_file, nostr.to_nsec(nostr.new_secret()), replace=True)  # (another key since)
+    await user.open('/published')
+    await user.should_see(marker='published-withdrawn', retries=SLOW)
+    await user.should_see('Withdrawn just now: Too dark.', retries=SLOW)
+    await user.should_see('with a key you used before', retries=SLOW)  # (Marie's: still yours)
+
+    await user.open(f'/shared?publisher={ARIA_2.publisher_id}')  # (yours: on their own page)
+    await user.should_see(marker='published-list', retries=SLOW)
+    await user.open(f'/shared/{ARIA_2.event_id}')
+    await user.should_see('Published with a key you used before', retries=SLOW)
+    await user.should_see(marker='own-withdraw', retries=SLOW)
+    await user.should_not_see(marker='menu-block-this-publisher')
+
+
+async def test_nothing_published(user):
+    await user.open('/')
+    user.find(marker='nav-your-publications').click()
+    await user.should_see('Nothing published yet', retries=SLOW)
 
 
 async def test_hidden_tags(user, tmp_path):

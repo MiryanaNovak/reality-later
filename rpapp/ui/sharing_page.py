@@ -1,8 +1,11 @@
 """Shared cards: browsing the cards people publish (rpapp/publishing/), publishing yours, and Settings ›
 Sharing cards.
 
-    /shared               the catalog: the latest version of each card, newest first, with filters;
-                          ?publisher=<key> one publisher's, ?tag=<tag> one tag's
+    /shared               other people's cards: the latest version of each, newest first. Searched by words
+                          (from their start) in names, or descriptions too; filtered by publisher name, tags,
+                          tags excluded. The filters are in the page's address (list_page())
+    /published            your publications: those of your keys (the one in use, and those it replaced), each
+                          one's state; the withdrawn ones apart
     /shared/{event_id}    one publication: its description, details, publisher and versions; blocking.
                           Someone else's: adding it to your characters (downloading it), and what became
                           of it. One of yours: how its file is shared, where its announcement arrived,
@@ -33,6 +36,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
+from urllib.parse import urlencode
 
 from nicegui import ui
 
@@ -162,6 +166,11 @@ def _fetch_key(fetch: Fetch | None) -> tuple | None:
     return (fetch.stage, round(fetch.progress, 2), fetch.peers, fetch.character_id) if fetch else None
 
 
+def _listed(text: str) -> list[str]:
+    """'a, b,c' → ['a', 'b', 'c'] (tags in a page's address)."""
+    return [t.strip() for t in text.split(',') if t.strip()]
+
+
 def _people(n: int) -> str:
     return '1 person' if n == 1 else f'{n} people'
 
@@ -233,32 +242,58 @@ class SharingSection:
 
     # --- the catalog ------------------------------------------------------------------------------
 
-    async def list_page(self, publisher: str = '', tag: str = '') -> None:
+    async def list_page(self, q: str = '', where: str = '', by: str = '', tags: str = '', exclude: str = '',
+                        publisher: str = '', tag: str = '') -> None:
+        """Other people's cards (yours: published_page()). The filters are kept in the page's address:
+        ?q= words, where=all (in descriptions too), by= a publisher's name, tags= and exclude= (comma
+        separated), publisher= a publisher's key ("All their cards"), tag= one tag (a card's chip)."""
         page_bar('Shared cards', actions=self._look_button if self.sharing else None)
         if self.sharing is None:
             self._unavailable()
             return
         sharing = self.sharing
+        own = await sharing.call(sharing.own_keys)
+        if publisher and publisher in own:  # (yours: on their own page)
+            ui.navigate.to('/published')
+            return
         try:
             settings = self.settings.load()
         except ValueError:
             settings = Settings()
         shown: list[CatalogEntry] = []
         cursor: list[str | None] = [None]
+        have: set[str] = set()  # (those downloaded here)
 
         self._status()
 
-        # The filters
+        # The search, and the filters (folded away unless some are on)
+        start_tags = list(dict.fromkeys([*_listed(tags), *([tag] if tag else [])]))
         with ui.column().classes('w-full gap-2'):
-            search = ui.input(placeholder='Search by name').props('clearable outlined dense debounce=300') \
+            search = ui.input(placeholder='Search', value=q).props('clearable outlined dense debounce=300') \
                 .classes('w-full').mark('shared-search')
             with search.add_slot('prepend'):
                 ui.icon('search')
-            with ui.row().classes('w-full items-center no-wrap gap-3'):
-                tags = keep_typed(ui.input_chips('Tags', value=[tag] if tag else [], new_value_mode='add-unique'),
-                                  split=',') \
-                    .props('outlined dense clearable hide-bottom-space').classes('grow').mark('shared-tags')
-                nsfw = ui.switch('Show NSFW', value=settings.sharing.show_nsfw).mark('shared-nsfw')
+            with ui.expansion('Filters', icon='tune').classes('panel fold w-full').mark('shared-filters') as filters:
+                with ui.column().classes('w-full gap-3'):
+                    where_ = ui.toggle({'name': 'Card names', 'all': 'Names and descriptions'},
+                                      value='all' if where == 'all' else 'name').props('no-caps dense') \
+                        .mark('shared-where')
+                    ui.label('Where the words searched are found: each one at the start of a word ("sera" finds '
+                             'Seraphina).').classes('text-sm muted -mt-2')
+                    by_ = ui.input('Publisher', value=by, placeholder='Their name, now or before') \
+                        .props('outlined dense clearable debounce=300').classes('w-full').mark('shared-by')
+                    tags_ = keep_typed(ui.input_chips('Tags', value=start_tags, new_value_mode='add-unique'),
+                                       split=',') \
+                        .props('outlined dense clearable hide-bottom-space').classes('w-full').mark('shared-tags')
+                    ui.label('Cards with any of these.').classes('text-sm muted -mt-2')
+                    exclude_ = keep_typed(ui.input_chips('Excluded tags', value=_listed(exclude),
+                                                         new_value_mode='add-unique'), split=',') \
+                        .props('outlined dense clearable hide-bottom-space').classes('w-full').mark('shared-exclude')
+                    hidden = settings.sharing.hidden_tags
+                    ui.label('Cards with none of these.' + (f' Always hidden besides (Settings › Sharing cards): '
+                                                             f'{", ".join(hidden)}.' if hidden else '')) \
+                        .classes('text-sm muted -mt-2').mark('shared-exclude-hint')
+                    nsfw = ui.switch('Show NSFW', value=settings.sharing.show_nsfw).mark('shared-nsfw')
             if publisher:
                 who = await sharing.call(sharing.catalog.publisher, publisher)
                 with ui.row().classes('items-center gap-2').mark('shared-publisher-filter'):
@@ -267,40 +302,63 @@ class SharingSection:
                             removable=True, on_value_change=lambda: ui.navigate.to('/shared')) \
                         .props('dense outline')
 
+        def on() -> int:
+            """How many filters are on (said on the folded panel)."""
+            return sum((where_.value == 'all', bool((by_.value or '').strip()), bool(tags_.value),
+                        bool(exclude_.value), bool(nsfw.value)))
+
         def query(cursor_: str | None) -> CardQuery:
-            return CardQuery(card_name=search.value or None, tags=tuple(tags.value or ()),
-                             publisher_id=publisher or None, content_rating=None if nsfw.value else 'sfw',
-                             exclude_tags=tuple(settings.sharing.hidden_tags), limit=PAGE, cursor=cursor_)
+            return CardQuery(card_name=search.value or None, in_description=where_.value == 'all',
+                             publisher_name=(by_.value or '').strip() or None, tags=tuple(tags_.value or ()),
+                             publisher_id=publisher or None, exclude_publishers=own,
+                             content_rating=None if nsfw.value else 'sfw',
+                             exclude_tags=(*settings.sharing.hidden_tags, *(exclude_.value or ())),
+                             limit=PAGE, cursor=cursor_)
+
+        def address() -> str:
+            """The page's address, its filters in it (the browser's history keeps them)."""
+            params = {'q': search.value or '', 'where': 'all' if where_.value == 'all' else '',
+                      'by': (by_.value or '').strip(), 'tags': ','.join(tags_.value or ()),
+                      'exclude': ','.join(exclude_.value or ()), 'publisher': publisher}
+            text = urlencode({k: v for k, v in params.items() if v})
+            return f'/shared?{text}' if text else '/shared'
 
         @ui.refreshable
         def results() -> None:
             if not shown:
                 with ui.column().classes('panel gap-1').mark('shared-empty'):
-                    if search.value or tags.value or publisher:
+                    if search.value or publisher or on() - bool(nsfw.value):
                         ui.label('No card matches').classes('panel-title')
                     else:
                         ui.label('No shared cards yet').classes('panel-title')
                         ui.label('Cards people publish show here, once found on the relays (Settings › Sharing '
-                                 'cards).').classes('muted')
+                                 'cards). Yours are in Your publications.').classes('muted')
                 return
+            named = bool((by_.value or '').strip())  # (names aren't unique: their keys tell them apart)
             with ui.list().props('separator').classes('panel item-list').mark('shared-list'):
                 for entry in shown:
-                    render_row(entry, self._row(entry, have=entry.publication.event_id in have),
+                    render_row(entry, self._row(entry, have=entry.publication.event_id in have, show_key=named),
                                key=entry.publication.event_id,
                                on_open=lambda e: ui.navigate.to(f'/shared/{e.publication.event_id}'))
             if cursor[0]:
                 ui.button('Show more', on_click=more).props('flat').mark('shared-more')
 
-        have: set[str] = set()  # (those downloaded here)
-
-        async def load(more_: bool = False) -> None:
+        async def fill(more_: bool = False) -> None:
             page = await sharing.call(sharing.catalog.cards, query(cursor[0] if more_ else None))
             if not more_:
                 shown.clear()
             shown.extend(page.items)
             have.update(await sharing.call(sharing.catalog.downloaded, [e.publication.event_id for e in page.items]))
             cursor[0] = page.next_cursor
+            filters.props(f'caption="{plural(on(), "filter") + " on" if on() else ""}"')
+
+        async def load(more_: bool = False) -> None:
+            await fill(more_)
             results.refresh()
+
+        async def changed() -> None:
+            ui.navigate.history.replace(address())
+            await load()
 
         async def more() -> None:
             await load(more_=True)
@@ -314,13 +372,12 @@ class SharingSection:
                 pass
             await load()
 
-        page = await sharing.call(sharing.catalog.cards, query(None))
-        shown.extend(page.items)
-        have.update(await sharing.call(sharing.catalog.downloaded, [e.publication.event_id for e in page.items]))
-        cursor[0] = page.next_cursor
+        await fill()
         results()
-        search.on_value_change(load)
-        tags.on_value_change(load)
+        if on() - bool(nsfw.value):
+            filters.open()
+        for field in (search, where_, by_, tags_, exclude_):
+            field.on_value_change(changed)
         nsfw.on_value_change(nsfw_changed)
 
         # Looking for new cards, when it's time; the list again each time a look is over
@@ -381,11 +438,12 @@ class SharingSection:
         ui.timer(0.5, tick)
 
     @staticmethod
-    def _row(entry: CatalogEntry, *, have: bool = False) -> Row:
+    def _row(entry: CatalogEntry, *, have: bool = False, show_key: bool = False) -> Row:
         p = entry.publication
         description = ' '.join(p.card_description.split())
         nsfw = p.content_rating == 'nsfw'
-        note = f'{entry.publisher_name} · {time_ago(_when(p.created_at))}'
+        who = f'{entry.publisher_name} ({short_key(p.publisher_id)})' if show_key else entry.publisher_name
+        note = f'{who} · {time_ago(_when(p.created_at))}'
         if have:
             note += ' · downloaded'
         if p.card_tags:
@@ -393,6 +451,104 @@ class SharingSection:
         return Row(title=p.card_name, subtitle=description, note=note,
                    icon='explicit' if nsfw else 'style', icon_color='negative' if nsfw else 'primary',
                    icon_tooltip='Rated NSFW by its publisher' if nsfw else '', side=size_text(p.card_size))
+
+    # --- your publications ---------------------------------------------------------------------------
+
+    async def published_page(self) -> None:
+        """The cards published with your keys (the one in use, and those it replaced), each one's state: its
+        file shared from here, where its announcement arrived; the withdrawn ones apart, at the end."""
+        page_bar('Your publications')
+        if self.sharing is None:
+            self._unavailable()
+            return
+        sharing = self.sharing
+        own = await sharing.call(sharing.own_keys)
+        live, withdrawn = await sharing.call(sharing.catalog.published_by, own) if own else ((), ())
+        if not live and not withdrawn:
+            with ui.column().classes('panel gap-1').mark('published-empty'):
+                ui.label('Nothing published yet').classes('panel-title')
+                ui.label('To publish a character as a shared card: open it, then ⋮ › Publish to shared cards.') \
+                    .classes('muted')
+            return
+        states: dict[str, tuple[str, str]] = {}
+
+        async def look() -> bool:
+            """Each one's state now; whether it changed."""
+            now = {e.publication.event_id: await self._own_state(e) for e in (*live, *withdrawn)}
+            changed = now != states
+            states.update(now)
+            return changed
+
+        @ui.refreshable
+        def lists() -> None:
+            for entries, marker in ((live, 'published-list'), (withdrawn, 'published-withdrawn')):
+                if not entries:
+                    continue
+                if marker == 'published-withdrawn':
+                    ui.label('Withdrawn').classes('step-title mt-2')
+                with ui.list().props('separator').classes('panel item-list').mark(marker):
+                    for entry in entries:
+                        render_row(entry, self._own_row(entry, *states[entry.publication.event_id], own=own),
+                                   key=entry.publication.event_id,
+                                   on_open=lambda e: ui.navigate.to(f'/shared/{e.publication.event_id}'))
+
+        await look()
+        lists()
+
+        async def tick() -> None:  # (people connected, relays reached...)
+            if await look():
+                lists.refresh()
+        ui.timer(5, tick)
+
+    async def _own_state(self, entry: CatalogEntry) -> tuple[str, str]:
+        """One of yours, in a few words: (level: 'ok', 'warning', 'problem' or 'withdrawn', text)."""
+        sharing = self.sharing
+        p = entry.publication
+        if entry.withdrawn is not None:
+            reason = f': {entry.withdrawn.reason}' if entry.withdrawn.reason else ''
+            return 'withdrawn', f'Withdrawn {time_ago(_when(entry.withdrawn.at))}{reason}'
+        level, parts = 'ok', []
+        status = sharing.sharing_status(entry)
+        if isinstance(status, str):
+            level = 'problem'
+            parts.append('its file is missing or changed')
+        elif status is None:
+            level = 'warning'
+            parts.append('its file isn\'t shared from this computer')
+        elif status.state == 'error':
+            level = 'problem'
+            parts.append('sharing its file failed')
+        else:
+            parts.append(f'shared, {_people(status.peers)} connected' if status.peers else 'shared')
+        counts = Counter(d.state for d in await sharing.call(sharing.catalog.deliveries, p.event_id))
+        if not counts:
+            parts.append('not sent to relays from this computer')
+        else:
+            if counts['accepted']:
+                parts.append(f'on {plural(counts["accepted"], "relay")}')
+            if missed := counts['pending'] + counts['refused']:
+                level = 'warning' if level == 'ok' else level
+                parts.append(f'{plural(missed, "relay")} not reached')
+            if counts['held']:
+                parts.append(f'{counts["held"]} held')
+        text = ', '.join(parts)
+        return level, text[0].upper() + text[1:]
+
+    @staticmethod
+    def _own_row(entry: CatalogEntry, level: str, state: str, *, own: tuple[str, ...]) -> Row:
+        p = entry.publication
+        icon, color = {'ok': ('cloud_done', 'positive'), 'warning': ('warning', 'warning'),
+                       'problem': ('error_outline', 'negative'),
+                       'withdrawn': ('remove_circle_outline', 'grey')}[level]
+        note = f'Published {date_text(p.created_at)} as "{p.published_name}"'
+        if own and p.publisher_id != own[0]:
+            note += ', with a key you used before'
+        if p.card_tags:
+            note += ' · ' + ' '.join(f'#{t}' for t in p.card_tags[:6])
+        return Row(title=p.card_name, subtitle=state, note=note, icon=icon, icon_color=color,
+                   icon_tooltip={'ok': 'All is well', 'warning': 'Something to look at', 'problem': 'A problem',
+                                 'withdrawn': 'Withdrawn'}[level],
+                   side=size_text(p.card_size), dimmed=level == 'withdrawn')
 
     # --- one card ---------------------------------------------------------------------------------
 
@@ -409,8 +565,8 @@ class SharingSection:
         p = entry.publication
         versions = await sharing.call(sharing.catalog.versions, p.publisher_id, p.card_uuid, include_withdrawn=True)
         publisher = await sharing.call(sharing.catalog.publisher, p.publisher_id)
-        me = self.my_key()
-        mine = me is not None and me.public_key == p.publisher_id
+        own = await sharing.call(sharing.own_keys)
+        mine = p.publisher_id in own
 
         async def block() -> None:
             name = entry.publisher_name
@@ -421,10 +577,13 @@ class SharingSection:
             ui.notify(f'Blocked {name}: {plural(gone, "publication")} removed')
             ui.navigate.to('/shared')
 
-        their_cards = ('All your cards' if mine else 'All their cards',
-                       lambda: ui.navigate.to(f'/shared?publisher={p.publisher_id}'), False)
-        page_bar(p.card_name, subtitle='by you' if mine else f'by {entry.publisher_name}', back='/shared',
-                 menu=[their_cards] if mine else [their_cards, ('Block this publisher', block, True)])
+        if mine:
+            page_bar(p.card_name, subtitle='by you', back='/published',
+                     menu=[('Your publications', lambda: ui.navigate.to('/published'), False)])
+        else:
+            page_bar(p.card_name, subtitle=f'by {entry.publisher_name}', back='/shared',
+                     menu=[('All their cards', lambda: ui.navigate.to(f'/shared?publisher={p.publisher_id}'), False),
+                           ('Block this publisher', block, True)])
 
         if entry.withdrawn:
             with ui.column().classes('panel gap-1').mark('shared-withdrawn'):
@@ -442,7 +601,7 @@ class SharingSection:
                     ui.link('See the latest', f'/shared/{latest.publication.event_id}')
 
         if mine:
-            await self._own_panel(entry, versions)
+            await self._own_panel(entry, versions, old_key=bool(own) and p.publisher_id != own[0])
         else:
             await self._get_panel(entry)
 
@@ -497,7 +656,7 @@ class SharingSection:
                                 with ui.item_section().props('side'):
                                     ui.label(state).classes('text-sm ' + ('text-negative' if v.withdrawn else 'muted'))
 
-    async def _own_panel(self, entry: CatalogEntry, versions: list[CatalogEntry]) -> None:
+    async def _own_panel(self, entry: CatalogEntry, versions: list[CatalogEntry], *, old_key: bool = False) -> None:
         """One of yours: how its file is shared from here, where its announcement (or its withdrawal) arrived,
         and what can be done about it."""
         sharing = self.sharing
@@ -508,7 +667,8 @@ class SharingSection:
         async def reload() -> None:
             await ui.context.client.sub_pages_router.refresh()
 
-        with panel('Your publication', 'Published with your key'):
+        with panel('Your publication', 'Published with a key you used before' if old_key else
+                   'Published with your key'):
             @ui.refreshable
             def shared() -> None:
                 icon, text = sharing_text(sharing.sharing_status(entry), withdrawn=withdrawn)
@@ -1158,7 +1318,7 @@ class SharingSection:
                     with ui.row().classes('gap-2'):
                         ui.button('Back up my key', icon='key', on_click=lambda: self._backup_dialog(me)) \
                             .props('outline').mark('sharing-backup-key')
-                        ui.button('Your cards', on_click=lambda: ui.navigate.to(f'/shared?publisher={me.public_key}')) \
+                        ui.button('Your publications', on_click=lambda: ui.navigate.to('/published')) \
                             .props('flat').mark('sharing-your-cards')
                         ui.button('Use another key', on_click=lambda: change(replace=True)).props('flat') \
                             .mark('sharing-replace-key')

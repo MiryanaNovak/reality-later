@@ -130,6 +130,70 @@ def test_a_withdrawal(catalog):
     assert catalog.cards(CardQuery(publisher_name='marie l')).items == ()
 
 
+def test_words_from_their_start(catalog):
+    k2, k3 = nostr.new_secret(), nostr.new_secret()
+    sera = publish(catalog, KEY1, at=T0 + 10, title='Seraphina, forest guardian', name='Marie',
+                   description='A dryad who guards the Elderwood. Speaks with owls.')
+    luc = publish(catalog, k2, at=T0 + 20, title='Jean-Luc', name='Juno Starlight', description='A pilot.')
+    ryu = publish(catalog, k3, at=T0 + 30, title='龍王の娘', name='Ren', description='海の底の城。')
+
+    def find(**query):
+        return {e.publication.event_id for e in catalog.cards(CardQuery(**query)).items}
+
+    assert find(card_name='sera') == find(card_name='SÉRA') == {sera.event_id}
+    assert find(card_name='phina') == set()  # (not in the middle of a word)
+    assert find(card_name='guard sera') == {sera.event_id}  # (every word, in any order)
+    assert find(card_name='sera pilot') == set()
+    assert find(card_name='luc') == {luc.event_id}  # (punctuation separates words)
+    assert find(card_name='娘') == find(card_name='王 龍') == {ryu.event_id}  # (no spaces: each letter a word)
+
+    assert find(card_name='owls') == set()  # (in the description: only when asked)
+    assert find(card_name='owls', in_description=True) == {sera.event_id}
+    assert find(card_name='seraph elder', in_description=True) == {sera.event_id}  # (the name and the description)
+    assert find(card_name='城', in_description=True) == {ryu.event_id}
+
+    assert find(publisher_name='star') == {luc.event_id} and find(publisher_name='light') == set()
+    assert find(publisher_name='juno star') == {luc.event_id}
+    renamed = publish(catalog, k2, at=T0 + 40, title='Kai', name='J. S.')  # (a name before: still found by it)
+    assert find(publisher_name='starlight') == {luc.event_id, renamed.event_id}
+    assert [p.publisher_id for p in catalog.publishers(PublisherQuery(name='juno')).items] == [nostr.public_key(k2)]
+
+    assert find(publishers=(PUB1, nostr.public_key(k3))) == {sera.event_id, ryu.event_id}
+    assert find(exclude_publishers=(PUB1, nostr.public_key(k3))) == {luc.event_id, renamed.event_id}
+
+
+def test_someones_cards(catalog):
+    k2 = nostr.new_secret()
+    uuid = fmt.new_card_uuid()
+    first = publish(catalog, KEY1, at=T0 + 10, uuid=uuid, title='Aria')
+    second = publish(catalog, KEY1, at=T0 + 20, uuid=uuid, title='Aria')
+    gone = publish(catalog, KEY1, at=T0 + 30, title='Bram')
+    other = publish(catalog, k2, at=T0 + 40, title='Old key')
+    publish(catalog, nostr.new_secret(), at=T0 + 50, title='Someone else')
+    catalog.receive(fmt.build_withdrawal([gone.event_id], secret=KEY1, created_at=T0 + 60).event.to_dict(), now=NOW)
+    catalog.receive(fmt.build_withdrawal([second.event_id], secret=KEY1, created_at=T0 + 60).event.to_dict(), now=NOW)
+
+    live, withdrawn = catalog.published_by([PUB1, nostr.public_key(k2)])
+    assert [e.publication.event_id for e in live] == [other.event_id, first.event_id]  # (Aria: its version left)
+    assert [e.publication.event_id for e in withdrawn] == [gone.event_id] and withdrawn[0].withdrawn
+    assert catalog.published_by([]) == ((), ())
+
+
+def test_a_catalog_from_before_word_search(tmp_path):
+    """A catalog made before migration 6: what's searched is worked out from what it has."""
+    import sqlite3
+    path = tmp_path / 'old.sqlite3'
+    with Catalog(path) as c:
+        p = publish(c, KEY1, at=T0, title='Le Café des Ombres', name='Zoë', description='Une barista fantôme.')
+    with sqlite3.connect(path) as db:  # (as it was: no publication_text, version 5)
+        db.execute('DROP TABLE publication_text')
+        db.execute('PRAGMA user_version = 5')
+    with Catalog(path) as c:
+        assert [e.publication.event_id for e in c.cards(CardQuery(card_name='cafe omb')).items] == [p.event_id]
+        assert len(c.cards(CardQuery(card_name='fantome', in_description=True)).items) == 1
+        assert len(c.cards(CardQuery(publisher_name='zoe')).items) == 1
+
+
 def test_a_withdrawal_before_its_publication(catalog):
     w = fmt.build_withdrawal([event('example')['id']], secret=KEY1, created_at=NOW)
     assert catalog.receive(w.event, now=NOW).withdrawn == ()  # (nothing known yet)
@@ -188,7 +252,8 @@ def test_filters(catalog):
     assert find() == {a.event_id, b.event_id, c.event_id}
     assert find(card_name='REI') == {a.event_id} and find(card_name='cafe ombres') == {b.event_id}
     assert find(card_name='ombre') == {b.event_id, c.event_id} and find(card_name='_100%') == {c.event_id}
-    assert find(card_name='caf_') == find(card_name='le%ombres') == set()  # (_ and % are themselves, not patterns)
+    assert find(card_name='eika') == find(card_name='mbres') == set()  # (from the start of words only)
+    assert find(card_name='caf_') == find(card_name='le%ombres') == {b.event_id}  # (_ and %: between words)
     assert find(tags=('Anime',)) == {a.event_id, b.event_id} and find(tags=('anime', 'fantasy')) == find()
     assert find(tags=('anime', 'fantasy'), match_all_tags=True) == {b.event_id}
     assert find(tags=('fantasy',), exclude_tags=('Anime',)) == {c.event_id}  # (normalized, like the others)

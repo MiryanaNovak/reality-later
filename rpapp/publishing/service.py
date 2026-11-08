@@ -210,6 +210,23 @@ class Sharing:
     def import_identity(self, text: str, *, replace: bool = False) -> Identity:
         return keys.import_identity(self.key_file, text, replace=replace)
 
+    def own_identities(self) -> list[Identity]:
+        """This computer's publisher keys: the one in use, then those it replaced (kept beside it). What
+        they published is "yours": listed apart from the others', and withdrawn with the key that signed it."""
+        found: list[Identity] = []
+        try:
+            if (current := self.identity()) is not None:
+                found.append(current)
+        except keys.IdentityError:  # (damaged: the Settings page says so)
+            pass
+        for old in keys.replaced_identities(self.key_file):
+            if all(old.public_key != f.public_key for f in found):
+                found.append(old)
+        return found
+
+    def own_keys(self) -> tuple[str, ...]:
+        return tuple(i.public_key for i in self.own_identities())
+
     # --- publishing ---------------------------------------------------------------------------------
 
     async def publish(self, draft: PublicationDraft, content: bytes, *, card_uuid: str) -> Published:
@@ -243,22 +260,25 @@ class Sharing:
         return Published(action, publication, await self.deliver(publication.event))
 
     async def withdraw(self, event_ids: Iterable[str], *, reason: str = '') -> tuple[Delivery, ...]:
-        """Withdraw publications of this computer's key: no longer shared from here, a withdrawal sent to
-        the relays (those who have the cards keep them)."""
-        me = self.identity()
-        if me is None:
-            raise SharingError('Withdrawing needs the key that published: there\'s none here.')
-        ids = []
+        """Withdraw publications of this computer's keys (the one in use, or one it replaced): no longer
+        shared from here, a withdrawal signed by the key that published them sent to the relays (those who
+        have the cards keep them)."""
+        own = {i.public_key: i for i in self.own_identities()}
+        by_key: dict[str, list[str]] = {}
         for event_id in dict.fromkeys(event_ids):
             entry = await self.call(self.catalog.get, event_id)
-            if entry is None or entry.publication.publisher_id != me.public_key:
-                raise SharingError('Only your own publications can be withdrawn.')
-            ids.append(event_id)
-        withdrawal = fmt.build_withdrawal(ids, secret=me.secret, reason=reason)
-        await self.call(self.catalog.add, withdrawal)
-        for event_id in ids:
-            await self.stop_sharing(event_id)
-        return await self.deliver(withdrawal.event)
+            if entry is None or entry.publication.publisher_id not in own:
+                raise SharingError('Only your own publications can be withdrawn: those published with a key of '
+                                   'this computer.')
+            by_key.setdefault(entry.publication.publisher_id, []).append(event_id)
+        deliveries: list[Delivery] = []
+        for key, ids in by_key.items():  # (one withdrawal per key: each signs its own)
+            withdrawal = fmt.build_withdrawal(ids, secret=own[key].secret, reason=reason)
+            await self.call(self.catalog.add, withdrawal)
+            for event_id in ids:
+                await self.stop_sharing(event_id)
+            deliveries += await self.deliver(withdrawal.event)
+        return tuple(deliveries)
 
     async def deliver(self, event: Event) -> tuple[Delivery, ...]:
         """Send one of this computer's events to the relays written to, where it hasn't arrived yet, at the
@@ -460,11 +480,11 @@ class Sharing:
         if on:
             return 0
         downloaded = {d.event_id for d in await self.call(self.catalog.downloads)}
-        me = self.identity()
+        own = set(self.own_keys())
         stopped = 0
         for item in await self.call(self.catalog.seeding, enabled_only=True):
             entry = await self.call(self.catalog.get, item.event_id)
-            mine = entry is not None and me is not None and entry.publication.publisher_id == me.public_key
+            mine = entry is not None and entry.publication.publisher_id in own
             if item.event_id in downloaded and not mine:
                 await self.stop_sharing(item.event_id)
                 stopped += 1
