@@ -219,3 +219,6 @@ data/
 certificates/
 repo/
 test-relay.jsonl
+
+# OS stuff
+.directory
