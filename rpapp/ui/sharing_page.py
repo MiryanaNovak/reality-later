@@ -244,14 +244,18 @@ async def changed_since(character: Character, p: Publication, source: Source | N
     one that would be published now, against the one that was). None: can't tell. `known`: the answers so far
     for the files, by what the character was then (its fingerprint), so that a card isn't drawn again (a PNG,
     its picture compressed: a while) as long as the character doesn't change."""
-    if source is not None and fingerprint is not None:
-        return fingerprint(character) != source.fingerprint
-    if export is None:
+    try:
+        if source is not None and fingerprint is not None:
+            return fingerprint(character) != source.fingerprint
+        if export is None:
+            return None
+        key = (p.event_id, fingerprint(character) if fingerprint is not None else character.model_dump_json())
+        if known is not None and key in known:
+            return known[key]
+        content = await asyncio.to_thread(export, character)
+    except Exception:  # (a damaged picture...: can't tell)
+        log.warning('Can\'t tell whether %s changed since it was published', character.id, exc_info=True)
         return None
-    key = (p.event_id, fingerprint(character) if fingerprint is not None else character.model_dump_json())
-    if known is not None and key in known:
-        return known[key]
-    content = await asyncio.to_thread(export, character)
     answer = hashlib.sha256(content).hexdigest() != p.card_sha256
     if known is not None:
         known[key] = answer
@@ -614,12 +618,8 @@ class SharingSection:
         character = self._character(character_id)
         if character is None or character.shared_uuid != entry.publication.card_uuid:  # (deleted since...)
             return None
-        try:
-            changed = await changed_since(character, entry.publication, source, fingerprint=self.card_fingerprint,
-                                          export=self.card_export, known=known)
-        except Exception:  # (a damaged picture...: not said here, and its page says what it can)
-            log.warning('Can\'t tell whether %s changed since it was published', character.id, exc_info=True)
-            return None
+        changed = await changed_since(character, entry.publication, source, fingerprint=self.card_fingerprint,
+                                      export=self.card_export, known=known)
         return (character.id, character.title) if changed else None
 
     @staticmethod
@@ -783,13 +783,18 @@ class SharingSection:
             ui.label('Its withdrawal, on the relays' if withdrawn else 'Its announcement, on the relays') \
                 .classes('step-title mt-1')
 
-            @ui.refreshable
-            async def relays() -> None:
-                deliveries = await sharing.call(sharing.catalog.deliveries, event_id)
+            listed: dict = {}  # (read first, then drawn at once: see _get_panel)
+
+            async def look() -> None:
+                listed['deliveries'] = deliveries = await sharing.call(sharing.catalog.deliveries, event_id)
                 known = {d.relay_url for d in deliveries}
                 # Where it could still go: a relay that wasn't reached, or one added since
-                missing = any(d.state in ('pending', 'refused') for d in deliveries) or \
+                listed['missing'] = any(d.state in ('pending', 'refused') for d in deliveries) or \
                     any(r.write and r.url not in known for r in await sharing.call(sharing.catalog.relays))
+
+            @ui.refreshable
+            def relays() -> None:
+                deliveries, missing = listed['deliveries'], listed['missing']
                 if not deliveries:
                     ui.label('Not sent to any relay from this computer.').classes('text-sm muted') \
                         .mark('own-no-deliveries')
@@ -817,9 +822,11 @@ class SharingSection:
                 finally:
                     button.props(remove='loading')
                 ui.notify(f'Sent again: {delivery_summary(deliveries)}')
-                await relays.refresh()
+                await look()
+                relays.refresh()
 
-            await relays()
+            await look()
+            relays()
 
             async def stop() -> None:
                 if not await confirm('Stop sharing its file?', 'Nobody can download it from this computer any '
@@ -858,11 +865,16 @@ class SharingSection:
         sharing = self.sharing
         p = entry.publication
         withdrawn = entry.withdrawn is not None
-        shown: dict = {'key': None}  # (the download's state the panel shows: drawn again when it changes)
+        # The download's state the panel shows (drawn again when it changes), and its record here: read first,
+        # then the panel drawn at once (a refreshable that waits for it is emptied first: the page jumps)
+        shown: dict = {'key': None, 'record': None}
+
+        async def look() -> None:
+            shown['record'] = await sharing.downloaded(p.event_id)
 
         @ui.refreshable
-        async def body() -> None:
-            record = await sharing.downloaded(p.event_id)
+        def body() -> None:
+            record = shown['record']
             fetch = sharing.fetches.get(p.event_id)
             shown['key'] = _fetch_key(fetch)
             character = self._character(record.character_id) if record else None
@@ -918,21 +930,23 @@ class SharingSection:
             except SharingError as e:
                 ui.notify(str(e), type='negative')
                 return
-            await body.refresh()
+            await look()
+            body.refresh()
 
         async def stop() -> None:
             if not await confirm('Stop sharing its file?', 'Nobody can download it from this computer any more. '
                                  'Your character stays as it is.', 'Stop sharing'):
                 return
             await sharing.stop_sharing(p.event_id)
-            await body.refresh()
+            await look()
+            body.refresh()
 
-        await body()
+        await look()
+        body()
 
-        def tick() -> None:  # (how far a download is, and what came of it: as soon as it's over, quick or not)
-            key = _fetch_key(sharing.fetches.get(p.event_id))
-            if key != shown['key']:
-                shown['key'] = key
+        async def tick() -> None:  # (how far a download is, and what came of it: as soon as it's over, quick or not)
+            if _fetch_key(sharing.fetches.get(p.event_id)) != shown['key']:
+                await look()  # (the character it became, once over)
                 body.refresh()
         ui.timer(0.5, tick)
 
@@ -973,10 +987,16 @@ class SharingSection:
         known: dict[tuple[str, str], bool] = {}
 
         async def changed() -> bool | None:
+            if entry.withdrawn is not None:
+                return None
             return await changed_since(character, p, source, fingerprint=fingerprint, export=export, known=known)
 
+        # What the note says: worked out first, then the note drawn at once (not in a refreshable that waits for
+        # it: that one is emptied first, and the page jumps), and only when it changes
+        shown = {'changed': await changed(), 'character': character.model_dump_json()}
+
         @ui.refreshable
-        async def note() -> None:
+        def note() -> None:
             with ui.row().classes('items-start no-wrap gap-2 text-sm w-full').mark('character-published'):
                 ui.icon('cloud_upload', size='1.3em', color='primary')
                 with ui.column().classes('gap-0 min-w-0'):
@@ -987,25 +1007,29 @@ class SharingSection:
                     if entry.withdrawn is not None:
                         ui.label(f'You withdrew it {time_ago(_when(entry.withdrawn.at))}.').classes('muted') \
                             .mark('character-published-withdrawn')
-                        return
-                    now = await changed()
-                    if now:
-                        with ui.row().classes('items-center gap-x-2 gap-y-0').mark('character-changed'):
+                    elif shown['changed']:
+                        with ui.row().classes('status-line gap-x-2 gap-y-0').mark('character-changed'):
                             ui.label('Changed since: the shared card isn\'t up to date.') \
                                 .classes('text-weight-medium')
                             if publish is not None:
                                 ui.button('Publish it again', icon='publish', on_click=publish) \
                                     .props('flat dense').mark('character-publish-again')
-                    elif now is False:
-                        ui.label('The shared card is up to date.').classes('muted').mark('character-up-to-date')
+                    elif shown['changed'] is False:
+                        ui.label('The shared card is up to date.').classes('muted status-line') \
+                            .mark('character-up-to-date')
 
-        await note()
-        seen = {'character': character.model_dump_json()}
+        note()
+        if entry.withdrawn is not None:
+            return
 
-        def tick() -> None:  # (edited here: said as soon as it's saved)
+        async def tick() -> None:  # (edited here: said as soon as it's saved)
             now = character.model_dump_json()
-            if now != seen['character']:
-                seen['character'] = now
+            if now == shown['character']:
+                return
+            shown['character'] = now
+            answer = await changed()
+            if answer != shown['changed']:
+                shown['changed'] = answer
                 note.refresh()
         ui.timer(2, tick)
 

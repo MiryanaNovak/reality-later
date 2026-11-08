@@ -476,6 +476,52 @@ async def test_published_before_fingerprints(user, tmp_path, sharing):
     await user.should_see(marker=f'published-changed-{event_id}', retries=SLOW)
 
 
+async def test_the_note_doesnt_jump(user, tmp_path, sharing, monkeypatch):
+    """Edited: the note stays as it is while it's worked out again (not emptied, then drawn: the page jumped),
+    and it's drawn again only if what it says changes."""
+    import rpapp.ui.sharing_page as page
+    from rpapp.cards import card_data, card_png
+    from rpapp.ui.list_view import initials
+    sharing.create_identity()
+    store, character = aria(tmp_path)
+    character.shared_uuid = fmt.new_card_uuid()
+    store.save(character)
+    content = card_png(card_data(character, []), None, initials=initials(character.title))
+    await sharing.publish(PublicationDraft(publisher_name='Marie', card_name='Aria'), content,
+                          card_uuid=character.shared_uuid)
+    shown_meanwhile = []
+    real = page.changed_since
+
+    def note_shown() -> bool:
+        """What it says of the character (changed, or up to date): what went, then came back."""
+        for marker in ('character-changed', 'character-up-to-date'):
+            try:
+                if user.find(marker=marker).elements:
+                    return True
+            except AssertionError:  # (none)
+                pass
+        return False
+
+    async def slow(*args, **kwargs):
+        answer = await real(*args, **kwargs)
+        await asyncio.sleep(0.3)  # (as a big picture would take)
+        shown_meanwhile.append(note_shown())
+        return answer
+    monkeypatch.setattr(page, 'changed_since', slow)
+
+    await user.open(f'/characters/{character.id}')
+    await user.should_see(marker='character-up-to-date', retries=SLOW)
+    shown_meanwhile.clear()  # (the page as it opened: no note yet, of course)
+    scenario_field(user).set_value('{{char}} sings, and now she fights too.')
+    await user.should_see(marker='character-changed', retries=SLOW)
+    note = user.find(marker='character-changed').elements.pop()
+    scenario_field(user).set_value('{{char}} sings, and fights.')  # (still changed: nothing drawn again)
+    await until(lambda: len(shown_meanwhile) >= 2)
+    await asyncio.sleep(0.2)
+    assert shown_meanwhile and all(shown_meanwhile)
+    assert user.find(marker='character-changed').elements.pop() is note
+
+
 async def test_no_character_here(user, tmp_path, sharing):
     """Published from another computer (your key brought here), or its character deleted since: nothing said."""
     sharing.create_identity()

@@ -373,6 +373,9 @@ HEAD = f'''
   .wizard-list {{ list-style: disc; padding-left: 1.3em; margin: 0; }}
   .wizard-list li {{ margin: 4px 0; }}
   .publish-card {{ width: min(560px, calc(100vw - 24px)); max-height: 92vh; overflow-y: auto; }}
+  /* A line whose text changes in place (a character's "changed since" / "up to date"): the height of a dense
+     button, which one of them has, so that going from one to the other doesn't move the page */
+  .status-line {{ min-height: 32px; display: flex; align-items: center; }}
   .publish-notice {{
     background: var(--page); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; width: 100%;
   }}
