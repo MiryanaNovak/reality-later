@@ -111,6 +111,11 @@ async def test_where_it_goes(sharing, relay):
     assert next(d for d in again if d.relay_url == relay.url).state == 'accepted'
 
 
+def torrents_file(content: bytes):
+    from rpapp.publishing import torrents
+    return torrents.card_file(content)
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(('127.0.0.1', 0))
@@ -145,7 +150,7 @@ async def test_sent_again_by_itself(sharing, relay):
 
     relay.refuse_events = None
     async with FakeRelay(port=port) as back:  # (up again)
-        assert await sharing.retry_deliveries(now=time.time() + RETRY_AFTER[0]) == 1
+        assert await sharing.retry_deliveries(now=time.time() + RETRY_AFTER[0]) == 2  # (to both relays)
         assert {d.relay_url: (d.state, d.attempts) for d in sharing.catalog.deliveries(p.event_id)} == \
             {relay.url: ('accepted', 2), down: ('accepted', 2), 'wss://relay.example.com': ('held', 0)}
         assert p.event_id in back.events
@@ -170,6 +175,54 @@ async def test_sent_again_by_itself(sharing, relay):
     assert {d.relay_url: d.state for d in sharing.catalog.deliveries(gone.event_id)}[relay.url] == 'refused'
 
 
+async def until(condition, timeout=5.0):
+    for _ in range(int(timeout / 0.05)):
+        if condition():
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError('never happened')
+
+
+async def test_a_relay_added_gets_your_cards(sharing, relay):
+    """Your cards not withdrawn (each one's latest version), and your withdrawals, go to a relay added, in
+    the background, on one connection; not someone else's cards, nor the cards withdrawn."""
+    uuid = fmt.new_card_uuid()
+    first = (await sharing.publish(DRAFT, aria_card(), card_uuid=uuid)).publication
+    latest = (await sharing.publish(DRAFT, aria_card('Aria sings, and fights.'), card_uuid=uuid)).publication
+    other = (await sharing.publish(DRAFT, aria_card('Bram.'), card_uuid=fmt.new_card_uuid())).publication
+    gone = (await sharing.publish(DRAFT, aria_card('Gone.'), card_uuid=fmt.new_card_uuid())).publication
+    await sharing.withdraw([gone.event_id])
+    withdrawal_id = sharing.catalog.get(gone.event_id).withdrawn.withdrawal_id
+    theirs = fmt.build_publication(DRAFT, torrents_file(b'theirs'), card_uuid=fmt.new_card_uuid(),
+                                   secret=nostr.new_secret())
+    sharing.catalog.receive(theirs.event.to_dict())
+
+    async with FakeRelay() as new:
+        assert await sharing.add_relay(new.url) == 2
+        def arrived(event_id):
+            return {d.relay_url: d.state for d in sharing.catalog.deliveries(event_id)}.get(new.url) == 'accepted'
+        await until(lambda: all(arrived(i) for i in (latest.event_id, other.event_id, withdrawal_id)))
+        assert set(new.events) == {latest.event_id, other.event_id, withdrawal_id}
+        assert first.event_id not in new.events and gone.event_id not in new.events
+        assert new.connections == 1  # (all of them on one connection)
+        assert await sharing.add_relay(new.url) == 0  # (added again: there already)
+
+    assert await sharing.add_relay('wss://relay.example.com') == 0  # (public: held while it's a draft)
+    await until(lambda: 'wss://relay.example.com' in
+                {d.relay_url for d in sharing.catalog.deliveries(latest.event_id)})
+    assert {d.relay_url: d.state for d in sharing.catalog.deliveries(latest.event_id)}['wss://relay.example.com'] \
+        == 'held'
+
+
+async def test_a_relay_added_without_a_key(tmp_path, relay):
+    s = Sharing(tmp_path, default_relays=[relay.url], session=local_session())
+    try:
+        assert await s.add_relay('ws://127.0.0.1:7777') == 0  # (nothing published from here)
+        assert 'ws://127.0.0.1:7777' in {r.url for r in s.catalog.relays()}
+    finally:
+        await s.close()
+
+
 async def test_tried_again_while_the_app_runs(tmp_path, monkeypatch):
     monkeypatch.setattr(service, 'RETRY_AFTER', (0,))
     monkeypatch.setattr(service, 'RETRY_CHECK', 0.05)
@@ -181,12 +234,8 @@ async def test_tried_again_while_the_app_runs(tmp_path, monkeypatch):
         assert s.catalog.deliveries(p.event_id)[0].state == 'pending'
         await s.resume_sharing()  # (as when the app starts)
         async with FakeRelay(port=port) as back:
-            for _ in range(100):
-                if p.event_id in back.events:
-                    break
-                await asyncio.sleep(0.05)
+            await until(lambda: s.catalog.deliveries(p.event_id)[0].state == 'accepted')  # (its answer, kept)
             assert p.event_id in back.events
-            assert s.catalog.deliveries(p.event_id)[0].state == 'accepted'
     finally:
         await s.close()
 

@@ -18,6 +18,7 @@ class FakeRelay:
         # 'exclusive_until': leaves until's own second out; 'duplicate_false': answers false to a duplicate
         self.misbehave = misbehave
         self.refuse_events: str | None = None  # a reason to refuse what's published
+        self.connections = 0                   # how many connections it had
         self._server = None
         self.url = ''
 
@@ -40,6 +41,7 @@ class FakeRelay:
         return found[:min(flt.get('limit', self.max_limit), self.max_limit)]
 
     async def _serve(self, ws) -> None:
+        self.connections += 1
         async for text in ws:
             message = json.loads(text)
             if message[0] == 'REQ':

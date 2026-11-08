@@ -1748,10 +1748,17 @@ class SharingSection:
             await sharing.call(sharing.catalog.remove_relay, url)
             relays.refresh()
 
+        def sending(cards: int, relays_: int) -> None:
+            if cards:
+                ui.notify(f'Your {plural(cards, "card")} {"is" if cards == 1 else "are"} being sent to '
+                          f'{"it" if relays_ == 1 else "them"}.')
+
         async def add_defaults(urls: list[str]) -> None:
+            cards = 0
             for url in urls:
-                await sharing.call(sharing.catalog.add_relay, url)
+                cards = max(cards, await sharing.add_relay(url))
             relays.refresh()
+            sending(cards, len(urls))
 
         async def add() -> None:
             try:
@@ -1759,10 +1766,11 @@ class SharingSection:
             except ValueError:
                 new.props('error error-message="A relay\'s address starts with wss://"')
                 return
-            await sharing.call(sharing.catalog.add_relay, url)
+            cards = await sharing.add_relay(url)
             new.props(remove='error error-message')
             new.value = ''
             relays.refresh()
+            sending(cards, 1)
 
         relays()
         with ui.row().classes('w-full items-start no-wrap gap-2'):

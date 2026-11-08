@@ -312,21 +312,57 @@ class Sharing:
         chosen = None if only is None else set(only)
         relays = [r.url for r in await self.call(self.catalog.relays)
                   if r.write and r.url not in done and (chosen is None or r.url in chosen)]
-
-        async def one(url: str) -> None:
-            if not self.public_publishing and not is_local(url):
-                await self.call(self.catalog.record_delivery, event.id, url, 'held', message=HELD, attempted=False)
-                return
-            try:
-                async with Relay(url, timeout=self.discovery.timeout) as relay:
-                    accepted, said = await relay.publish(event)
-                state = 'accepted' if accepted else 'refused'
-            except RelayError as e:
-                state, said = 'pending', str(e)
-            await self.call(self.catalog.record_delivery, event.id, url, state, message=said)
-
-        await asyncio.gather(*(one(url) for url in relays))
+        await asyncio.gather(*(self._send(url, [event]) for url in relays))
         return await self.call(self.catalog.deliveries, event.id)
+
+    async def _send(self, url: str, events: list[Event]) -> None:
+        """Send events to one relay, one after the other on one connection; each answer kept. A public relay's
+        are held while the format is a draft. The relay can't be reached, or the connection breaks: those not
+        answered yet, pending (tried again by itself)."""
+        if not self.public_publishing and not is_local(url):
+            for event in events:
+                await self.call(self.catalog.record_delivery, event.id, url, 'held', message=HELD, attempted=False)
+            return
+        left = list(events)
+        try:
+            async with Relay(url, timeout=self.discovery.timeout) as relay:
+                while left:
+                    accepted, said = await relay.publish(left[0])
+                    await self.call(self.catalog.record_delivery, left[0].id, url,
+                                    'accepted' if accepted else 'refused', message=said)
+                    left.pop(0)
+        except RelayError as e:
+            for event in left:
+                await self.call(self.catalog.record_delivery, event.id, url, 'pending', message=str(e))
+
+    async def add_relay(self, url: str) -> int:
+        """A relay added (Settings): discovery reads it, and publishing writes to it. Your cards not withdrawn
+        (each one's latest version, with any of your keys) go to it, in the background, and your withdrawals
+        (a card withdrawn that reaches it some other way is known as such); what doesn't arrive is tried again
+        by itself. How many of your cards go to it (none to a public relay while the format is a draft: held).
+        ValueError if it isn't a relay's address."""
+        info = await self.call(self.catalog.add_relay, url)
+        own = await self.call(self.own_keys)
+        if not info.write or not own:
+            return 0
+        live, _ = await self.call(self.catalog.published_by, own)
+        events = [e.publication.event for e in live]
+        for withdrawal_id in await self.call(self.catalog.withdrawals_by, own):
+            if (withdrawal := await self.call(self.catalog.withdrawal, withdrawal_id)) is not None:
+                events.append(withdrawal.event)
+        sent = set()
+        for event in events:  # (added again: what's there already isn't sent again)
+            if any(d.relay_url == info.url and d.state == 'accepted'
+                   for d in await self.call(self.catalog.deliveries, event.id)):
+                sent.add(event.id)
+        events = [e for e in events if e.id not in sent]
+        if events:
+            task = asyncio.create_task(self._send(info.url, events))
+            self._background.add(task)
+            task.add_done_callback(self._background.discard)
+        if not self.public_publishing and not is_local(info.url):
+            return 0  # (held: not sent)
+        return sum(1 for e in live if e.publication.event_id not in sent)
 
     async def send_again(self, event_id: str) -> tuple[Delivery, ...]:
         """Send a publication (or withdrawal) of this computer's again, where it hasn't arrived."""
@@ -339,21 +375,21 @@ class Sharing:
         return await self.deliver(event)
 
     async def retry_deliveries(self, *, now: float | None = None) -> int:
-        """Send again, by itself, what didn't arrive but may yet, where it's due (retry_at()): each event to
-        its relays due at once. How many events were sent."""
+        """Send again, by itself, what didn't arrive but may yet, where it's due (retry_at()): to each relay
+        what's due there, on one connection, the relays at the same time. How many deliveries were tried."""
         now = time.time() if now is None else now
-        due: dict[str, list[str]] = {}
+        due: dict[str, list[str]] = {}  # relay → event ids
         for event_id, d in await self.call(self.catalog.undelivered):
             if (at := retry_at(d)) is not None and at <= now:
-                due.setdefault(event_id, []).append(d.relay_url)
-        sent = 0
-        for event_id, urls in due.items():
-            event = await self._sendable(event_id)
-            if event is None:  # (a publication withdrawn since: its withdrawal goes instead)
-                continue
-            await self.deliver(event, only=urls)
-            sent += 1
-        return sent
+                due.setdefault(d.relay_url, []).append(event_id)
+        events: dict[str, Event | None] = {}
+        for ids in due.values():
+            for event_id in ids:
+                if event_id not in events:  # (a publication withdrawn since: None, its withdrawal goes instead)
+                    events[event_id] = await self._sendable(event_id)
+        sends = {url: [e for i in ids if (e := events[i]) is not None] for url, ids in due.items()}
+        await asyncio.gather(*(self._send(url, batch) for url, batch in sends.items() if batch))
+        return sum(len(batch) for batch in sends.values())
 
     async def _sendable(self, event_id: str) -> Event | None:
         """One of this computer's events, to send: a publication not withdrawn, or a withdrawal."""

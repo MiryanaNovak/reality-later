@@ -883,6 +883,17 @@ class Catalog:
         return [(r['event_id'], Delivery(r['relay_url'], r['state'], r['attempts'], r['last_attempt_at'], r['message']))
                 for r in rows]
 
+    def withdrawals_by(self, publisher_ids: Iterable[str]) -> list[str]:
+        """The withdrawals signed with these keys (someone's: the one in use, and those it replaced), the oldest
+        first: their event ids."""
+        keys = list(dict.fromkeys(publisher_ids))
+        if not keys:
+            return []
+        with self._lock:
+            return [row[0] for row in self._db.execute(
+                f'SELECT event_id FROM withdrawals WHERE publisher_key IN ({",".join("?" * len(keys))}) '
+                f'ORDER BY created_at, event_id', keys)]
+
     def withdrawal(self, event_id: str) -> Withdrawal | None:
         """A withdrawal kept in the catalog (this computer's own, to send it again)."""
         with self._lock:

@@ -634,6 +634,25 @@ async def test_tried_again_by_itself(user, sharing, relay):
     await user.should_see('Refused: blocked: members only')
 
 
+async def test_a_relay_added_in_settings(user, sharing, relay):
+    """Your cards go to a relay added (and it's said); once there, its page says so."""
+    sharing.create_identity()
+    published = await publish(sharing)
+    event_id = published.publication.event_id
+    async with FakeRelay() as new:
+        await user.open('/settings')
+        await user.should_see(marker='sharing-new-relay')
+        user.find(marker='sharing-new-relay').type(new.url)
+        user.find(marker='sharing-add-relay').click()
+        await user.should_see('Your 1 card is being sent to it.', retries=SLOW)
+        await until(lambda: any(d.relay_url == new.url and d.state == 'accepted'
+                                for d in sharing.catalog.deliveries(event_id)))
+        assert event_id in new.events
+        await user.open(f'/shared/{event_id}')
+        await user.should_see(marker=f'delivery-{new.url}', retries=SLOW)
+        await user.should_not_see(marker='own-send-again')  # (nowhere left to send it)
+
+
 async def test_stopping_sharing_the_file(user, sharing, tmp_path):
     sharing.create_identity()
     published = await publish(sharing)
