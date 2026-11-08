@@ -14,8 +14,9 @@ that installs on any Linux with Flatpak. It's for the GitHub releases, not Flath
 Before handing them out, it checks them there: the tests, on Linux; then each `.flatpak` is
 installed on a fresh Ubuntu, as anyone would (the base system downloading from Flathub), and
 `packaging/smoke_test.py --flatpak io.github.MiryanaNovak.RealityLater` starts it and checks that its
-pages, files and HTTPS answer, that vector search's libraries load, and that `quit` stops it. The ARM
-one too, on GitHub's ARM machines.
+pages, files and HTTPS answer, that vector search's libraries load, that card sharing works (its
+`check-sharing` command publishes a card and downloads it by BitTorrent, on the machine only), and that
+`quit` stops it. The ARM one too, on GitHub's ARM machines.
 
 That test is for a computer where the app has no files yet: on yours, with its folder in
 `~/.var/app/`, it stops rather than use your data (and quit the app if it runs).
@@ -51,5 +52,9 @@ Its settings file and data are in `~/.var/app/io.github.MiryanaNovak.RealityLate
 "This computer" page shows where, and opens them). It stops with Quit, in its tray icon's menu or on
 that page. A new version installs over the old one, data kept: `flatpak install --user` the new file.
 
-What it may do: use the network (its server, and the AI services it calls) and show its tray icon.
-Nothing else: no access to your files, and no window of its own (it opens your browser).
+What it may do: use the network (its server, the AI services it calls, and card sharing: the relays,
+and BitTorrent, whose port other computers connect to) and show its tray icon. Nothing else: no access
+to your files, and no window of its own (it opens your browser).
+
+To check that card sharing works in it, on your computer (nothing of yours is used, and nothing leaves
+the computer): `flatpak run io.github.MiryanaNovak.RealityLater check-sharing`.

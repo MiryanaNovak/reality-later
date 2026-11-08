@@ -24,6 +24,7 @@ https://192.168.1.20:8090 for instance (the page and this window show it).
     {prog} --no-tray       no icon in the system tray (also: tray = false)
     {prog} --reload        restart by itself when the code changes (for development)
     {prog} quit            stop it, if it's running (as Quit, in its tray icon's menu)
+    {prog} check-sharing   check that card sharing works on this computer
 
 The port, the addresses the app listens on, the networks allowed to connect, HTTPS
 and the rest can be set in its settings file (see config.example.toml), here:
@@ -66,7 +67,7 @@ def main(argv: list[str] | None = None, *, first: bool = True, script: Path | No
 
     if first and argv[:1] and argv[0] in cli.COMMANDS:  # (before NiceGUI, which takes a while to load)
         try:
-            config = None if argv[0] == 'quit' else load_config()  # (quit: even if the settings file is wrong)
+            config = None if argv[0] in cli.NO_SETTINGS else load_config()  # (even if the settings file is wrong)
             sys.exit(cli.run(argv, config, data_dir=data_dir, prog=prog))
         except ConfigError as e:
             sys.exit(str(e))

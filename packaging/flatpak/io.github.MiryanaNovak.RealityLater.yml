@@ -7,7 +7,9 @@ sdk: org.freedesktop.Sdk
 command: reality-later
 
 finish-args:
-  - --share=network                            # the app's server, and the AI services it calls
+  # The app's server, the AI services it calls, and card sharing: the Nostr relays, and BitTorrent (its
+  # port, open to other computers, and the router's UPnP and NAT-PMP, asked to open it)
+  - --share=network
   - --talk-name=org.kde.StatusNotifierWatcher  # the tray icon
   # Nothing else: no access to your files (its own are in ~/.var/app/<this id>), and no window of its
   # own (it opens your browser, through the desktop's portal).

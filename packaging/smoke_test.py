@@ -5,6 +5,9 @@
 
 As a new user's (folders of its own, or none yet), it checks that:
   - `--help` answers;
+  - card sharing works: `check-sharing` publishes a card and downloads it by BitTorrent, between two copies
+    of the app's sharing on 127.0.0.1 (its libraries must be there, and work: libtorrent's, coincurve's,
+    websockets');
   - the app starts (the program with a console), and its pages, its files, NiceGUI's live connection to
     the browser and HTTPS for other devices all answer, and vector search's and card sharing's libraries
     load;
@@ -60,6 +63,11 @@ def main(argv: list[str]) -> int:
 
     out = run(target.console + ['--help'], target.env)
     check(f'{target.command} quit' in out, '--help answers')
+
+    sharing = run(target.console + ['check-sharing'], target.env)
+    if 'Card sharing works.' not in sharing:
+        print('--- check-sharing said:\n' + sharing)
+    check('Card sharing works.' in sharing, 'card sharing works: a card published, and downloaded by BitTorrent')
 
     log = target.logs / 'console.log'
     app = start(target.console + ['--no-browser', '--no-tray'], target.env, log)

@@ -6,6 +6,7 @@
     python main.py approve CODE     allow the device showing that code
     python main.py deny CODE        refuse it
     python main.py quit             stop the app, if it runs (the Windows installer does, first)
+    python main.py check-sharing    check that card sharing works on this computer (publishing/selfcheck.py)
 
 They talk to the running app over this computer's own address (http://localhost:8091
 by default), which counts as the computer itself (see access.py). The app must be
@@ -22,7 +23,8 @@ from . import APP_NAME, paths
 from .config import Config
 from .instance import NO_ANSWER, NOT_RUNNING, STILL_RUNNING, Instance, stop_running
 
-COMMANDS = {'pair', 'approve', 'deny', 'quit'}
+COMMANDS = {'pair', 'approve', 'deny', 'quit', 'check-sharing'}
+NO_SETTINGS = {'quit', 'check-sharing'}  # (they work even when the settings file has a mistake)
 
 
 def run(args: list[str], config: Config | None, *, data_dir: str | Path | None = None,
@@ -32,6 +34,14 @@ def run(args: list[str], config: Config | None, *, data_dir: str | Path | None =
     (`transport`: for tests.)"""
     if args[0] == 'quit':
         return _quit(data_dir, transport=transport) if data_dir is not None else 1
+    if args[0] == 'check-sharing':  # (whether the app runs or not: it uses nothing of yours)
+        from .publishing.selfcheck import run as check_sharing
+        print('Checking card sharing on this computer, between two copies of it (nothing of yours is used, and '
+              'nothing leaves this computer)...', flush=True)
+        if check_sharing():
+            print('Card sharing works.')
+            return 0
+        return 1
     if config is None:
         return 1
     prog = prog or paths.command()
