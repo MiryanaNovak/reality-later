@@ -51,11 +51,13 @@ from ..publishing.seeder import DEFAULT_PORT, ROUTER_WAIT, NetworkStatus, Torren
 from ..publishing.service import DEFAULT_RELAYS, Published, Sharing, SharingError, torrent_problem
 from ..settings import Settings, SettingsStore
 from .form import Form, keep_typed
-from .list_view import Row, plural, render_row
+from .list_view import Link, Row, plural, render_row
 from .widgets import browser_languages, confirm, not_found, page_bar, panel, time_ago
 
 if TYPE_CHECKING:
     from ..characters import Character, CharacterStore
+    from ..publishing.announcements import Publication
+    from ..publishing.catalog import Source
     from ..publishing.service import Fetch
 
 log = logging.getLogger(__name__)
@@ -234,12 +236,38 @@ def sharing_text(status: TorrentStatus | str | None, *, withdrawn: bool) -> tupl
     return 'cloud_upload', f'Shared from this computer while the app runs: {peers}, {sent} sent since the app started.'
 
 
+async def changed_since(character: Character, p: Publication, source: Source | None, *,
+                        fingerprint: Callable[[Character], str] | None, export: Callable[[Character], bytes] | None,
+                        known: dict[tuple[str, str], bool] | None = None) -> bool | None:
+    """Whether the card a character makes now differs from the one published (`p`): by the card's fingerprint
+    kept when it was published (`source`), or else, published before that was kept, by the card's file (the
+    one that would be published now, against the one that was). None: can't tell. `known`: the answers so far
+    for the files, by what the character was then (its fingerprint), so that a card isn't drawn again (a PNG,
+    its picture compressed: a while) as long as the character doesn't change."""
+    if source is not None and fingerprint is not None:
+        return fingerprint(character) != source.fingerprint
+    if export is None:
+        return None
+    key = (p.event_id, fingerprint(character) if fingerprint is not None else character.model_dump_json())
+    if known is not None and key in known:
+        return known[key]
+    content = await asyncio.to_thread(export, character)
+    answer = hashlib.sha256(content).hexdigest() != p.card_sha256
+    if known is not None:
+        known[key] = answer
+    return answer
+
+
 class SharingSection:
     def __init__(self, sharing: Sharing | None, settings: SettingsStore, *, problem: str = '') -> None:
         self.sharing = sharing      # None: sharing can't run here, and `problem` says why
         self.settings = settings
         self.problem = problem
         self.characters: CharacterStore | None = None  # where downloaded cards become characters (the app's)
+        # What a character's card holds (a fingerprint), and the card itself: to tell whether a character
+        # changed since it was published (characters_page.py's; the app sets them)
+        self.card_fingerprint: Callable[[Character], str] | None = None
+        self.card_export: Callable[[Character], bytes] | None = None
 
     # --- the catalog ------------------------------------------------------------------------------
 
@@ -471,14 +499,21 @@ class SharingSection:
                 ui.label('To publish a character as a shared card: open it, then ⋮ › Publish to shared cards.') \
                     .classes('muted')
             return
-        states: dict[str, tuple[str, str]] = {}
+        # Each one's state: (level, text, its character if it changed since: (id, title))
+        states: dict[str, tuple[str, str, tuple[str, str] | None]] = {}
+        sources = await self._sources(live)
+        known: dict[tuple[str, str], bool] = {}  # (cards drawn to compare: changed_since's)
 
         async def look() -> bool:
             """Each one's state now; whether it changed."""
-            now = {e.publication.event_id: await self._own_state(e) for e in (*live, *withdrawn)}
-            changed = now != states
+            now = {}
+            for e in (*live, *withdrawn):
+                level, text = await self._own_state(e)
+                changed = await self._changed_character(e, sources, known)
+                now[e.publication.event_id] = ('warning' if changed and level == 'ok' else level, text, changed)
+            different = now != states
             states.update(now)
-            return changed
+            return different
 
         @ui.refreshable
         def lists() -> None:
@@ -489,7 +524,8 @@ class SharingSection:
                     ui.label('Withdrawn').classes('step-title mt-2')
                 with ui.list().props('separator').classes('panel item-list').mark(marker):
                     for entry in entries:
-                        render_row(entry, self._own_row(entry, *states[entry.publication.event_id], own=own),
+                        level, state, changed = states[entry.publication.event_id]
+                        render_row(entry, self._own_row(entry, level, state, own=own, changed=changed),
                                    key=entry.publication.event_id,
                                    on_open=lambda e: ui.navigate.to(f'/shared/{e.publication.event_id}'))
 
@@ -535,8 +571,60 @@ class SharingSection:
         text = ', '.join(parts)
         return level, text[0].upper() + text[1:]
 
+    async def _sources(self, entries: Iterable[CatalogEntry]) -> dict[str, tuple[str, Source | None]]:
+        """The character each of your cards stands for here, as its page says (_published_note): event id →
+        (character id, the record of what it was published from, if it was kept). The character it was
+        published from, if it's still that card (by its UUID); or else one that is (its card imported here...).
+        Only for each card's latest version (published with a key you used before, then with yours: the
+        latter). None for the cards published from another computer (your key brought here)."""
+        if self.characters is None:
+            return {}
+        sharing = self.sharing
+        newest: dict[str, CatalogEntry] = {}
+        for e in entries:
+            p = e.publication
+            if (n := newest.get(p.card_uuid)) is None or p.created_at > n.publication.created_at:
+                newest[p.card_uuid] = e
+        found: dict[str, tuple[str, Source | None]] = {}
+        by_uuid: dict[str, str] | None = None  # (card UUID → character id: all the characters read, if needed)
+        for uuid, e in newest.items():
+            p = e.publication
+            source = await sharing.call(sharing.catalog.source, p.event_id)
+            character = self._character(source.character_id) if source is not None else None
+            if character is not None and character.shared_uuid == uuid:
+                found[p.event_id] = (character.id, source)
+                continue
+            if by_uuid is None:
+                by_uuid = {}
+                for c in self.characters.list():
+                    if c.shared_uuid:
+                        by_uuid.setdefault(c.shared_uuid, c.id)
+            if character_id := by_uuid.get(uuid):
+                found[p.event_id] = (character_id, source)
+        return found
+
+    async def _changed_character(self, entry: CatalogEntry, sources: dict[str, tuple[str, Source | None]],
+                                 known: dict[tuple[str, str], bool]) -> tuple[str, str] | None:
+        """One of yours: its character, if it changed since it was published (id, title); None if it didn't,
+        or there's none here, or it can't be told."""
+        found = sources.get(entry.publication.event_id)
+        if found is None or entry.withdrawn is not None:
+            return None
+        character_id, source = found
+        character = self._character(character_id)
+        if character is None or character.shared_uuid != entry.publication.card_uuid:  # (deleted since...)
+            return None
+        try:
+            changed = await changed_since(character, entry.publication, source, fingerprint=self.card_fingerprint,
+                                          export=self.card_export, known=known)
+        except Exception:  # (a damaged picture...: not said here, and its page says what it can)
+            log.warning('Can\'t tell whether %s changed since it was published', character.id, exc_info=True)
+            return None
+        return (character.id, character.title) if changed else None
+
     @staticmethod
-    def _own_row(entry: CatalogEntry, level: str, state: str, *, own: tuple[str, ...]) -> Row:
+    def _own_row(entry: CatalogEntry, level: str, state: str, *, own: tuple[str, ...],
+                 changed: tuple[str, str] | None = None) -> Row:
         p = entry.publication
         icon, color = {'ok': ('cloud_done', 'positive'), 'warning': ('warning', 'warning'),
                        'problem': ('error_outline', 'negative'),
@@ -546,7 +634,13 @@ class SharingSection:
             note += ', with a key you used before'
         if p.card_tags:
             note += ' · ' + ' '.join(f'#{t}' for t in p.card_tags[:6])
-        return Row(title=p.card_name, subtitle=state, note=note, icon=icon, icon_color=color,
+        link = None
+        if changed is not None:  # (to its character's page: what changed, and "Publish it again")
+            character_id, title = changed
+            link = Link(f'{title} changed since: publish it again', icon='edit_note',
+                        handler=lambda: ui.navigate.to(f'/characters/{character_id}'),
+                        marker=f'published-changed-{p.event_id}')
+        return Row(title=p.card_name, subtitle=state, link=link, note=note, icon=icon, icon_color=color,
                    icon_tooltip={'ok': 'All is well', 'warning': 'Something to look at', 'problem': 'A problem',
                                  'withdrawn': 'Withdrawn'}[level],
                    side=size_text(p.card_size), dimmed=level == 'withdrawn')
@@ -876,14 +970,10 @@ class SharingSection:
         entry = next((v for v in versions if v.withdrawn is None), versions[0])  # (the latest not withdrawn)
         p = entry.publication
         source = await sharing.call(sharing.catalog.source, p.event_id)
+        known: dict[tuple[str, str], bool] = {}
 
         async def changed() -> bool | None:
-            if source is not None and fingerprint is not None:
-                return fingerprint(character) != source.fingerprint
-            if export is not None:
-                content = await asyncio.to_thread(export, character)
-                return hashlib.sha256(content).hexdigest() != p.card_sha256
-            return None
+            return await changed_since(character, p, source, fingerprint=fingerprint, export=export, known=known)
 
         @ui.refreshable
         async def note() -> None:

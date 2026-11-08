@@ -410,6 +410,45 @@ async def test_published_by_you_and_changed_since(user, tmp_path, sharing, relay
     await user.should_see(marker='publish-new-version', retries=SLOW)
 
 
+LOOK = 80  # (Your publications looks again every 5 s)
+
+
+async def test_your_publications_say_what_changed(user, tmp_path, sharing, relay):
+    """The list says what a character's page says: changed since it was published (looked at again as the page
+    stays open), with a link to it, to publish it again."""
+    sharing.create_identity()
+    accept_notice(tmp_path)
+    store, character = aria(tmp_path)
+    await open_publishing(user, character)
+    await user.should_see(marker='publish-name')
+    user.find(marker='publish-publisher').type('Marie')
+    set_value(user, 'publish-rating', 'sfw')
+    user.find(marker='publish-confirm').click()
+    await user.should_see(marker='own-sharing', retries=SLOW)
+    [event_id] = relay.events
+
+    await user.open('/published')
+    await user.should_see(marker=f'row-{event_id}', retries=SLOW)
+    await user.should_not_see(marker=f'published-changed-{event_id}')
+
+    character = store.get(character.id)
+    character.scenario = '{{char}} sings, and now she fights too.'
+    store.save(character)  # (edited elsewhere: another tab...)
+    await user.should_see(marker=f'published-changed-{event_id}', retries=LOOK)
+    await user.should_see('Aria the Wanderer changed since: publish it again')
+    row = user.find(marker=f'row-{event_id}').elements.pop()
+    assert 'warning' in [e.props.get('name') for e in row.descendants() if isinstance(e, ui.icon)]
+
+    user.find(marker=f'published-changed-{event_id}').click()  # (to its page: "Publish it again" there)
+    await user.should_see(marker='character-changed', retries=SLOW)
+
+    character.scenario = '{{char}} sings of old roads.'  # (as it was: up to date again)
+    store.save(character)
+    await user.open('/published')
+    await user.should_see(marker=f'row-{event_id}', retries=SLOW)
+    await user.should_not_see(marker=f'published-changed-{event_id}')
+
+
 async def test_published_before_fingerprints(user, tmp_path, sharing):
     """Published before the fingerprint was kept: the card file that would be published now, against the
     one that was."""
@@ -420,14 +459,38 @@ async def test_published_before_fingerprints(user, tmp_path, sharing):
     character.shared_uuid = fmt.new_card_uuid()
     store.save(character)
     content = card_png(card_data(character, []), None, initials=initials(character.title))  # (as Export makes it)
-    await sharing.publish(PublicationDraft(publisher_name='Marie', card_name='Aria'), content,
-                          card_uuid=character.shared_uuid)
+    published = await sharing.publish(PublicationDraft(publisher_name='Marie', card_name='Aria'), content,
+                                      card_uuid=character.shared_uuid)
+    event_id = published.publication.event_id
     await user.open(f'/characters/{character.id}')
     await user.should_see(marker='character-up-to-date', retries=SLOW)
+    await user.open('/published')
+    await user.should_see(marker=f'row-{event_id}', retries=SLOW)
+    await user.should_not_see(marker=f'published-changed-{event_id}')
+
     character.description = 'Changed outside the page.'
     store.save(character)
     await user.open(f'/characters/{character.id}')
     await user.should_see(marker='character-changed', retries=SLOW)
+    await user.open('/published')
+    await user.should_see(marker=f'published-changed-{event_id}', retries=SLOW)
+
+
+async def test_no_character_here(user, tmp_path, sharing):
+    """Published from another computer (your key brought here), or its character deleted since: nothing said."""
+    sharing.create_identity()
+    store, character = aria(tmp_path)
+    character.shared_uuid = fmt.new_card_uuid()
+    store.save(character)
+    elsewhere = await publish(sharing, 'Juno')  # (no character here is that card)
+    gone = await sharing.publish(PublicationDraft(publisher_name='Marie', card_name='Aria'), b'\x89PNG\r\n\x1a\nx',
+                                 card_uuid=character.shared_uuid)
+    sharing.catalog.record_source(gone.publication.event_id, character.id, 'its fingerprint then')
+    store.delete(character.id)
+    await user.open('/published')
+    for p in (elsewhere.publication, gone.publication):
+        await user.should_see(marker=f'row-{p.event_id}', retries=SLOW)
+        await user.should_not_see(marker=f'published-changed-{p.event_id}')
 
 
 async def test_withdrawn_and_not_yours(user, tmp_path, sharing):

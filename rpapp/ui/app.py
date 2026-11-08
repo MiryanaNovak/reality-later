@@ -87,6 +87,8 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
     characters = CharactersSection(CharacterStore(data_dir), lore_books, conversation_store, personas,
                                    sharing=shared)
     shared.characters = characters.store
+    shared.card_fingerprint = characters.card_fingerprint  # (Your publications: whether a card's character
+    shared.card_export = lambda c: characters.export_card(c)[0]  # changed since it was published)
     if shared.sharing is not None:  # (shared cards downloaded become characters, as the Import button does)
         shared.sharing.importer = characters.import_shared
         try:
