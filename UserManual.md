@@ -628,3 +628,45 @@ Open **Settings** from the navigation menu, expand the **Chat** section, and sel
 The selected Prompt will be used for conversations, and you can change it at any time.
 
 Settings are saved automatically.
+
+### 5.3. Characters
+
+A **Character** defines who or what the AI portrays during a conversation. It can represent a person, a fictional character, or even an entire world with multiple characters.
+
+Each Character contains information about its personality, background, and the scenario in which the roleplay takes place. This information helps the AI understand the setting and generate appropriate replies.
+
+You can create as many Characters as you like and have multiple independent conversations with the same Character.
+
+#### Creating and importing Characters
+
+Open **Characters** from the navigation menu to view your collection.
+
+- Click **New** to create a Character from scratch.
+- Click **Import** to import an existing character card.
+- Select a Character to view or edit its information.
+
+Changes are saved automatically.
+
+#### Character information
+
+A Character contains several fields, divided into two categories:
+
+**Only for you:** Information used to organize your collection, such as the Character's title, picture, and description. This information is displayed in Reality Later but is not sent to the AI.
+
+**Sent to the AI:** Information used to guide the roleplay, including:
+
+- **Name:** The Character's name as known to the AI.
+- **Scenario:** Describes the Character, their personality, background, the setting, and the situation in which the conversation takes place.
+- **First messages:** The opening messages used when starting a new conversation. You can provide several alternatives and choose between them when creating a chat.
+- **Example dialogues:** Optional examples showing how the Character speaks and behaves, helping the AI reproduce their style.
+- **Lore books:** Additional background information made available to the AI when relevant to the conversation.
+
+You can use `{{char}}` to refer to the Character's name and `{{user}}` to refer to your own name in fields sent to the AI.
+
+You don't need to fill in every field. A name, scenario, and first message are enough to get started.
+
+#### Starting a conversation
+
+From the **Characters** page, click **New chat** on the Character you want to interact with.
+
+Each conversation has its own history, so you can start several different stories with the same Character without mixing them together.
