@@ -595,3 +595,36 @@ To select it, open **Settings** from the navigation menu, expand the **Chat** se
 The selected Connection will be used to generate character replies in your conversations. You can change it at any time.
 
 Settings are saved automatically.
+
+### 5.2. Prompts
+
+A **Prompt** is a set of instructions that tells the AI how to behave during roleplay. It defines general rules for the conversation, such as writing style, narrative perspective, character behavior, and what kind of content is allowed.
+
+Unlike a character's description, which defines a particular character, a Prompt provides instructions that apply to every conversation using it.
+
+Reality Later includes two default Prompts:
+
+- **Default (SFW):** Intended for general roleplay, avoiding sexually explicit content and graphic violence.
+- **Mature (NSFW):** Allows more mature and explicit themes when appropriate to the story.
+
+These instructions guide the AI's behavior, but their effectiveness depends on the model being used. Some models may impose additional content restrictions regardless of the selected Prompt.
+
+#### Creating and editing Prompts
+
+Open **Prompts** from the navigation menu to view the available Prompts. Select an existing Prompt to edit it, or click **New** to create your own.
+
+You can create as many Prompts as you like, each with different instructions, and switch between them whenever you want.
+
+A Prompt contains instructions sent to the AI when generating replies. You can use `{{char}}` to refer to the character's name and `{{user}}` to refer to yours.
+
+The other fields provide more precise control over how instructions are delivered, but you don't need to modify them to get started.
+
+All changes are saved automatically.
+
+#### Selecting a Prompt
+
+Open **Settings** from the navigation menu, expand the **Chat** section, and select the Prompt you want to use from the **Prompt** dropdown menu.
+
+The selected Prompt will be used for conversations, and you can change it at any time.
+
+Settings are saved automatically.
