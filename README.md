@@ -2,61 +2,64 @@
 
 *The real world can wait.*
 
-A self-hosted AI roleplay app for when you need a break from reality.
+**A self-hosted AI roleplay app with decentralized character sharing — for when you need a break from reality.**
 
-Create characters, build worlds, and get lost in stories. No platform accounts, no disappearing bots, and no fighting with an interface just to have a conversation.
+Create characters, build worlds, get lost in stories, and share what you've made. Discover characters published by other users without depending on a single platform to host the entire collection. It's not just a place to chat: it's a way for people who create characters and worlds to discover and share each other's work. Your chats and characters stay on your computer, and you decide how you want to use them.
+
+No account. No subscription. No disappearing bots. No fighting with the interface just to have a conversation.
 
 ## Why?
 
 I made Reality Later because I was tired of AI roleplay platforms.
 
-Tired of having to create accounts. Tired of characters begins removed without explanation. Tired of chats being censored. Tired of ads. Tired of having no control over prompts and generation parameters. Tired of waiting for features that'd never be implemented. And tired of complicated interfaces where even simple things are difficult to figure out.
+Tired of having to create accounts. Tired of characters being removed without explanation. Tired of chats being censored. Tired of ads. Tired of having no control over prompts and generation parameters. Tired of waiting for features that would never be implemented. And tired of complicated interfaces where even simple things are difficult to figure out.
 
-I wanted something that was mine, that worked the way I wanted, and that didn't get in the way. And something that'd let me chat from my phone while lying on the couch. Because, frankly, there's no better place to escape reality than the couch.
+But I didn't just want another place to keep my own characters. I wanted a way for people to **share characters without putting the whole collection at the mercy of one platform**. That's why Reality Later's character-sharing system is decentralized: announcements are distributed through independent relays, and the cards themselves are shared between users.
 
 ## Features
 
-- **Your characters, your data.** Characters, personas, conversations, and lore books stay on your computer, not hosted on someone else's platform. No need to create an account. No need to verify your age. No moderator will come to erase your favorite characters.
+- **Decentralized character sharing.** Discover and publish character cards through a network of Nostr relays, then download them directly from other users with BitTorrent. There is no single central catalog or card-hosting server that controls the entire network, no central authority that decide what is allowed and what isn't, no erratic moderation that'll delete your favorite character overnight.
 
-- **Control over the AI.** Customize prompts and generation parameters to influence how your stories unfold.
+- **Import existing characters.** Bring in character cards in V1, V2, V3, and CharX formats, including cards with embedded lore books.
 
-- **Automatic memories.** As older messages leave the conversation context, memories are generated automatically.
+- **Control over the AI.** Choose your models, and customize prompts and generation parameters to shape how your stories unfold.
+
+- **Automatic memories.** As older messages leave the AI's context, Reality Later can turn important details into memories. Review, edit, or delete them whenever you like.
+
+- **Vector search.** Optionally use a locally run embedding model boost the efficiency of lore book entries and memories.
 
 - **Simple interface.** Everything should be easy to find and understand. No digging through endless menus to figure out how something works.
 
-- **Couch compatible.** Run it on your computer and connect from your phone or another device.
+- **Secure by default.** HTTPS is enabled for remote devices, pairing is required for new remote browsers, and imported content is treated as untrusted data.
+  
+- **Couch compatible.** Run Reality Later on your computer and access it in a browser, including from your phone or another device.
 
-- **Hardened.** HTTPS is enabled by default, no reverse proxy needed. Only paired devices can connect. All inputs are strictly validated so you can import character cards from untrusted sources.
+## Getting started
 
-## Documentation
+Download an available Windows build or Linux Flatpak bundle from [GitHub Releases](https://github.com/MiryanaNovak/reality-later/releases). You can also install from source on Windows, macOS, or Linux using a supported Python version (3.10–3.13; 3.13 recommended).
 
-For installation, configuration and troubleshooting, see the [User Manual](UserManual.md).
+For step-by-step installation, configuration, and usage instructions, see the [User Manual](UserManual.md).
 
 ## AI providers
 
-Reality Later currently supports **[OpenRouter](https://openrouter.ai/)**.
-
-You'll need your own API key. Model availability, pricing, and usage limits depend on OpenRouter and the model providers.
+Reality Later currently supports **[OpenRouter](https://openrouter.ai/)**. You'll need your own OpenRouter API key to generate AI replies; using Reality Later itself doesn't require a platform account. Model availability, pricing, content policies, and usage limits depend on OpenRouter and its model providers.
 
 Support for additional providers may come later.
 
 ## Security
 
-Reality Later runs on your own computer and supports HTTPS out of the box.
+Reality Later runs on your own computer and supports HTTPS out of the box. It generates a self-signed certificate by default, so remote browsers will warn that it isn't trusted until you verify its fingerprint and accept an exception.
 
-Self-signed certificates are generated automatically and will require a one-time trust or browser exception on devices connecting to the application.
+Remote devices must be paired before they can access the app by default. External content, including imported character cards and lore books, is treated as untrusted; inputs are validated and sanitized to reduce the risks of malformed or malicious data.
 
-External devices must be paired before they can connect.
-
-External content, including imported character cards and lore books, is treated as untrusted. Inputs are validated and sanitized to limit the risks of malformed or malicious data.
-
-HTTPS and input validation alone do not make an application safe to expose directly to the public internet. If you want to access Reality Later from outside your home network, consider using a secure networking solution such as Tailscale instead of exposing the application directly.
+**Do not expose Reality Later's web interface directly to the public internet.** For access away from home, use a private networking solution such as [Tailscale](https://tailscale.com/). The decentralized card-sharing feature is separate from remote access to the web interface.
 
 ## Built with
 
 - Python
 - [NiceGUI](https://nicegui.io/)
-- A healthy dose of frustration 
+- Nostr and BitTorrent for decentralized card sharing
+- A healthy dose of frustration
 
 ## Contributing
 
