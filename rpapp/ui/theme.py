@@ -319,6 +319,16 @@ HEAD = f'''
   .home-tip-icon {{ color: var(--q-primary); font-size: 1.4rem; }}
   .home-tip-text {{ flex: 1 1 240px; min-width: 0; }}
   .home-tip-actions {{ display: flex; gap: 4px; margin-left: auto; }}
+  /* A newer version is out (update_notice.py): above every page, like a tip, on the accent's tint */
+  .update-notice {{
+    width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+    background: var(--tint); border: 1px solid var(--line); border-left: 4px solid var(--q-primary);
+    border-radius: 12px; padding: 10px 12px 10px 14px;
+  }}
+  .update-notice-icon {{ color: var(--q-primary); font-size: 1.4rem; }}
+  .update-notice-text {{ flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }}
+  .update-notice-title {{ font-weight: 600; }}
+  .update-notice-actions {{ display: flex; gap: 4px; margin-left: auto; }}
   .conversation-image {{ position: relative; }}
   .conversation-persona {{
     position: absolute; right: 8px; bottom: 8px; width: 36%; aspect-ratio: 1; border-radius: 50%;

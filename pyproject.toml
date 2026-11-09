@@ -1,6 +1,6 @@
 [project]
 name = "rpapp"
-version = "0.1.0"
+dynamic = ["version"]                       # rpapp/__init__.py's __version__ (see [tool.setuptools.dynamic])
 requires-python = ">=3.10"
 # Everything the app imports itself is listed, even what NiceGUI brings along today: what NiceGUI needs can
 # change from one version to the next (NiceGUI 4.0 no longer brings httpx).
@@ -46,6 +46,10 @@ build-backend = "setuptools.build_meta"
 # certificates/, which setuptools would otherwise take for packages too ("Multiple top-level packages").
 [tool.setuptools.packages.find]
 include = ["rpapp", "rpapp.*"]
+
+# The version is written once, in rpapp/__init__.py: the app shows it, and compares it with the latest release.
+[tool.setuptools.dynamic]
+version = {attr = "rpapp.__version__"}
 
 # Files the app needs besides its Python code (setuptools only takes .py files unless told):
 # the picture framing tool, the fonts, the icons (the browser's and the tray's), the starter set

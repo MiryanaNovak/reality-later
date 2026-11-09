@@ -41,6 +41,7 @@ def test_defaults_file_and_lookup(tmp_path):
         'sharing': {'show_nsfw': False, 'hidden_tags': [], 'publisher_name': '', 'share_downloads': True,
                     'port': None, 'port_mapping': True, 'publishing_accepted': 0},
         'appearance': {'accent': 'jade'},
+        'updates': {'notify': True},  # (told when a newer version is out: updates.py)
     }
     assert chat_connection(store.load(), connections.get).id == conn.id
     connections.delete(conn.id)

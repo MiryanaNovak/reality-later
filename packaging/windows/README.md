@@ -20,9 +20,11 @@ The program is a folder (`Reality Later\`):
 
 `.github/workflows/windows.yml` builds it on GitHub's Windows machines:
 
-- push a version tag (`git tag v0.2.0 && git push --tags`): the installer and the zip are attached to
-  that version's release, once the tests pass on Windows too (the Flatpak's workflow adds its files to
-  the same release);
+- push a version tag (`git tag v0.2.0 && git push --tags`), once `__version__` in `rpapp/__init__.py`
+  says that version (`'0.2.0'`: the workflow refuses a tag that isn't it): the installer and the zip
+  are attached to that version's release, once the tests pass on Windows too (the Flatpak's workflow
+  adds its files to the same release), and the apps already installed say that it's out
+  (`rpapp/updates.py`);
 - or run it by hand (Actions › Windows › Run workflow): the files are in the run's artifacts.
 
 Before handing them out, it checks them there: the tests, on Windows; card sharing works in the program

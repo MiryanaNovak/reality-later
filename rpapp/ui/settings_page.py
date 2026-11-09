@@ -1,5 +1,5 @@
 """The Settings page: one folding section per topic (Chat, Lore books, Memory, Vector search, Sharing cards,
-Appearance, Devices).
+Appearance, Updates, Devices).
 
     /settings
 
@@ -12,6 +12,7 @@ import asyncio
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from nicegui import background_tasks, ui
@@ -29,10 +30,11 @@ from ..vector_files import delete_model_vectors
 from . import appearance, theme
 from .devices_page import DevicesSection
 from .form import NOT_SET, Form, error_text, text_stats
-from .widgets import confirm, folding_panel, page_bar
+from .widgets import confirm, folding_panel, page_bar, time_ago
 
 if TYPE_CHECKING:
     from .sharing_page import SharingSection
+    from ..updates import Updates
     from ..vectors import Vectorizer
 
 EXAMPLE_DIALOGUES = {
@@ -57,13 +59,14 @@ class Download:
 class SettingsSection:
     def __init__(self, store: SettingsStore, connections: JsonStore[Connection], access: Access | None = None,
                  presets: JsonStore[PromptPreset] | None = None, vectors: Vectorizer | None = None,
-                 sharing: SharingSection | None = None) -> None:
+                 sharing: SharingSection | None = None, updates: Updates | None = None) -> None:
         self.store = store
         self.connections = connections
         self.presets = presets
         self.devices = DevicesSection(access)
         self.vectors = vectors       # vector search (None: no section, in some tests)
         self.sharing = sharing       # sharing cards (None: no section, in some tests)
+        self.updates = updates       # whether a newer version is out (None: no section, in some tests)
         self.download: Download | None = None
 
     def page(self) -> None:
@@ -125,6 +128,10 @@ class SettingsSection:
 
         with folding_panel('Appearance', 'Light or dark, text size, accent color'):
             self._appearance(settings)
+
+        if self.updates is not None:
+            with folding_panel('Updates', 'Whether the app tells you when a new version is out'):
+                self._updates(settings, form, self.updates)
 
         self.devices.section()
 
@@ -430,6 +437,51 @@ class SettingsSection:
             .classes('text-sm muted -mt-2')
         swatches()
 
+    @staticmethod
+    def _updates(settings: Settings, form: Form, updates: Updates) -> None:
+        form.switch(settings.updates, 'notify', 'Tell me when a new version is out') \
+            .on_value_change(lambda e: updates.set_notify(bool(e.value))).mark('updates-notify')
+        ui.label('Once a day, the app asks GitHub, where it\'s published, for its latest version: GitHub sees this '
+                 'computer\'s internet address, and nothing else. A notice at the top of every page then says '
+                 'when a newer one is out.').classes('text-sm muted -mt-3 ml-12')
+        checking = [False]
+
+        @ui.refreshable
+        def status() -> None:
+            state, newer = updates.state, updates.newer()
+            with ui.column().classes('gap-1').mark('updates-status'):
+                ui.label(f'This is version {updates.current}.')
+                if checking[0]:
+                    with ui.row().classes('items-center gap-2'):
+                        ui.spinner(size='1.2em')
+                        ui.label('Asking GitHub…').classes('text-sm muted')
+                elif newer is not None:
+                    with ui.row().classes('items-center gap-2'):
+                        ui.label(f'{newer.version} is out.').classes('text-sm')
+                        ui.link('Get it', newer.url, new_tab=True).classes('text-sm').mark('updates-get')
+                elif state.error and state.tried_at is not None:
+                    ui.label(f'Couldn\'t check ({_ago(state.tried_at)}): {state.error}.').classes('text-sm muted')
+                elif state.checked_at is not None:
+                    ui.label(f'It\'s the latest (checked {_ago(state.checked_at)}).').classes('text-sm muted')
+                else:
+                    ui.label('Not checked yet.').classes('text-sm muted')
+
+        async def check_now() -> None:
+            checking[0] = True
+            button.disable()
+            status.refresh()
+            try:
+                await updates.check()
+            finally:
+                checking[0] = False
+                button.enable()
+                status.refresh()
+
+        with ui.row().classes('w-full items-center justify-between gap-2 no-wrap'):
+            status()
+            button = ui.button('Check now', on_click=check_now).props('outline dense').classes('px-3') \
+                .mark('updates-check-now')
+
     def _memory(self, memory: MemorySettings, connections: dict[str, Connection], form: Form) -> None:
         form.switch(memory, 'enabled', 'Keep a memory of each chat')
         ui.label('When old messages leave the prompt, the AI writes down what must not be forgotten (people, '
@@ -484,6 +536,11 @@ class SettingsSection:
 
         state()
         editor.on_value_change(lambda: state.refresh())
+
+
+def _ago(seconds: int) -> str:
+    """'5 minutes ago', 'yesterday'... (widgets.time_ago), of a time in Unix seconds."""
+    return time_ago(datetime.fromtimestamp(seconds, timezone.utc))
 
 
 def _notify_all(message: str, kind: str) -> None:

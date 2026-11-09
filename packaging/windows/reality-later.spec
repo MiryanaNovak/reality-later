@@ -10,13 +10,11 @@
 #     reality-later.exe   the same app with a console: its commands (pair, approve, quit...) and --help
 #     _internal/          Python, the libraries, the app's files
 #
-# The installer (installer.iss) and the zip are made from that folder. The version is
-# REALITY_LATER_VERSION's if set (the GitHub workflow sets it from the version tag), else pyproject.toml's.
+# The installer (installer.iss) and the zip are made from that folder. The version is the app's own
+# (rpapp/__init__.py's __version__: what --version says, and a release's tag, as the workflow checks).
 # (It builds on Linux and macOS too, for that system: a way to try this file without Windows.)
-import os
 import re
 import sys
-import tomllib
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
@@ -24,10 +22,11 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 HERE = Path(SPECPATH)
 ROOT = HERE.parent.parent
 sys.path.insert(0, str(ROOT))  # (for collect_* to find the rpapp package, installed or not)
+sys.path.insert(0, str(HERE.parent))
+from check_version import app_version  # noqa: E402  (packaging/check_version.py)
 
 APP_NAME = 'Reality Later'
-VERSION = (os.environ.get('REALITY_LATER_VERSION', '').removeprefix('v')
-           or tomllib.loads((ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']['version'])
+VERSION = app_version()
 ICON = str(ROOT / 'packaging' / 'icons' / 'windows' / 'reality-later.ico')
 
 datas = [

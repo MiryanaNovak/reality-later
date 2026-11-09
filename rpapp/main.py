@@ -23,6 +23,7 @@ https://192.168.1.20:8090 for instance (the page and this window show it).
     {prog} --no-browser    don't open the browser (also: open_browser = false)
     {prog} --no-tray       no icon in the system tray (also: tray = false)
     {prog} --reload        restart by itself when the code changes (for development)
+    {prog} --version       which version this is
     {prog} quit            stop it, if it's running (as Quit, in its tray icon's menu)
     {prog} check-sharing   check that card sharing works on this computer
 
@@ -58,13 +59,16 @@ def main(argv: list[str] | None = None, *, first: bool = True, script: Path | No
         from . import tray
         sys.exit(tray.run(argv[1]))
 
-    from . import APP_NAME, cli
+    from . import APP_NAME, __version__, cli
     from .config import ConfigError, load_config
     from .paths import places
 
     where = places()
     data_dir = where.data
 
+    if first and argv == ['--version']:
+        print(f'{APP_NAME} {__version__}')
+        sys.exit(0)
     if first and argv[:1] and argv[0] in cli.COMMANDS:  # (before NiceGUI, which takes a while to load)
         try:
             config = None if argv[0] in cli.NO_SETTINGS else load_config()  # (even if the settings file is wrong)
@@ -79,6 +83,7 @@ def main(argv: list[str] | None = None, *, first: bool = True, script: Path | No
     from .config import NetworkFilter, https_setup
     from .devices import DeviceRegistry
     from .ui.app import build_root
+    from .updates import Updates
     from .ui.computer_page import quit_everywhere
 
     if first and {'-h', '--help'} & set(argv):
@@ -134,7 +139,10 @@ def main(argv: list[str] | None = None, *, first: bool = True, script: Path | No
     app.add_middleware(SecurityHeaders)  # added last: runs first, so even refusals get the headers
     if first and (seeded := starter.seed(data_dir)) and seeded.items:  # the very first start
         print(f'First start: added the examples ({seeded.summary()}).', flush=True)
-    root = build_root(data_dir, access=access, server=info, models=where.models)
+    updates = Updates(data_dir)  # (GitHub asked once a day whether a newer version is out: Settings › Updates)
+    app.on_startup(updates.start)
+    app.on_shutdown(updates.stop)
+    root = build_root(data_dir, access=access, server=info, models=where.models, updates=updates)
     if first and '--reload' not in options:
         # Once everything is saved. (Stopped by a signal, uvicorn ends the process before atexit would run.)
         app.on_shutdown(running_copy.release)

@@ -122,6 +122,13 @@ class SharingSettings(BaseModel):
     publishing_accepted: int = 0     # the version of the notice before publishing agreed to (ui/sharing_page.py)
 
 
+class UpdateSettings(BaseModel):
+    """Whether the app tells you when a newer version is out (updates.py: GitHub asked once a day)."""
+    model_config = ConfigDict(extra='ignore', validate_assignment=True)
+
+    notify: bool = True
+
+
 class Settings(StoredModel):
     id: str = SETTINGS_ID
     name: str = Field('', exclude=True)  # from StoredModel; settings have no name
@@ -131,6 +138,7 @@ class Settings(StoredModel):
     vectors: VectorSettings = Field(default_factory=VectorSettings)
     sharing: SharingSettings = Field(default_factory=SharingSettings)
     appearance: AppearanceSettings = Field(default_factory=AppearanceSettings)
+    updates: UpdateSettings = Field(default_factory=UpdateSettings)
 
 
 class SettingsStore:

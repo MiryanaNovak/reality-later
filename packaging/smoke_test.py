@@ -4,7 +4,7 @@
     python packaging/smoke_test.py --flatpak io.github.MiryanaNovak.RealityLater  # the installed Flatpak
 
 As a new user's (folders of its own, or none yet), it checks that:
-  - `--help` answers;
+  - `--help` answers, and `--version` says the version in rpapp/__init__.py;
   - card sharing works: `check-sharing` publishes a card and downloads it by BitTorrent, between two copies
     of the app's sharing on 127.0.0.1 (its libraries must be there, and work: libtorrent's, coincurve's,
     websockets');
@@ -33,6 +33,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from check_version import app_version  # (next to this file)
 
 WINDOWS = sys.platform == 'win32'
 LOCAL = 'http://127.0.0.1:8091'
@@ -63,6 +65,8 @@ def main(argv: list[str]) -> int:
 
     out = run(target.console + ['--help'], target.env)
     check(f'{target.command} quit' in out, '--help answers')
+    said = run(target.console + ['--version'], target.env).strip()
+    check(said == f'Reality Later {app_version()}', f'--version says {app_version()} ({said})')
 
     sharing = run(target.console + ['check-sharing'], target.env)
     if 'Card sharing works.' not in sharing:

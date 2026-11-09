@@ -7,8 +7,10 @@ that installs on any Linux with Flatpak. It's for the GitHub releases, not Flath
 
 `.github/workflows/flatpak.yml` builds it on GitHub's machines, for Intel/AMD and ARM computers:
 
-- push a version tag (`git tag v0.2.0 && git push --tags`): `reality-later-x86_64.flatpak` and
-  `reality-later-aarch64.flatpak` are attached to that version's release;
+- push a version tag (`git tag v0.2.0 && git push --tags`), once `__version__` in
+  `rpapp/__init__.py` says that version (`'0.2.0'`: the workflow refuses a tag that isn't it):
+  `reality-later-x86_64.flatpak` and `reality-later-aarch64.flatpak` are attached to that version's
+  release, and the apps already installed say that it's out (`rpapp/updates.py`);
 - or run it by hand (Actions › Flatpak › Run workflow): the files are in the run's artifacts.
 
 Before handing them out, it checks them there: the tests, on Linux; then each `.flatpak` is

@@ -26,6 +26,7 @@ from ..personas import PersonaStore
 from ..presets import preset_store, set_up_presets
 from ..publishing import runtime_problem as sharing_problem
 from ..replies import Replies
+from ..updates import Updates
 from ..vectors import Vectorizer
 from ..settings import SettingsStore, SharingSettings
 from . import appearance, media, theme
@@ -41,6 +42,7 @@ from .personas_page import PersonasSection
 from .presets_page import PresetsSection
 from .settings_page import SettingsSection
 from .sharing_page import SharingSection
+from .update_notice import update_notice
 from .widgets import bar_slot, clearing_bar
 
 if TYPE_CHECKING:
@@ -64,7 +66,8 @@ COMPUTER = ('/computer', 'This computer', 'computer')  # only on the computer th
 
 def build_root(data_dir: str | Path, *, access: Access | None = None,
                server: ServerInfo | None = None, models: str | Path | None = None,
-               sharing_relays: Iterable[str] | None = None, sharing: Sharing | None = None) -> Callable[[], None]:
+               sharing_relays: Iterable[str] | None = None, sharing: Sharing | None = None,
+               updates: Updates | None = None) -> Callable[[], None]:
     """Return the function NiceGUI calls to build the page for every browser tab.
 
     `access`: who may use the app (see access.py); None when pairing isn't set up (tests).
@@ -73,6 +76,8 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
     `sharing_relays`: the relays a new sharing catalog starts with (publishing/service.py's if not given).
     `sharing`: card sharing as the tests make it (BitTorrent on 127.0.0.1 only); made here if not given, with
     the publisher key in the settings folder's certificates/ (publishing/identity.py).
+    `updates`: whether a newer version is out (updates.py), for the notice above every page; made here if not
+    given, without asking GitHub (main.py starts its checks: updates.start()).
     """
     theme.setup()
     server = server or ServerInfo(Config(folder=Path(data_dir)), None, Path(data_dir))
@@ -82,6 +87,11 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
     conversation_store = ConversationStore(data_dir)
     personas = PersonasSection(PersonaStore(data_dir), lore_books, conversation_store)
     settings_store = SettingsStore(data_dir)
+    updates = updates or Updates(data_dir)
+    try:
+        updates.notify = settings_store.load().updates.notify  # (Settings › Updates changes it: set_notify)
+    except ValueError:  # (a damaged settings file: the Settings page says so)
+        pass
     shared = SharingSection(sharing, settings_store) if sharing is not None else \
         _sharing(data_dir, settings_store, sharing_relays, key_folder=server.config.folder)
     characters = CharactersSection(CharacterStore(data_dir), lore_books, conversation_store, personas,
@@ -108,7 +118,7 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
     conversations = ConversationsSection(conversation_store, characters, personas, replies)
     lorebooks = LoreBooksSection(lore_books, users=[characters, personas])
     settings = SettingsSection(settings_store, connections.collection.store, access, presets.collection.store,
-                               vectors=vectors, sharing=shared)
+                               vectors=vectors, sharing=shared, updates=updates)
     home = HomePage(connections=connections.collection.store, settings=settings_store, home=HomeStore(data_dir),
                     conversations=conversation_store, characters=characters, personas=personas,
                     access=access, server=server)
@@ -189,6 +199,7 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
             '/computer': computer.page,
         }
         with ui.column().classes('app-content'):
+            update_notice(updates)  # (a newer version is out: above every page)
             ui.sub_pages({path: clearing_bar(page) for path, page in pages.items()}).classes('w-full')
 
     return root

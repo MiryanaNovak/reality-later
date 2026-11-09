@@ -1,8 +1,9 @@
 # The Flatpak, built on GitHub's machines: for Intel/AMD (x86_64) and ARM (aarch64) computers.
-# On a version tag (git tag v0.2.0 && git push --tags), the two .flatpak files are attached to that
-# version's release, once checked: the tests pass on Linux, and each file installs on a fresh Ubuntu
-# and the app starts and answers (packaging/smoke_test.py). Run it by hand too (Actions › Flatpak ›
-# Run workflow): the files are then in the run's artifacts. See packaging/flatpak/README.md.
+# On a version tag (git tag v0.2.0 && git push --tags, once rpapp/__init__.py's __version__ is '0.2.0':
+# checked first), the two .flatpak files are attached to that version's release, once checked: the
+# tests pass on Linux, and each file installs on a fresh Ubuntu and the app starts and answers
+# (packaging/smoke_test.py). Run it by hand too (Actions › Flatpak › Run workflow): the files are then
+# in the run's artifacts. See packaging/flatpak/README.md.
 name: Flatpak
 
 on:
@@ -22,6 +23,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'  # (the Flatpak's: its Freedesktop 25.08 runtime has Python 3.13)
+      - name: The tag is the app's version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: python packaging/check_version.py "${{ github.ref_name }}"
       - name: D-Bus, for the tray icon's tests
         run: command -v dbus-daemon || (sudo apt-get update && sudo apt-get install -y --no-install-recommends dbus)
       - run: pip install -e . pytest pytest-asyncio
