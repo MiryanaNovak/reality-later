@@ -218,6 +218,7 @@ __marimo__/
 data/
 certificates/
 repo/
+config.toml
 test-relay.jsonl
 
 # OS stuff
