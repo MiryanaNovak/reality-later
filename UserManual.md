@@ -22,6 +22,21 @@ Reality Later is a self-hosted AI roleplay application. It runs on your computer
   - [2.3. Customizing the configuration](#23-customizing-the-configuration)
 - [3. First launch and connection](#3-first-launch-and-connection)
 - [4. Updating Reality Later](#4-updating-reality-later)
+  - [4.1. Update a packaged installation](#41-update-a-packaged-installation)
+  - [4.2. Update a source installation](#42-update-a-source-installation)
+- [5. Using Reality Later](#5-using-reality-later)
+  - [5.1. Connections](#51-connections)
+  - [5.2. Prompts](#52-prompts)
+  - [5.3. Characters](#53-characters)
+  - [5.4. Personas](#54-personas)
+  - [5.5. Conversations](#55-conversations)
+- [6. Advanced Features](#6-advanced-features)
+  - [6.1. Lore Books](#61-lore-books)
+  - [6.2. Memory](#62-memory)
+  - [6.3. Vector Search](#63-vector-search)
+- [7. Character Sharing](#7-character-sharing)
+  - [7.1. Finding and Downloading Characters](#71-finding-and-downloading-characters)
+  - [7.2. Publishing Characters](#72-publishing-characters)
 
 ## 1. Installation
 
