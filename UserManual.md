@@ -20,10 +20,8 @@ Reality Later is a self-hosted AI roleplay application. It runs on your computer
   - [2.1. Default settings](#21-default-settings)
   - [2.2. Where to find the configuration file](#22-where-to-find-the-configuration-file)
   - [2.3. Customizing the configuration](#23-customizing-the-configuration)
-- [3. First launch and connecting from another device](#3-first-launch-and-connecting-from-another-device)
+- [3. First launch and connection](#3-first-launch-and-connection)
 - [4. Updating Reality Later](#4-updating-reality-later)
-- [5. Troubleshooting](#5-troubleshooting)
-- [6. Data and security](#6-data-and-security)
 
 ## 1. Installation
 
@@ -47,15 +45,13 @@ Download the appropriate build from the [GitHub Releases page](https://github.co
 
 #### 1.2.1. Windows
 
-1. Download the Windows executable provided in the release assets, if available.
+1. Download the Windows executable provided in the release assets.
 2. Run the downloaded application. Follow any instructions supplied with that release.
 3. Reality Later should open its **This computer** page in your browser automatically. Otherwise, check the address displayed by the application.
 
-You do not need to install Python or Git for a packaged Windows build.
-
 #### 1.2.2. Linux (Flatpak)
 
-Download the `.flatpak` bundle from the release assets, if available. You need [Flatpak](https://flatpak.org/setup/) installed on your system, but you do **not** need to install Python or Git separately.
+Download the `.flatpak` bundle from the release assets, if available. You need [Flatpak](https://flatpak.org/setup/) installed on your system.
 
 You can install the downloaded bundle using your graphical software manager, or from a terminal in the directory containing it:
 
@@ -65,7 +61,13 @@ flatpak install --user ./YOUR_DOWNLOADED_FILE.flatpak
 
 Replace `YOUR_DOWNLOADED_FILE.flatpak` with the name of the file you downloaded. Then launch Reality Later from your application menu.
 
-The `--user` option installs the application only for your user account. If you prefer a system-wide installation, omit it (your system may ask for administrator authorization).
+The `--user` option installs the application only for your user account. If you prefer a system-wide installation, omit it (your system may ask for administrator authorization). You can then start Reality later from your desktop launcher or from the termina with:
+
+```bash
+flatpak run io.github.MiryanaNovak.RealityLater
+```
+
+Reality Later should open its **This computer** page in your browser automatically. Otherwise, check the address displayed by the application.
 
 ### 1.3. Install from source (advanced)
 
@@ -102,7 +104,7 @@ py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe main.py
 ```
 
-Reality Later normally opens its **This computer** page automatically. If it does not, visit **http://localhost:8091** in your browser (assuming the default ports).
+Reality Later should open its **This computer** page in your browser automatically. Otherwise, check the address displayed by the application.
 
 To start it again later, open PowerShell in the `reality-later` directory and run:
 
@@ -145,7 +147,7 @@ python3.13 -m venv .venv
 .venv/bin/python main.py
 ```
 
-Reality Later normally opens its **This computer** page automatically. Otherwise, visit **http://localhost:8091** (with the default ports).
+Reality Later should open its **This computer** page in your browser automatically. Otherwise, check the address displayed by the application.
 
 To launch it again:
 
@@ -193,12 +195,12 @@ python3.13 -m venv .venv
 .venv/bin/python main.py
 ```
 
-Reality Later normally opens its **This computer** page in your browser. Otherwise, visit **http://localhost:8091** (with default settings).
+Reality Later should open its **This computer** page in your browser automatically. Otherwise, check the address displayed by the application.
 
 To start it again:
 
 ```bash
-cd reality-later  # if needed
+cd reality-later
 .venv/bin/python main.py
 ```
 
@@ -380,7 +382,7 @@ journalctl -u reality-later -n 100 --no-pager
 sudo systemctl start reality-later      # Start
 sudo systemctl stop reality-later       # Stop
 sudo systemctl restart reality-later    # Restart
-systemctl status reality-later         # Status
+systemctl status reality-later          # Status
 journalctl -u reality-later -f          # Live logs
 ```
 
@@ -411,8 +413,6 @@ sudo chmod -R u+rwX,go-rwx \
 sudo systemctl start reality-later
 ```
 
-Back up `data/`, `certificates/`, and your optional `config.toml` before significant updates. `config.toml` is not tracked by Git and should not be overwritten by normal source updates.
-
 ## 2. Configuration
 
 ### 2.1. Default settings
@@ -434,29 +434,11 @@ The configuration file is named `config.toml`. Its location depends on how you i
 | Windows, macOS, or Linux from source | `config.toml` next to `main.py` in the source directory |
 | Linux systemd service (as described above) | `/opt/reality-later/config.toml` |
 
-On Windows, `%APPDATA%` usually refers to the user's `AppData\Roaming` directory. For Flatpak installations, `~` means your home directory; the path shown assumes the application ID `io.github.MiryanaNovak.RealityLater` and the default Flatpak configuration location.
-
-**The easiest method for packaged installations:** Start Reality Later, open the **This computer** page, and select **Open the settings file**. This action opens or creates the configuration file in the correct location, so you don't need to find the directory yourself.
+If Reality Later is already running, the easiest way to access its configuration file is to open the **This computer** page from a browser on the computer running the application, then click **Open the settings file**. This will open the configuration file, creating it in the correct location if it doesn't already exist.
 
 ### 2.3. Customizing the configuration
 
-For an installation from source, copy the supplied example to `config.toml` in the same directory as `main.py`, then edit the new file.
-
-**Windows (PowerShell):**
-
-```powershell
-Copy-Item config.example.toml config.toml
-```
-
-**macOS / Linux:**
-
-```bash
-cp config.example.toml config.toml
-```
-
-These commands should be run from the source directory. For a Linux systemd installation, follow the administrator commands in [the systemd setup](#134-linux-systemd-service) instead, so the service account can read the file without being allowed to change it.
-
-You can change only the settings you need; you do not have to keep every setting from the example. For instance, to allow Tailscale clients in addition to ordinary private networks, `config.toml` can contain just:
+An example configuration file is provided in `config.example.toml`. You can change only the settings you need; you do not have to keep every setting from the example. For instance, to allow Tailscale clients in addition to ordinary private networks, `config.toml` can contain just:
 
 ```toml
 [server]
@@ -465,33 +447,52 @@ allowed_networks = ["private", "100.64.0.0/10"]
 
 The example file contains explanations for the other settings, including `port`, `address`, `pairing`, `https`, and `local_port`. Be careful when changing network access or disabling device pairing: Reality Later is not intended to be directly exposed to the public internet.
 
-**Keep `config.toml` private and out of version control.** It is a machine-specific configuration file, not part of the source distribution. After editing it, quit Reality Later and start it again (or restart the systemd service).
+After editing `config.toml`, quit Reality Later and start it again (or restart the systemd service).
 
-## 3. First launch and connecting from another device
+## 3. First launch and connection
 
-With the default configuration:
+After installation, you can launch Reality Later without creating a configuration file. It should open your web browser and display the **This computer** page, allowing you to use the application from the computer it runs on.
+
+By default, Reality Later provides two ways to connect: an HTTP connection accessible only from the computer running the application, and an HTTPS connection accessible from that computer and other devices on allowed local networks.
 
 | Address | Purpose |
 | --- | --- |
 | `http://localhost:8091` | Local **This computer** page, accessible from the machine running Reality Later |
 | `https://<server-LAN-IP>:8090` | Access from another device on an allowed local network |
 
-Reality Later enables HTTPS by default. It creates a **self-signed certificate**, so your browser may warn that the certificate is not trusted. Before proceeding, compare its SHA-256 fingerprint with the fingerprint displayed by the application.
+### Connecting from another device
 
-**Device pairing is enabled by default.** A phone or other remote browser must be approved from the server's **This computer / Devices** interface. For a headless Linux server, Reality Later also provides CLI pairing commands; for example, from `/opt/reality-later`:
+To connect from another device on your local network (such as a phone, a tablet, or another computer), you must first pair that device with Reality Later.
+
+If the device has a camera, the easiest way to pair it is with a QR code. On the **This computer** page, click **Pair a device**, select the correct network from the dropdown menu, and scan the QR code with the device. It will be paired automatically.
+
+If the device does not have a camera, open a web browser on it and enter the address displayed on the **This computer** page. The device will request pairing and display a code. On the computer running Reality Later, verify the code and approve the pairing request.
+
+For HTTPS connections, Reality Later creates a **self-signed certificate**. The first time you connect from another device, your browser will warn that the certificate is not trusted. Before proceeding, compare its SHA-256 fingerprint with the one displayed on the **This computer** page. Once you accept the certificate, your browser may remember the exception so you will not have to repeat this process on subsequent visits.
+
+### Managing pairing on a headless server
+
+If Reality Later is running on a server without a graphical interface, you can approve device pairing using the command line.
+
+If the device has a camera, the easiest way to pair it is to generate a QR code. On the server, run:
 
 ```bash
-sudo -u reality-later -H /opt/reality-later/.venv/bin/python main.py pair
-sudo -u reality-later -H /opt/reality-later/.venv/bin/python main.py approve
+sudo -u reality-later -H sh -c 'cd /opt/reality-later && .venv/bin/python main.py pair'
 ```
 
-Follow the instructions displayed by these commands.
+Then scan the QR code with the device.
 
-Once connected, open **Connections** in Reality Later and configure your OpenRouter API key.
+If the device does not have a camera, open a web browser on it and enter the server's address. The device will request pairing and display a code. On the server, run:
 
-### Optional: access Reality Later remotely with Tailscale
+```bash
+sudo -u reality-later -H sh -c 'cd /opt/reality-later && .venv/bin/python main.py approve CODE'
+```
 
-For access away from home, use a private network such as [Tailscale](https://tailscale.com/) rather than forwarding port 8090 on your router.
+Replace `CODE` with the code displayed on the device.
+
+### Access Reality Later remotely with Tailscale
+
+For access away from home, it is recommended to use a private network such as [Tailscale](https://tailscale.com/) rather than forwarding port 8090 on your router.
 
 Install Tailscale on the server and your phone, then authenticate both devices into the same tailnet.
 
@@ -506,10 +507,6 @@ allowed_networks = ["private", "100.64.0.0/10"]
 
 This is an excerpt, **not** a replacement for the entire configuration file. If `[server]` or `allowed_networks` already exists, edit the existing entry rather than adding a duplicate. Keeping `"private"` preserves access from ordinary private LAN addresses; adding `"100.64.0.0/10"` allows Tailscale-assigned addresses. Device pairing is still required for remote browsers.
 
-- **Normal source installation:** Create `config.toml` from `config.example.toml` if necessary, edit it, stop Reality Later with **Ctrl+C**, and launch it again.
-- **systemd installation:** Create the configuration file using the steps in [the systemd setup](#134-linux-systemd-service) if necessary, edit it with `sudoedit /opt/reality-later/config.toml`, then restart with `sudo systemctl restart reality-later`.
-- **Packaged installation:** Use **This computer → Open the settings file**, make the change, then restart Reality Later.
-
 With Reality Later running and its default local HTTP listener on port 8091, enable Tailscale Serve on the server:
 
 ```bash
@@ -519,25 +516,29 @@ tailscale serve status
 
 Tailscale Serve exposes a private HTTPS `*.ts.net` address to devices authorized on your tailnet. Remote browsers must still follow Reality Later's pairing flow. The `--bg` configuration is retained across restarts by Tailscale.
 
-Use **Tailscale Serve**, not **Tailscale Funnel**: Funnel exposes the service to the public internet.
-
-You can optionally configure Reality Later to listen only on `127.0.0.1` if you want Tailscale Serve to be the sole way to reach the server remotely, rather than allowing direct LAN connections. Refer to the `[server]` settings in `config.toml` and restart Reality Later after editing them.
+Use **Tailscale Serve**, not **Tailscale Funnel**: Funnel exposes the service to everybody on the internet, which is precisely what you don't want.
 
 ## 4. Updating Reality Later
 
+Reality Later does not update automatically. It displays a notification when a new version is available, but you must install the update yourself. The procedure depends on how the application was installed.
+
 ### 4.1. Update a packaged installation
 
-For a Windows package, check the [GitHub Releases page](https://github.com/MiryanaNovak/reality-later/releases) for a newer build and follow its update instructions. For Linux Flatpak bundles installed from a downloaded file, download and install the updated `.flatpak` bundle in the same way as the original. Back up your data before significant updates.
+Check the [GitHub Releases page](https://github.com/MiryanaNovak/reality-later/releases) and download the newer package. Stop Reality Later before updating.
 
-### 4.2. Update a normal source installation
+For **Windows**, follow the instructions provided with the new release. If it is a standalone executable, replace the old executable with the new one. If it is an installer, run the installer.
 
-For Windows, macOS, or Linux **source installations** that are **not** managed by systemd, stop Reality Later, open a terminal in your checkout, then run:
+For **Linux Flatpak**, install the new `.flatpak` bundle in the same way as the original, using the same installation scope (`--user` or system-wide).
+
+### 4.2. Update a source installation
+
+For Windows, macOS, or Linux **source installations**, stop Reality Later, open a terminal in your checkout, then run:
 
 ```bash
 git pull --ff-only
 ```
 
-Reinstall from the updated source using your existing virtual environment:
+Once the source has been updated, reinstall Reality Later and its dependencies into your existing virtual environment:
 
 **Windows (PowerShell):**
 
@@ -552,31 +553,3 @@ Reinstall from the updated source using your existing virtual environment:
 .venv/bin/python -m pip install .
 .venv/bin/python main.py
 ```
-
-A virtual environment is specific to its installation directory and Python version; don't move or copy `.venv` between computers. Recreate it with a supported Python interpreter instead.
-
-## 5. Troubleshooting
-
-- **error: externally-managed-environment** — You are probably using your distribution's system Python instead of the virtual environment's Python. Use the `.venv` executable shown in the installation instructions.
-
-- **Permission denied when writing data or certificates (systemd)** — Recheck ownership of `/opt/reality-later/data` and `/opt/reality-later/certificates`, along with `ReadWritePaths` in the unit.
-
-- **Port 8090 or 8091 is already in use** — Stop any manually running Reality Later instance before starting the service, or adjust its port configuration.
-
-- **HTTP 403 Forbidden over Tailscale** — Reality Later's default `allowed_networks = ["private"]` does not include Tailscale's `100.64.0.0/10` addresses. Create `config.toml` if it does not exist (see [Configuration](#2-configuration)), set `allowed_networks = ["private", "100.64.0.0/10"]` under `[server]`, then restart Reality Later. Pairing is still required for unpaired remote devices.
-
-- **A remote device cannot connect** — Check the listening address, `allowed_networks`, firewall rules, device pairing, and (if used) Tailscale connectivity. Do not expose the app directly to the public internet to solve this.
-
-## 6. Data and security
-
-- **Application settings:** Optional `config.toml`. Without it, Reality Later uses its built-in defaults. The location depends on your installation method; see [Configuration](#2-configuration).
-- **Persistent data:** `data/` in the source directory for source installations. Packaged installations use user-specific data directories. Set `RPAPP_DATA` to use a different location.
-- **HTTPS certificates:** Stored in a `certificates/` directory beside the configuration location by default. Protect the private key and back it up if you want to preserve the certificate identity.
-- **API credentials:** Treat the application's data and settings as sensitive; protect and back them up accordingly.
-- **Network exposure:** HTTPS and input validation are not, by themselves, reasons to expose Reality Later directly to the public internet. Prefer private access through Tailscale or an equivalent solution.
-
-For the systemd installation, the service account can read the application files but only writes to explicitly authorized persistent directories. This reduces the damage a compromised application can cause; it does not protect data or API keys that Reality Later itself must be allowed to read.
-
----
-
-Source code: [github.com/MiryanaNovak/reality-later](https://github.com/MiryanaNovak/reality-later)
