@@ -717,3 +717,85 @@ Conversations are grouped by Character, making it easy to find all the stories y
 You can also rename conversations to make them easier to identify, especially when you have several conversations with the same Character.
 
 **Conversation titles are only used for organization.** They are not sent to the AI and do not influence the story.
+
+## 6. Advanced Features
+
+Reality Later provides several optional features to help the AI remember information, maintain consistency, and manage long conversations. You don't need to configure any of them to start roleplaying.
+
+### 6.1. Lore Books
+
+A **Lore Book** is a collection of information that the AI can use during a conversation. It can describe characters, locations, events, fictional worlds, or anything else relevant to the story.
+
+Unlike information included directly in a Character's scenario, Lore Book entries are generally sent to the AI only when they are relevant. Each entry can have keywords that trigger its inclusion when those keywords appear in the conversation. Entries can also be configured to remain permanently active.
+
+This allows you to provide detailed background information without filling every AI request with information that isn't currently needed.
+
+#### Using Lore Books
+
+Open **Lore books** from the navigation menu to create and manage your Lore Books.
+
+Lore Books can be attached to Characters or Personas. During a conversation, Reality Later uses the Lore Books associated with both.
+
+Character cards can also contain embedded Lore Books, so imported Characters may already have their own background information attached.
+
+You can create your own Lore Books, modify existing ones, and attach multiple Lore Books to the same Character or Persona.
+
+You don't need to configure Lore Books to use Reality Later. They're particularly useful for elaborate characters, large fictional settings, and stories involving many people or places.
+
+### 6.2. Memory
+
+**Memory** allows Reality Later to remember important information from earlier parts of a conversation, even after those messages no longer fit within the AI model's context.
+
+As conversations grow longer, older messages eventually have to be removed from the context to make room for new ones. When Memory is enabled, Reality Later automatically uses an AI model to summarize important information from those messages into memory entries.
+
+Memories work similarly to Lore Book entries. Each memory contains information and a set of keywords that determine when it should be included in the AI's context. Memories can also be configured to remain permanently active.
+
+Unlike Lore Books, which you create manually, **Memories are generated automatically from your conversations**. Each conversation has its own independent memories, allowing the AI to retain important details about events, relationships, and developments in the story.
+
+#### Enabling Memory
+
+Open **Settings** from the navigation menu and expand the **Memory** section.
+
+Enable **Keep a memory of each chat** to activate automatic memory generation.
+
+Memory generation uses an AI Connection, which you can select from the **Memory connection** dropdown menu. You can use the same Connection as your conversations or choose a different one, such as a cheaper or faster model dedicated to generating memories.
+
+Memory generation also uses its own instructions, which you can customize in the **Memory instructions** field. Default instructions are provided, so you don't need to modify them to get started.
+
+#### Managing Memories
+
+As older messages leave the context, Reality Later automatically generates or updates memories to preserve important information.
+
+When new memories are generated, a notification appears in the conversation. You can review the proposed changes before they are applied. The changes take effect when you send your next message.
+
+You can also generate memories manually from a conversation's menu.
+
+Memories can be reviewed, edited, or deleted at any time. This is useful for correcting information the AI misunderstood, removing outdated details, or ensuring important events are remembered accurately.
+
+### 6.3. Vector Search
+
+**Vector Search** allows Reality Later to retrieve relevant Lore Book and Memory entries based on their meaning, rather than relying solely on keywords.
+
+For example, a Lore Book entry about a village blacksmith might be retrieved when the conversation mentions *"the person who makes swords"*, even if none of the entry's keywords appear in the conversation.
+
+Vector Search complements traditional keyword matching rather than replacing it. Both methods remain active and work together to identify relevant information.
+
+#### Enabling Vector Search
+
+Open **Settings** from the navigation menu and expand the **Vector search** section.
+
+You can enable Vector Search independently for **Memories** and **Lore Books**, or for both.
+
+Vector Search requires an embedding model, which runs locally on your computer. Reality Later provides several models to choose from. Select one from the **Model** dropdown menu and click the download button to install it.
+
+Once downloaded, the model runs locally to analyze the meaning of Lore Book and Memory entries and compare them with the conversation. Vector Search does not require an external service or an additional API key.
+
+If you use Reality Later in a language other than English, choose a **multilingual model**. English-only models may not correctly understand conversations in other languages.
+
+#### How Vector Search works
+
+When generating a reply, Reality Later searches for relevant Lore Book and Memory entries using both keyword matching and, when enabled, semantic similarity.
+
+Entries can therefore be included because their keywords appear in the conversation, because their meaning is sufficiently similar to what is being discussed, or both.
+
+You can adjust how closely entries must match and how many entries can be retrieved through Vector Search in the settings. The default values are a good starting point.
