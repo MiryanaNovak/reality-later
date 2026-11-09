@@ -799,3 +799,108 @@ When generating a reply, Reality Later searches for relevant Lore Book and Memor
 Entries can therefore be included because their keywords appear in the conversation, because their meaning is sufficiently similar to what is being discussed, or both.
 
 You can adjust how closely entries must match and how many entries can be retrieved through Vector Search in the settings. The default values are a good starting point.
+
+## 7. Character Sharing
+
+Reality Later allows you to create your own Characters, import character cards from other platforms, and discover Characters shared by other users.
+
+Character cards using the V1, V2, V3, and CharX formats can be imported directly through **Characters → Import**.
+
+Reality Later also provides its own **decentralized character-sharing system**, designed so that no single platform or authority controls the entire collection of shared Characters.
+
+Instead of storing all Characters on a central server, Reality Later uses a network of independent services to announce available cards and **BitTorrent** to transfer them directly between users.
+
+### 7.1. Finding and Downloading Characters
+
+Open **Shared cards** from the navigation menu to browse Characters published by other users.
+
+Reality Later retrieves announcements from the sharing network. Each announcement contains basic information about a Character, including its name, a short description, and tags.
+
+An announcement is not the Character itself. To use a Character, you must first **download its card**, which you can then find in your Characters collection.
+
+#### How downloading works
+
+Reality Later uses **BitTorrent** to download character cards directly from other users who have a copy.
+
+This means that a Character's availability depends on other users sharing it. If nobody is currently sharing a particular card, it may not be possible to download it until someone who has a copy comes online.
+
+When you download a card, you can also help make it available to other users. This is called **seeding**.
+
+#### Helping Keep Characters Available
+
+Because there is no central server storing every Character, the sharing system depends on its users to keep cards available.
+
+In **Settings → Sharing cards**, the option **Share them in turn** controls whether Reality Later automatically seeds cards you have downloaded.
+
+When enabled, Reality Later shares these cards with other users while the application is running. You don't need to do anything manually.
+
+Seeding is entirely optional, but **the more users participate, the more reliable the sharing network becomes**. A card can remain available even when its original publisher is offline, provided someone else continues seeding it.
+
+#### Filtering Shared Cards
+
+In **Settings → Sharing cards**, you can choose whether to display cards marked as NSFW (Not Safe For Work) and specify tags you want to hide.
+
+Content ratings are assigned by the publishers themselves. Reality Later does not independently verify them.
+
+### 7.2. Publishing Characters
+
+You can publish your own Characters to make them discoverable and downloadable by other Reality Later users.
+
+#### Creating Your Publisher Identity
+
+Before publishing your first Character, you need a **publisher identity**. This identity consists of a cryptographic key pair that identifies you as the publisher of your cards.
+
+You can create your publisher identity in **Settings → Sharing cards**, or Reality Later will guide you through the process when you publish your first Character.
+
+You can also choose a **publisher name**, which is displayed alongside your published cards. Publisher names are not unique: your cryptographic key is what distinguishes you from other publishers.
+
+**Important: Back up your publisher key!**
+
+Use **Back up my key** in **Settings → Sharing cards** and store the backup somewhere safe.
+
+Your private key is what allows you to publish under your identity. If you lose it without a backup, it cannot be recovered, and you will no longer be able to publish under the same identity. You can create a new identity, but it will be different from the previous one.
+
+Never share your private key with anyone. Your public publisher identifier, on the other hand, can be shared freely.
+
+#### Publishing a Character
+
+To publish a Character:
+
+1. Open **Characters** from the navigation menu.
+2. Select the Character you want to publish.
+3. Open its menu and choose **Publish**.
+4. Follow the publishing steps and provide the requested information.
+
+You will be asked to provide:
+
+- **Card name:** The name under which your Character will be listed.
+- **Description:** A short description to help other users understand what the Character is about before downloading it.
+- **Tags (optional):** Keywords that help users discover Characters they're interested in.
+- **Content rating:** Specify whether your Character is **SFW** or **NSFW**.
+- **Language:** The language in which the Character is written.
+
+Choose the appropriate content rating so other users can filter cards according to their preferences.
+
+Once you confirm publication, Reality Later announces your Character to the sharing network, making it discoverable by other users.
+
+#### Keeping Your Published Characters Available
+
+Publishing a Character makes its announcement available to other users, but the Character card itself must still be downloaded from someone who is sharing it.
+
+**Reality Later automatically seeds your published cards while the application is running.**
+
+When you close Reality Later, your computer stops seeding. However, if other users have downloaded your card and enabled seeding, they can continue distributing it even while you're offline.
+
+This is what makes decentralized sharing possible: **once other users have copies of a Character, its availability no longer depends entirely on its original publisher.**
+
+You can manage your published Characters from **Your publications** in the navigation menu.
+
+#### Network Connectivity
+
+BitTorrent works best when other users can establish incoming connections to your computer.
+
+Reality Later can automatically ask your router to open the necessary port using UPnP or NAT-PMP. This option is available in **Settings → Sharing cards** and is enabled by default.
+
+If automatic port forwarding isn't available, you can configure a port manually and forward it through your router.
+
+You can still connect to other peers without an open incoming port, but some peers may be unable to connect to you, reducing your ability to share cards.
