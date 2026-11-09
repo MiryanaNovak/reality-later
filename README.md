@@ -46,14 +46,6 @@ Reality Later currently supports **[OpenRouter](https://openrouter.ai/)**. You'l
 
 Support for additional providers may come later.
 
-## Security
-
-Reality Later runs on your own computer and supports HTTPS out of the box. It generates a self-signed certificate by default, so remote browsers will warn that it isn't trusted until you verify its fingerprint and accept an exception.
-
-Remote devices must be paired before they can access the app by default. External content, including imported character cards and lore books, is treated as untrusted; inputs are validated and sanitized to reduce the risks of malformed or malicious data.
-
-**Do not expose Reality Later's web interface directly to the public internet.** For access away from home, use a private networking solution such as [Tailscale](https://tailscale.com/). The decentralized card-sharing feature is separate from remote access to the web interface.
-
 ## Built with
 
 - Python
