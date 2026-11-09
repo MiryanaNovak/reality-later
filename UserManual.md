@@ -6,46 +6,91 @@ Reality Later is a self-hosted AI roleplay application. It runs on your computer
 
 ## Table of Contents
 
-- [Requirements](#requirements)
-- [1. Install from source — Windows](#1-install-from-source--windows)
-- [2. Install from source — macOS](#2-install-from-source--macos)
-- [3. Install from source — Linux](#3-install-from-source--linux)
-- [4. Install from source — Linux systemd service](#4-install-from-source--linux-systemd-service)
-  - [4.1. Install prerequisites](#41-install-prerequisites)
-  - [4.2. Create the service account](#42-create-the-service-account)
-  - [4.3. Clone the source directly into `/opt`](#43-clone-the-source-directly-into-opt)
-  - [4.4. Create the virtual environment and install dependencies](#44-create-the-virtual-environment-and-install-dependencies)
-  - [4.5. Configure filesystem permissions](#45-configure-filesystem-permissions)
-  - [4.6. Create the systemd unit](#46-create-the-systemd-unit)
-  - [4.7. Enable and start the service](#47-enable-and-start-the-service)
-  - [4.8. Manage the service](#48-manage-the-service)
-  - [4.9. Update a systemd installation](#49-update-a-systemd-installation)
-- [5. First launch and connecting from another device](#5-first-launch-and-connecting-from-another-device)
-- [6. Updating a normal source installation](#6-updating-a-normal-source-installation)
-- [7. Troubleshooting](#7-troubleshooting)
-- [8. Data, configuration, and security](#8-data-configuration-and-security)
+- [1. Installation](#1-installation)
+  - [1.1. Requirements](#11-requirements)
+  - [1.2. Install from a package (recommended)](#12-install-from-a-package-recommended)
+    - [1.2.1. Windows](#121-windows)
+    - [1.2.2. Linux (Flatpak)](#122-linux-flatpak)
+    - [1.2.3. macOS](#123-macos)
+  - [1.3. Install from source (advanced)](#13-install-from-source-advanced)
+    - [1.3.1. Windows](#131-windows)
+    - [1.3.2. macOS](#132-macos)
+    - [1.3.3. Linux](#133-linux)
+    - [1.3.4. Linux systemd service](#134-linux-systemd-service)
+- [2. First launch and connecting from another device](#2-first-launch-and-connecting-from-another-device)
+- [3. Updating Reality Later](#3-updating-reality-later)
+- [4. Troubleshooting](#4-troubleshooting)
+- [5. Data, configuration, and security](#5-data-configuration-and-security)
 
-## Requirements
+## 1. Installation
 
-- **Python 3.10 or newer** and **Git**.
+### 1.1. Requirements
+
+- **Windows, macOS, or Linux.**
 - An **[OpenRouter](https://openrouter.ai/)** account and API key. OpenRouter is currently the only supported AI provider.
 - An internet connection for installation and OpenRouter requests.
 
-Reality Later's dependencies are declared in `pyproject.toml`. You do **not** need a `requirements.txt` file. The commands below use a Python virtual environment so dependencies are not installed into your system Python.
+**For packaged installations:** Python and Git do not need to be installed separately. Use a package for your operating system when one is available.
 
-## 1. Install from source — Windows
+**For installation from source:** You need Git and **Python 3.10–3.13** (inclusive), including support for Python virtual environments. **Python 3.13 is recommended.** Versions **3.12 and 3.13 have been tested**; 3.10 and 3.11 are expected to work but have not been confirmed by these tests. **Python 3.14 is not currently supported**, because some dependencies are not yet available for it.
 
-Install [Python](https://www.python.org/downloads/windows/) and [Git](https://git-scm.com/downloads/win), if you do not have them already. Make sure Python is at least version 3.10.
+Reality Later's Python dependencies are declared in `pyproject.toml`; no `requirements.txt` is needed. The source installation instructions use a virtual environment to avoid installing dependencies into system Python.
 
-Open **PowerShell**, then run:
+### 1.2. Install from a package (recommended)
+
+For most users, this is the simplest option. Packaged versions include the required Python runtime and application dependencies, so you do not have to configure a development environment.
+
+Download the appropriate build from the [GitHub Releases page](https://github.com/MiryanaNovak/reality-later/releases) **when a packaged release is available**. If no build is provided for your operating system yet, use the [source installation](#13-install-from-source-advanced) instructions below.
+
+#### 1.2.1. Windows
+
+1. Download the Windows executable provided in the release assets, if available.
+2. Run the downloaded application. Follow any instructions supplied with that release.
+3. Reality Later should open its **This computer** page in your browser automatically. Otherwise, check the address displayed by the application.
+
+You do not need to install Python or Git for a packaged Windows build.
+
+#### 1.2.2. Linux (Flatpak)
+
+Download the `.flatpak` bundle from the release assets, if available. You need [Flatpak](https://flatpak.org/setup/) installed on your system, but you do **not** need to install Python or Git separately.
+
+You can install the downloaded bundle using your graphical software manager, or from a terminal in the directory containing it:
+
+```bash
+flatpak install --user ./YOUR_DOWNLOADED_FILE.flatpak
+```
+
+Replace `YOUR_DOWNLOADED_FILE.flatpak` with the name of the file you downloaded. Then launch Reality Later from your application menu.
+
+The `--user` option installs the application only for your user account. If you prefer a system-wide installation, omit it (your system may ask for administrator authorization).
+
+### 1.3. Install from source (advanced)
+
+Use this method if a package is unavailable for your platform, or if you want to run the source code directly.
+
+**Check the Python interpreter before creating your virtual environment.** It must report Python **3.10, 3.11, 3.12, or 3.13**. Do not use Python 3.14, even if it is your operating system's default. The examples prefer Python 3.13; you can substitute another supported version.
+
+#### 1.3.1. Windows
+
+Install [Python](https://www.python.org/downloads/windows/) and [Git](https://git-scm.com/downloads/win) if needed. Open **PowerShell** and list the installed Python versions:
+
+```powershell
+py -0p
+py -3.13 --version
+```
+
+The second command must report Python 3.13.x. If you have another supported version instead, substitute `-3.12`, `-3.11`, or `-3.10` in both that command and the virtual environment command below. If no supported version is installed, install Python 3.13 first.
 
 ```powershell
 # Download the source code
 git clone https://github.com/MiryanaNovak/reality-later.git
 cd reality-later
 
-# Create a virtual environment
-py -3 -m venv .venv
+# Create a virtual environment with the version you verified
+py -3.13 -m venv .venv
+
+# Verify the virtual environment's Python version
+.\.venv\Scripts\python.exe --version
 
 # Install the app and its dependencies
 .\.venv\Scripts\python.exe -m pip install .
@@ -64,21 +109,31 @@ To start it again later, open PowerShell in the `reality-later` directory and ru
 
 Leave the process running while using the application. Press **Ctrl+C** to stop it.
 
-> If `py` is not available, install the Python Launcher or use the appropriate `python` command for your Python 3.10+ installation.
+> If `py` is unavailable, install the Python Launcher or use the corresponding full path to a supported Python interpreter. Verify its version before creating the virtual environment.
 
-## 2. Install from source — macOS
+#### 1.3.2. macOS
 
-Install [Python 3.10+](https://www.python.org/downloads/macos/) and Git if needed. Git can be installed with Apple's Command Line Tools (`xcode-select --install`). Check that `python3 --version` reports a supported version.
+Install a supported version of [Python](https://www.python.org/downloads/macos/) and Git if needed. Git can be installed with Apple's Command Line Tools (`xcode-select --install`).
 
-Open **Terminal**, then run:
+Open **Terminal**. Check which Python version is available:
+
+```bash
+python3 --version
+python3.13 --version
+```
+
+Use the command for the supported Python installation you want. In the example below, `python3.13` is used. If you have Python 3.12, 3.11, or 3.10 instead, replace `python3.13` with that interpreter's command. Your system's default `python3` can also be used if it reports a supported version.
 
 ```bash
 # Download the source code
 git clone https://github.com/MiryanaNovak/reality-later.git
 cd reality-later
 
-# Create a virtual environment
-python3 -m venv .venv
+# Create a virtual environment with the version you verified
+python3.13 -m venv .venv
+
+# Verify the virtual environment's Python version
+.venv/bin/python --version
 
 # Install the app and its dependencies
 .venv/bin/python -m pip install .
@@ -98,26 +153,35 @@ cd reality-later  # if you are not already in this directory
 
 Keep Terminal open while using the app; press **Ctrl+C** to stop it.
 
-## 3. Install from source — Linux
+#### 1.3.3. Linux
 
-Install Git, Python 3.10+, and virtual environment support. For **Ubuntu/Debian**:
+Install Git, a supported Python version (3.10–3.13), and its virtual environment support. On **Ubuntu/Debian**, first check the distribution's Python version:
 
 ```bash
 sudo apt update
 sudo apt install git python3 python3-venv
+python3 --version
 ```
 
-On another distribution, install the equivalent packages using its package manager. Verify your Python version with `python3 --version`.
+If `python3` reports **3.10–3.13**, you can use it. If it reports **3.14** (or an older unsupported version), install a separate supported interpreter, such as Python 3.13, plus its `venv` support, using packages appropriate to your distribution. Do not replace the system's default `python3` interpreter.
 
-Then run these commands as your **normal user**, without `sudo`:
+On another distribution, install the equivalent packages using its package manager. Verify the version of the interpreter you intend to use. The example below uses `python3.13`; replace it with `python3` or another supported interpreter if appropriate.
+
+Run these commands as your **normal user**, without `sudo`:
 
 ```bash
+# Check the selected Python version
+python3.13 --version
+
 # Download the source code
 git clone https://github.com/MiryanaNovak/reality-later.git
 cd reality-later
 
 # Create a virtual environment
-python3 -m venv .venv
+python3.13 -m venv .venv
+
+# Verify the virtual environment's Python version
+.venv/bin/python --version
 
 # Install the app and its dependencies
 .venv/bin/python -m pip install .
@@ -137,9 +201,7 @@ cd reality-later  # if needed
 
 Keep the terminal running; press **Ctrl+C** to stop the app.
 
-> **Ubuntu/Debian and `externally-managed-environment`:** This error usually means you ran system `pip` rather than the virtual environment's Python. Use `.venv/bin/python -m pip install .` exactly as shown above; do not use `--break-system-packages`.
-
-## 4. Install from source — Linux systemd service
+#### 1.3.4. Linux systemd service
 
 This option is intended for a Linux machine that runs Reality Later as a background server, starting automatically at boot. It uses:
 
@@ -150,16 +212,21 @@ This option is intended for a Linux machine that runs Reality Later as a backgro
 
 The instructions below target **Ubuntu/Debian with systemd**. They assume **a new installation** and clone the repository **directly into `/opt/reality-later`**. Do not run these steps over an existing installation without first backing up its data and configuration.
 
-### 4.1. Install prerequisites
+##### 1.3.4.1. Install prerequisites
 
 ```bash
 sudo apt update
 sudo apt install git python3 python3-venv
+python3 --version
 ```
 
-Make sure `python3 --version` is 3.10 or newer.
+Use a Python interpreter in the **3.10–3.13** range; Python 3.14 is not supported. The commands below use `python3.13` as an example. Install Python 3.13 and its matching `venv` package if necessary, or substitute another supported interpreter (such as `python3` when it reports 3.12) throughout the following steps. Verify the chosen version before continuing:
 
-### 4.2. Create the service account
+```bash
+python3.13 --version
+```
+
+##### 1.3.4.2. Create the service account
 
 ```bash
 sudo adduser --system --group \
@@ -169,7 +236,7 @@ sudo adduser --system --group \
 
 This creates a dedicated system user and group. Do **not** give it sudo access.
 
-### 4.3. Clone the source directly into `/opt`
+##### 1.3.4.3. Clone the source directly into `/opt`
 
 ```bash
 sudo git clone https://github.com/MiryanaNovak/reality-later.git /opt/reality-later
@@ -177,16 +244,16 @@ sudo git clone https://github.com/MiryanaNovak/reality-later.git /opt/reality-la
 
 The checkout is managed by root so the service account will not be able to modify its own program files.
 
-### 4.4. Create the virtual environment and install dependencies
+##### 1.3.4.4. Create the virtual environment and install dependencies
 
 ```bash
-sudo python3 -m venv /opt/reality-later/.venv
+sudo python3.13 -m venv /opt/reality-later/.venv
 sudo /opt/reality-later/.venv/bin/python -m pip install /opt/reality-later
 ```
 
 These commands use `sudo` **only to prepare the root-owned installation**. Reality Later itself will run as the unprivileged `reality-later` user.
 
-### 4.5. Configure filesystem permissions
+##### 1.3.4.5. Configure filesystem permissions
 
 Make the code and virtual environment readable, but not writable, by the service account:
 
@@ -215,7 +282,7 @@ sudoedit /opt/reality-later/config.toml
 
 All options have defaults; editing this file is not required for a first start. Keep machine-specific settings and credentials out of Git commits.
 
-### 4.6. Create the systemd unit
+##### 1.3.4.6. Create the systemd unit
 
 Open a new unit file:
 
@@ -285,7 +352,7 @@ WantedBy=multi-user.target
 
 The `--no-browser` option prevents Reality Later from attempting to open a desktop browser when started in the background. The `--no-tray` option prevents it from attempting to register a system tray icon.
 
-### 4.7. Enable and start the service
+##### 1.3.4.7. Enable and start the service
 
 ```bash
 sudo systemctl daemon-reload
@@ -301,7 +368,7 @@ If startup fails, inspect the logs:
 journalctl -u reality-later -n 100 --no-pager
 ```
 
-### 4.8. Manage the service
+##### 1.3.4.8. Manage the service
 
 ```bash
 sudo systemctl start reality-later      # Start
@@ -317,7 +384,7 @@ To stop it from starting at boot:
 sudo systemctl disable --now reality-later
 ```
 
-### 4.9. Update a systemd installation
+##### 1.3.4.9. Update a systemd installation
 
 Stop Reality Later before updating it. The following commands update the root-owned Git checkout and Python environment while preserving `data/` and `certificates/`:
 
@@ -340,7 +407,7 @@ sudo systemctl start reality-later
 
 Back up `data/`, `certificates/`, and any customized `config.toml` before significant updates. If you edited the tracked `config.toml` locally, Git may require you to resolve changes before pulling. Do not force an update that overwrites your configuration.
 
-## 5. First launch and connecting from another device
+## 2. First launch and connecting from another device
 
 With the default configuration:
 
@@ -395,9 +462,15 @@ Use **Tailscale Serve**, not **Tailscale Funnel**: Funnel exposes the service to
 
 You can optionally configure Reality Later to listen only on `127.0.0.1` if you want Tailscale Serve to be the sole way to reach the server remotely, rather than allowing direct LAN connections. Refer to the `[server]` settings in `config.toml` and restart Reality Later after editing them.
 
-## 6. Updating a normal source installation
+## 3. Updating Reality Later
 
-For Windows, macOS, or Linux installations that are **not** managed by systemd, stop Reality Later, open a terminal in your checkout, then run:
+### 3.1. Update a packaged installation
+
+For Windows or macOS packages, check the [GitHub Releases page](https://github.com/MiryanaNovak/reality-later/releases) for a newer build and follow its update instructions. For Linux Flatpak bundles installed from a downloaded file, download and install the updated `.flatpak` bundle in the same way as the original. Back up your data before significant updates.
+
+### 3.2. Update a normal source installation
+
+For Windows, macOS, or Linux **source installations** that are **not** managed by systemd, stop Reality Later, open a terminal in your checkout, then run:
 
 ```bash
 git pull --ff-only
@@ -419,9 +492,9 @@ Reinstall from the updated source using your existing virtual environment:
 .venv/bin/python main.py
 ```
 
-A virtual environment is specific to its installation directory; don't move or copy `.venv` between computers. Recreate it instead.
+A virtual environment is specific to its installation directory and Python version; don't move or copy `.venv` between computers. Recreate it with a supported Python interpreter instead.
 
-## 7. Troubleshooting
+## 4. Troubleshooting
 
 - **error: externally-managed-environment** — You are probably using your distribution's system Python instead of the virtual environment's Python. Use the `.venv` executable shown in the installation instructions.
 
@@ -433,7 +506,7 @@ A virtual environment is specific to its installation directory; don't move or c
 
 - **A remote device cannot connect** — Check the listening address, `allowed_networks`, firewall rules, device pairing, and (if used) Tailscale connectivity. Do not expose the app directly to the public internet to solve this.
 
-## 8. Data, configuration, and security
+## 5. Data, configuration, and security
 
 - **Application settings:** `config.toml` in the source directory. It is edited manually and read at startup; many options can be omitted to use defaults.
 - **Persistent data:** `data/` by default, including conversations and generated memories. Set `RPAPP_DATA` to use a different location.
