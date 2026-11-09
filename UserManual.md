@@ -553,3 +553,45 @@ Once the source has been updated, reinstall Reality Later and its dependencies i
 .venv/bin/python -m pip install .
 .venv/bin/python main.py
 ```
+
+## 5. Using Reality Later
+
+### 5.1. Connections
+
+A **Connection** tells Reality Later which AI model to use and how to communicate with it. Reality Later currently uses [OpenRouter](https://openrouter.ai/), a service that provides access to many AI models through a single API.
+
+You can create as many Connections as you like, each using a different model or different settings. For example, you might create separate Connections for different roleplay models and switch between them whenever you want.
+
+#### Creating a Connection
+
+Before creating a Connection, you need an **OpenRouter API key**. You can create an account and obtain a key from [openrouter.ai/keys](https://openrouter.ai/keys).
+
+To create a Connection:
+
+1. Open **Connections** from the navigation menu and click **New**.
+2. Give your Connection a name. This is only used to identify it within Reality Later.
+3. Enter your **OpenRouter API key**.
+4. Choose an AI model. Reality Later automatically retrieves the list of available models from OpenRouter. You can select one from the list or enter its model ID manually.
+5. Click **Send test message** at the bottom of the page to check that everything works.
+
+All changes are saved automatically. You can return to this page at any time to modify a Connection.
+
+You don't need to change the other parameters to get started. Their default values should work for most models.
+
+#### Choosing an AI model
+
+OpenRouter provides both free and paid AI models. Free models are useful for experimenting, although they may have usage limits or limited availability. Paid models charge according to usage, with prices varying considerably between models.
+
+For roleplay, different models can produce very different results in terms of writing style, creativity, consistency, and ability to follow instructions. It's worth experimenting to find one that suits your preferences.
+
+You can browse OpenRouter's [free models](https://openrouter.ai/collections/free-models) and [roleplay models](https://openrouter.ai/collections/roleplay) for starting points. Model availability and pricing may change over time.
+
+#### Selecting the Connection to use
+
+Creating a Connection doesn't automatically make it the one used for conversations.
+
+To select it, open **Settings** from the navigation menu, expand the **Chat** section, and choose your preferred Connection from the **Chat connection** dropdown menu.
+
+The selected Connection will be used to generate character replies in your conversations. You can change it at any time.
+
+Settings are saved automatically.
