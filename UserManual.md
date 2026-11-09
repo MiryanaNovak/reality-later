@@ -665,8 +665,55 @@ You can use `{{char}}` to refer to the Character's name and `{{user}}` to refer 
 
 You don't need to fill in every field. A name, scenario, and first message are enough to get started.
 
-#### Starting a conversation
+### 5.4. Personas
 
-From the **Characters** page, click **New chat** on the Character you want to interact with.
+A **Persona** defines who you are in a conversation, just as a Character defines who the AI portrays. It tells the AI how to address you and what it should know about your role in the story.
 
-Each conversation has its own history, so you can start several different stories with the same Character without mixing them together.
+A Persona can be as simple or as detailed as you like. You can play as yourself, a fictional character, or someone entirely different. You can also create multiple Personas and use different ones for different conversations.
+
+#### Creating a Persona
+
+Open **Personas** from the navigation menu and click **New** to create a Persona. Select an existing Persona to edit it.
+
+A Persona contains the following information:
+
+- **Title:** The name used to identify the Persona in Reality Later. This is not sent to the AI.
+- **Picture:** An optional image used to represent your Persona in the application. It is not sent to the AI.
+- **Name:** The name the AI uses to refer to you.
+- **Gender and pronouns:** Help the AI refer to your Persona appropriately.
+- **Description:** Describes who you are in the story. You can include your appearance, personality, background, abilities, or anything else the AI should know.
+- **Lore books:** Optional additional information that the AI can access when relevant to the conversation.
+
+You can use `{{user}}` to refer to your Persona's name and `{{char}}` to refer to the Character's name in fields sent to the AI.
+
+You don't need to fill in every field. A simple name and a short description are enough to get started.
+
+All changes are saved automatically.
+
+### 5.5. Conversations
+
+**Conversations** are where you interact with AI Characters. Each conversation is a separate roleplay between a Character, portrayed by the AI, and a Persona, portrayed by you.
+
+You can have multiple independent conversations with the same Character, each with its own story and history.
+
+#### Starting a Conversation
+
+To start a new conversation:
+
+1. Open **Characters** from the navigation menu.
+2. Find the Character you want to interact with and click **New chat**.
+3. Select the **Persona** you want to play as.
+
+The conversation will open with the Character's first message, and you can begin interacting with them.
+
+If the Character has several first messages, you can choose which one to start with.
+
+#### Managing Conversations
+
+Open **Conversations** from the navigation menu to see your existing conversations.
+
+Conversations are grouped by Character, making it easy to find all the stories you've started with a particular Character. Select a conversation to return to it and continue where you left off.
+
+You can also rename conversations to make them easier to identify, especially when you have several conversations with the same Character.
+
+**Conversation titles are only used for organization.** They are not sent to the AI and do not influence the story.
