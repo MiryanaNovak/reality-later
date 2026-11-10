@@ -1,4 +1,3 @@
-
 services:
   reality-later:
     image: ghcr.io/miryananovak/reality-later:main
@@ -7,8 +6,12 @@ services:
     restart: unless-stopped
 
     volumes:
-      - ./docker-data:/app/data:Z
-      - ./docker-certificates:/app/certificates:Z
+      - reality-later-data:/app/data
+      - reality-later-certificates:/app/certificates
 
     environment:
       PYTHONUNBUFFERED: "1"
+
+volumes:
+  reality-later-data:
+  reality-later-certificates:
