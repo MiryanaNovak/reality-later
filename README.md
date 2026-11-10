@@ -4,9 +4,7 @@
 
 **A self-hosted AI roleplay app with decentralized character sharing — for when you need a break from reality.**
 
-Create characters, build worlds, get lost in stories, and share what you've made. Discover characters published by other users without depending on a single platform to host the entire collection. It's not just a place to chat: it's a way for people who create characters and worlds to discover and share each other's work. Your chats and characters stay on your computer, and you decide how you want to use them.
-
-No account. No subscription. No disappearing bots. No fighting with the interface just to have a conversation.
+Create characters, build worlds, get lost in stories, and share your creations with fellow AI roleplay enthusiasts without living at the whim of a centralized platform. No account. No subscription. No moderation other than your own. No fighting with the interface just to have a conversation.
 
 ## Why?
 
