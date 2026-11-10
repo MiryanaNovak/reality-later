@@ -222,5 +222,9 @@ config.toml
 test-relay.jsonl
 examples-data/
 
+# Docker
+docker-data
+docker-certificates
+
 # OS stuff
 .directory

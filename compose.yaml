@@ -1,0 +1,15 @@
+services:
+  reality-later:
+    build:
+      context: .
+
+    container_name: reality-later
+    network_mode: host
+    restart: "no"
+
+    volumes:
+      - ./docker-data:/app/data:Z
+      - ./docker-certificates:/app/certificates:Z
+
+    environment:
+      PYTHONUNBUFFERED: "1"
