@@ -220,6 +220,7 @@ certificates/
 repo/
 config.toml
 test-relay.jsonl
+examples-data/
 
 # OS stuff
 .directory
