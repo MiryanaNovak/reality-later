@@ -7,8 +7,9 @@
 Create characters, build worlds, get lost in stories, and share your creations with fellow AI roleplay enthusiasts without living at the whim of a centralized platform. No account. No subscription. No moderation other than your own. No fighting with the interface just to have a conversation.
 
 <p align="center">
-  <img src="screenshots/ScreenshotHome.png" width="45%" alt="Characters">
-  <img src="screenshots/ScreenshotConversation.png" width="45%" alt="Shared cards">
+  <img src="screenshots/ScreenshotHome.webp" width="45%" alt="Characters">
+    <span style="display:inline-block; width:20px;"></span>
+  <img src="screenshots/ScreenshotConversation.webp" width="45%" alt="Shared cards">
 </p>
 
 ## Why?
