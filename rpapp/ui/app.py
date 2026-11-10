@@ -38,6 +38,7 @@ from .devices_page import watch_requests
 from .home import HomePage
 from .list_view import slug
 from .lorebooks_page import LoreBooksSection
+from .menu_links import menu_links
 from .personas_page import PersonasSection
 from .presets_page import PresetsSection
 from .settings_page import SettingsSection
@@ -160,6 +161,7 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
                         ui.icon(icon, size='sm')
                     ui.item_section(label)
                 nav_items[path] = item
+            menu_links()  # (the user manual, GitHub, contact, the version: at the bottom, or after the entries)
 
         def go(path: str) -> None:
             ui.navigate.to(path)

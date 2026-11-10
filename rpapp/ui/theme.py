@@ -98,6 +98,16 @@ HEAD = f'''
   .app-drawer {{ background: var(--surface) !important; border-right: 1px solid var(--line); }}
   .nav-item {{ border-radius: 10px; margin: 2px 8px; color: var(--ink); min-height: 44px; align-self: stretch; }}
   .nav-item.q-item--active {{ background: var(--tint); color: var(--q-primary); font-weight: 600; }}
+  /* The menu's last lines (menu_links.py): small; at its bottom when there's room (the space left goes
+     above them), else right after its entries */
+  .menu-links {{
+    margin: auto 8px 0; align-self: stretch; padding-top: 10px; border-top: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: 2px;
+  }}
+  .menu-links-row {{ display: flex; flex-wrap: wrap; margin-left: -4px; }}
+  .menu-links-row .q-btn {{ font-size: .8rem; font-weight: 500; min-height: 28px; padding: 2px 4px; }}
+  .menu-version {{ color: var(--muted); font-size: .75rem; }}
+  .contact-address {{ font-weight: 600; font-size: 1.05rem; overflow-wrap: anywhere; user-select: all; }}
 
   .app-content {{ width: 100%; max-width: 780px; margin: 0 auto; padding: 8px 0 72px; gap: 20px; }}
   .page-title {{

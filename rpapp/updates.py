@@ -35,15 +35,15 @@ from pathlib import Path
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import APP_NAME, __version__
+from . import APP_NAME, PROJECT_URL, __version__
 from .paths import in_flatpak
 from .storage import JsonStore, StoredModel
 
 log = logging.getLogger(__name__)
 
-REPOSITORY = 'MiryanaNovak/reality-later'
+REPOSITORY = PROJECT_URL.removeprefix('https://github.com/')  # ('MiryanaNovak/reality-later')
 LATEST = f'https://api.github.com/repos/{REPOSITORY}/releases/latest'
-RELEASES = f'https://github.com/{REPOSITORY}/releases'
+RELEASES = f'{PROJECT_URL}/releases'
 UPDATES_ID = 'updates'
 
 FIRST_CHECK = 60          # seconds after the app starts (once it's up), if it's time

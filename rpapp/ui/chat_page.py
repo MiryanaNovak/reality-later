@@ -73,7 +73,7 @@ from ..safe_html import chat_html
 from .list_view import plural, thumbnail
 from .prompt_view import show_prompt
 from .reply_view import show_reply_details
-from .widgets import ask_name, confirm, page_header
+from .widgets import ask_name, confirm, copy_js, page_header
 
 MEMORY_ICON = 'psychology'
 
@@ -173,11 +173,6 @@ def short_time(when: datetime) -> str:
     local = when.astimezone()
     today = now().astimezone().date()
     return f'{local:%H:%M}' if local.date() == today else f'{local.day} {local:%b}, {local:%H:%M}'
-
-
-def copy_js(text: str) -> str:
-    """A browser-side click handler copying `text` (it must run during the click itself)."""
-    return f'() => window.rpCopy({json.dumps(text)})'
 
 
 class ChatPage:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import functools
+import json
 import weakref
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -205,6 +206,12 @@ def browser_languages() -> list[str]:
         if code and code != '*' and code not in found:
             found.append(code)
     return found
+
+
+def copy_js(text: str) -> str:
+    """A browser-side click handler copying `text` (it must run during the click itself: theme.py's rpCopy,
+    which also works on pages served over plain http)."""
+    return f'() => window.rpCopy({json.dumps(text)})'
 
 
 def time_ago(when: datetime, now: datetime | None = None) -> str:
