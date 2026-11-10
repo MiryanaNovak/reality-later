@@ -1,11 +1,10 @@
+
 services:
   reality-later:
-    build:
-      context: .
-
+    image: ghcr.io/miryananovak/reality-later:main
     container_name: reality-later
     network_mode: host
-    restart: "no"
+    restart: unless-stopped
 
     volumes:
       - ./docker-data:/app/data:Z
