@@ -11,6 +11,7 @@ Reality Later is a self-hosted AI roleplay application. It runs on your computer
   - [1.2. Install from a package (recommended)](#12-install-from-a-package-recommended)
     - [1.2.1. Windows](#121-windows)
     - [1.2.2. Linux (Flatpak)](#122-linux-flatpak)
+    - [1.2.3 Docker (Linux only)](#123-docker-linux-only)
   - [1.3. Install from source (advanced)](#13-install-from-source-advanced)
     - [1.3.1. Windows](#131-windows)
     - [1.3.2. macOS](#132-macos)
@@ -23,7 +24,8 @@ Reality Later is a self-hosted AI roleplay application. It runs on your computer
 - [3. First launch and connection](#3-first-launch-and-connection)
 - [4. Updating Reality Later](#4-updating-reality-later)
   - [4.1. Update a packaged installation](#41-update-a-packaged-installation)
-  - [4.2. Update a source installation](#42-update-a-source-installation)
+  - [4.2. Update a docker Installation](#42-update-a-docker-installation)
+  - [4.3. Update a source installation](#43-update-a-source-installation)
 - [5. Using Reality Later](#5-using-reality-later)
   - [5.1. Connections](#51-connections)
   - [5.2. Prompts](#52-prompts)
@@ -83,6 +85,36 @@ flatpak run io.github.MiryanaNovak.RealityLater
 ```
 
 Reality Later should open its **This computer** page in your browser automatically. Otherwise, check the address displayed by the application.
+
+### 1.2.3 Docker (Linux only)
+
+Reality Later is available as a Docker image. Docker installation is supported on Linux only because Reality Later requires host networking for its networking features.
+
+**Requirements:** Docker Engine and Docker Compose.
+
+Create a directory for Reality Later, open a terminal in that directory, and download the Compose configuration:
+
+```bash
+curl -fL -o compose.yaml https://raw.githubusercontent.com/MiryanaNovak/reality-later/main/compose.yaml
+```
+
+Start Reality Later:
+
+```bash
+docker compose up -d
+```
+
+Docker automatically downloads the application image, creates the necessary persistent volumes, and starts Reality Later in the background.
+
+No Git clone, Python installation, or local build is required.
+
+Application data and certificates are stored in Docker volumes and are preserved when the container is stopped, updated, or recreated.
+
+To view the application logs:
+
+```bash
+docker compose logs -f
+```
 
 ### 1.3. Install from source (advanced)
 
@@ -489,21 +521,41 @@ For HTTPS connections, Reality Later creates a **self-signed certificate**. The 
 
 If Reality Later is running on a server without a graphical interface, you can approve device pairing using the command line.
 
-If the device has a camera, the easiest way to pair it is to generate a QR code. On the server, run:
+If the device has a camera, the easiest way to pair it is to generate a QR code on the server and scan it with the device.
+
+**Linux systemd installation:**
 
 ```bash
 sudo -u reality-later -H sh -c 'cd /opt/reality-later && .venv/bin/python main.py pair'
 ```
 
-Then scan the QR code with the device.
+**Docker installation:**
 
-If the device does not have a camera, open a web browser on it and enter the server's address. The device will request pairing and display a code. On the server, run:
+From the directory containing `compose.yaml`, run:
+
+```bash
+docker compose exec reality-later python main.py pair
+```
+
+If the device does not have a camera, open a web browser on it and enter the server's address. The device will request pairing and display a code.
+
+Approve that code on the server.
+
+**Linux systemd installation:**
 
 ```bash
 sudo -u reality-later -H sh -c 'cd /opt/reality-later && .venv/bin/python main.py approve CODE'
 ```
 
+**Docker installation:**
+
+```bash
+docker compose exec reality-later python main.py approve CODE
+```
+
 Replace `CODE` with the code displayed on the device.
+
+For Docker installations, the container must be running, and the commands must be executed from the directory containing `compose.yaml`.
 
 ### Access Reality Later remotely with Tailscale
 
@@ -545,7 +597,31 @@ For **Windows**, follow the instructions provided with the new release. If it is
 
 For **Linux Flatpak**, install the new `.flatpak` bundle in the same way as the original, using the same installation scope (`--user` or system-wide).
 
-### 4.2. Update a source installation
+### 4.2 Update a docker Installation
+
+Open a terminal in the directory containing `compose.yaml`.
+
+Download the latest application image:
+
+```bash
+docker compose pull
+```
+
+Recreate the container using the updated image:
+
+```bash
+docker compose up -d
+```
+
+Reality Later will restart with the new version. Existing application data, settings, and certificates are preserved in the Docker volumes.
+
+If the Compose configuration itself has changed, download the updated file before running the commands above:
+
+```bash
+curl -fL -o compose.yaml https://raw.githubusercontent.com/MiryanaNovak/reality-later/main/compose.yaml
+```
+
+### 4.3. Update a source installation
 
 For Windows, macOS, or Linux **source installations**, stop Reality Later, open a terminal in your checkout, then run:
 
