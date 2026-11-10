@@ -6,6 +6,11 @@
 
 Create characters, build worlds, get lost in stories, and share your creations with fellow AI roleplay enthusiasts without living at the whim of a centralized platform. No account. No subscription. No moderation other than your own. No fighting with the interface just to have a conversation.
 
+<p align="center">
+  <img src="screenshots/ScreenshotHome.png" width="45%" alt="Characters">
+  <img src="screenshots/ScreenshotConversation.png" width="45%" alt="Shared cards">
+</p>
+
 ## Why?
 
 I made Reality Later because I was tired of AI roleplay platforms.
