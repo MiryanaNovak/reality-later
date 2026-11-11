@@ -124,7 +124,7 @@ def rejected_text(e: Rejected) -> str:
 
 DELIVERY = {  # state: (icon, color, what it means)
     'accepted': ('check_circle', 'positive', 'Arrived'),
-    'held': ('pause_circle', 'grey', 'Held: public relays get cards once card sharing is released'),
+    'held': ('pause_circle', 'grey', 'Held: this version of the app only publishes to relays on this computer or its network'),
     'pending': ('schedule', 'warning', 'Not reached yet'),
     'refused': ('block', 'negative', 'Refused'),
 }
@@ -155,8 +155,8 @@ def _in(seconds: float) -> str:
 
 
 def delivery_summary(deliveries: Iterable[Delivery]) -> str:
-    """'arrived on 2 relays, 1 not reached yet (tried again by itself), refused by 1, 6 held (public relays,
-    until card sharing is released)'."""
+    """'arrived on 2 relays, 1 not reached yet (tried again by itself), refused by 1, 6 held (public relays:
+    this version only publishes to local ones)'."""
     deliveries = list(deliveries)
     if not deliveries:
         return 'no relay to send it to (Settings › Sharing cards)'
@@ -170,7 +170,7 @@ def delivery_summary(deliveries: Iterable[Delivery]) -> str:
     if refused := counts['pending'] + counts['refused'] - later:
         parts.append(f'refused by {plural(refused, "relay")}')
     if counts['held']:
-        parts.append(f'{counts["held"]} held (public relays, until card sharing is released)')
+        parts.append(f'{counts["held"]} held (public relays: this version only publishes to local ones)')
     return ', '.join(parts)
 
 

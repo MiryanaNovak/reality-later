@@ -26,9 +26,9 @@ ones), then added as a new character (`importer`, given by the app), and shared 
 `share_downloads`. Withdrawn, or its publisher blocked: no longer shared (and the file goes); the character
 stays.
 
-**Until card sharing is released** (its format, docs/card-announcements.md, is fixed: what's left is trying it
-for real), PUBLIC_PUBLISHING is False: events only go to relays on this computer or its network
-(tools/test_relay.py makes one); the others are "held".
+**PUBLIC_PUBLISHING** is True in the releases. Set to False (a version for trying things out), events only go
+to relays on this computer or its network (tools/test_relay.py makes one); the others are "held". The tests
+always run with it False (tests/conftest.py), so that they can never publish to a public relay.
 """
 from __future__ import annotations
 
@@ -76,14 +76,15 @@ WATCH = 5.0       # seconds: how often what BitTorrent says is read (TorrentSess
 # Deliveries that didn't arrive but may yet (catalog.Delivery.may_arrive) are tried again by themselves,
 # after these waits since the last try (by the tries made so far), then every last one: as long as the relay
 # is written to, and the publication isn't withdrawn. Not those refused for good, nor those held ("Send
-# again" can send those, but held ones stay held until card sharing is released).
+# again" can send those, but held ones stay held while PUBLIC_PUBLISHING is False).
 RETRY_AFTER = (60, 5 * 60, 30 * 60, 2 * 3600, 6 * 3600)  # seconds
 RETRY_CHECK = 60.0  # seconds: how often what's due is looked for (the first time: once the app has started)
 
-# False until card sharing is released: nothing goes to public relays (see the module's notes).
-PUBLIC_PUBLISHING = False
-HELD = ('Not sent: until card sharing is released, cards only go to relays on this computer or its '
-        'network.')
+# True in the releases. False: nothing goes to public relays (a version for trying things out, and the tests:
+# see the module's notes). Read when a Sharing is made, unless it's given its own.
+PUBLIC_PUBLISHING = True
+HELD = ('Not sent: this version of the app only publishes to relays on this computer or its network (a version '
+        'for trying things out).')
 
 T = TypeVar('T')
 
@@ -135,16 +136,17 @@ Importer = Callable[[str, bytes, tuple[str, ...]], tuple[str, str, str]]
 class Sharing:
     def __init__(self, data_dir: str | Path, *, key_file: str | Path | None = None,
                  default_relays: Iterable[str] = DEFAULT_RELAYS, session: TorrentSession | None = None,
-                 public_publishing: bool = PUBLIC_PUBLISHING) -> None:
+                 public_publishing: bool | None = None) -> None:
         """`key_file`: the publisher's key (identity.key_path(<settings folder>); in the sharing folder if not
-        given: tests). `session`: BitTorrent's (the tests give one on 127.0.0.1)."""
+        given: tests). `session`: BitTorrent's (the tests give one on 127.0.0.1). `public_publishing`: whether
+        events go to public relays (None: PUBLIC_PUBLISHING's, as it is then)."""
         self.folder = Path(data_dir) / 'sharing'
         self.files = self.folder / 'files'
         self.downloading = self.folder / 'downloading'
         if (self.folder / 'published').is_dir() and not self.files.exists():  # (its name before downloading)
             (self.folder / 'published').rename(self.files)
         self.key_file = Path(key_file) if key_file else self.folder / keys.KEY_FILE_NAME
-        self.public_publishing = public_publishing
+        self.public_publishing = PUBLIC_PUBLISHING if public_publishing is None else public_publishing
         self.catalog = Catalog(self.folder / 'catalog.sqlite3')
         if self.catalog.created:
             for url in default_relays:
@@ -325,7 +327,7 @@ class Sharing:
 
     async def _send(self, url: str, events: list[Event]) -> None:
         """Send events to one relay, one after the other on one connection; each answer kept. A public relay's
-        are held until card sharing is released. The relay can't be reached, or the connection breaks: those not
+        are held while public_publishing is off. The relay can't be reached, or the connection breaks: those not
         answered yet, pending (tried again by itself)."""
         if not self.public_publishing and not is_local(url):
             for event in events:
@@ -347,7 +349,7 @@ class Sharing:
         """A relay added (Settings): discovery reads it, and publishing writes to it. Your cards not withdrawn
         (each one's latest version, with any of your keys) go to it, in the background, and your withdrawals
         (a card withdrawn that reaches it some other way is known as such); what doesn't arrive is tried again
-        by itself. How many of your cards go to it (none to a public relay until card sharing is released: held).
+        by itself. How many of your cards go to it (none to a public relay while public_publishing is off: held).
         ValueError if it isn't a relay's address."""
         info = await self.call(self.catalog.add_relay, url)
         own = await self.call(self.own_keys)

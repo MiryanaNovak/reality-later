@@ -255,7 +255,17 @@ async def test_beyond_the_safeguards(sharing, relay, tmp_path):
     assert not files.exists() or not any(files.iterdir())
 
 
-async def test_public_relays_once_its_final(tmp_path, relay):
+def test_releases_publish_to_public_relays(tmp_path):
+    """In the code, PUBLIC_PUBLISHING is on (the releases publish to public relays: the release workflows run
+    this); the tests turn it off for themselves (conftest.py), so that none of them ever publishes there."""
+    source = Path(service.__file__).read_text(encoding='utf-8')
+    assert '\nPUBLIC_PUBLISHING = True\n' in source
+    s = Sharing(tmp_path, default_relays=[], session=local_session())
+    assert s.public_publishing is False and Sharing(tmp_path, session=local_session(),
+                                                     public_publishing=True).public_publishing
+
+
+async def test_public_relays(tmp_path, relay):
     s = Sharing(tmp_path, default_relays=['wss://relay.example.invalid'], session=local_session(),
                 public_publishing=True)
     s.create_identity()

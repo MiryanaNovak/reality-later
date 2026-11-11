@@ -64,3 +64,15 @@ def fake_model() -> FakeModel:
     for gate in (FAKE.gate, FAKE.memory_gate):
         if gate is not None:
             gate.set()  # let a waiting reply finish
+
+
+@pytest.fixture(autouse=True)
+def never_public(monkeypatch):
+    """No test ever publishes to a public relay: card sharing's PUBLIC_PUBLISHING (True in the releases) is off
+    for them all, so that a public relay's deliveries are only "held". Those that try the public path give
+    their Sharing its own (public_publishing=True), with relays on 127.0.0.1."""
+    try:
+        from rpapp.publishing import service
+    except ImportError:  # (without card sharing's libraries: nothing publishes)
+        return
+    monkeypatch.setattr(service, 'PUBLIC_PUBLISHING', False)

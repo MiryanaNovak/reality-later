@@ -5,8 +5,8 @@
     python tools/test_relay.py --port 7000 --file F    another port, another file
 
 Then, in Settings › Sharing cards, add ws://127.0.0.1:7777 as a relay (or ws://<this computer's address>:7777
-from another computer). Until card sharing is released, the app only publishes to relays like this
-one, on this computer or its network (publishing/service.py, PUBLIC_PUBLISHING).
+from another computer). With PUBLIC_PUBLISHING = False (publishing/service.py: a version for trying things
+out), the app only publishes to relays like this one, on this computer or its network.
 
 It does what relays do (NIP-01): keeps the events sent to it (their signature checked), answers queries
 (newest first, `limit` at most 500, `until` including its second), deletes what's withdrawn (NIP-09), and
