@@ -65,9 +65,9 @@ Download the appropriate build from the [GitHub Releases page](https://github.co
 
 #### 1.2.1. Windows
 
-1. Download the Windows executable provided in the release assets.
-2. Run the downloaded application. Follow any instructions supplied with that release.
-3. Reality Later should open its **This computer** page in your browser automatically. Otherwise, check the address displayed by the application.
+1. Download and run `reality-later-setup.exe`. Windows will give you some annoying warning screen claiming to protect your PC. Click `More Info` and then `Run anyway` and Reality Later will install.
+
+2. Launch Reality Later from the Start menu. Reality Later should open its **This computer** page in your browser automatically. Otherwise, check the address displayed by the application.
 
 #### 1.2.2. Linux (Flatpak)
 
