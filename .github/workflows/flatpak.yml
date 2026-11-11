@@ -80,8 +80,22 @@ jobs:
       - name: Install it, as anyone would (the runtime comes from Flathub)
         run: |
           ls -l bundle
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends flatpak dbus
+          # GitHub's machines get Ubuntu's packages from Azure's copy first (azure.archive.ubuntu.com), which
+          # often can't be reached. Without it: from Ubuntu's own servers, then kernel.org's copy (Intel/AMD).
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i -e '/azure\./d' -e '$a\' /etc/apt/apt-mirrors.txt
+            if [ "$(dpkg --print-architecture)" = amd64 ]; then
+              printf 'https://mirrors.edge.kernel.org/ubuntu/\tpriority:9\n' | sudo tee -a /etc/apt/apt-mirrors.txt
+            fi
+            cat /etc/apt/apt-mirrors.txt
+          fi
+          for f in /etc/apt/sources.list /etc/apt/sources.list.d/*; do
+            if [ -f "$f" ]; then
+              sudo sed -i -E 's#https?://azure\.(archive|ports)\.ubuntu\.com#http://\1.ubuntu.com#g' "$f"
+            fi
+          done
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends flatpak dbus
           # Ubuntu 24.04 lets only the programs it knows make sandboxes (with user namespaces), as
           # Flatpak does to run an app: a desktop's Flatpak may; on this test machine, everyone may.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
