@@ -11,12 +11,15 @@ Reality Later is a self-hosted AI roleplay application. It runs on your computer
   - [1.2. Install from a package (recommended)](#12-install-from-a-package-recommended)
     - [1.2.1. Windows](#121-windows)
     - [1.2.2. Linux (Flatpak)](#122-linux-flatpak)
-    - [1.2.3 Docker (Linux only)](#123-docker-linux-only)
+    - [1.2.3. Docker (Linux only)](#123-docker-linux-only)
   - [1.3. Install from source (advanced)](#13-install-from-source-advanced)
     - [1.3.1. Windows](#131-windows)
     - [1.3.2. macOS](#132-macos)
     - [1.3.3. Linux](#133-linux)
     - [1.3.4. Linux systemd service](#134-linux-systemd-service)
+  - [1.4. Install on a headless server](#14-install-on-a-headless-server)
+    - [1.4.1. Docker (Linux only)](#141-docker-linux-only)
+    - [1.4.2. Linux systemd service (Linux only)](#142-linux-systemd-service-linux-only)
 - [2. Configuration](#2-configuration)
   - [2.1. Default settings](#21-default-settings)
   - [2.2. Where to find the configuration file](#22-where-to-find-the-configuration-file)
@@ -24,8 +27,8 @@ Reality Later is a self-hosted AI roleplay application. It runs on your computer
 - [3. First launch and connection](#3-first-launch-and-connection)
 - [4. Updating Reality Later](#4-updating-reality-later)
   - [4.1. Update a packaged installation](#41-update-a-packaged-installation)
-  - [4.2. Update a docker Installation](#42-update-a-docker-installation)
-  - [4.3. Update a source installation](#43-update-a-source-installation)
+  - [4.2. Update a source installation](#42-update-a-source-installation)
+  - [4.3. Update a headless server installation](#43-update-a-headless-server-installation)
 - [5. Using Reality Later](#5-using-reality-later)
   - [5.1. Connections](#51-connections)
   - [5.2. Prompts](#52-prompts)
@@ -85,36 +88,6 @@ flatpak run io.github.MiryanaNovak.RealityLater
 ```
 
 Reality Later should open its **This computer** page in your browser automatically. Otherwise, check the address displayed by the application.
-
-### 1.2.3 Docker (Linux only)
-
-Reality Later is available as a Docker image. Docker installation is supported on Linux only because Reality Later requires host networking for its networking features.
-
-**Requirements:** Docker Engine and Docker Compose.
-
-Create a directory for Reality Later, open a terminal in that directory, and download the Compose configuration:
-
-```bash
-curl -fL -o compose.yaml https://raw.githubusercontent.com/MiryanaNovak/reality-later/main/compose.yaml
-```
-
-Start Reality Later:
-
-```bash
-docker compose up -d
-```
-
-Docker automatically downloads the application image, creates the necessary persistent volumes, and starts Reality Later in the background.
-
-No Git clone, Python installation, or local build is required.
-
-Application data and certificates are stored in Docker volumes and are preserved when the container is stopped, updated, or recreated.
-
-To view the application logs:
-
-```bash
-docker compose logs -f
-```
 
 ### 1.3. Install from source (advanced)
 
@@ -253,7 +226,72 @@ cd reality-later
 
 Keep the terminal running; press **Ctrl+C** to stop the app.
 
-#### 1.3.4. Linux systemd service
+### 1.4. Install on a headless server
+
+#### 1.4.1 Docker (Linux only)
+
+Reality Later is available as a Docker image. Docker installation is supported on Linux only because Reality Later requires host networking for its networking features.
+
+**Requirements:** Docker Engine and Docker Compose.
+
+Create a directory for Reality Later, open a terminal in that directory, and download the Compose configuration:
+
+```bash
+curl -fL -o compose.yaml https://raw.githubusercontent.com/MiryanaNovak/reality-later/main/compose.yaml
+```
+
+Start Reality Later:
+
+```bash
+docker compose up -d
+```
+
+Docker automatically downloads the application image, creates the necessary persistent volumes, and starts Reality Later in the background.
+
+No Git clone, Python installation, or local build is required.
+
+Application data and certificates are stored in Docker volumes and are preserved when the container is stopped, updated, or recreated.
+
+To view the application logs:
+
+```bash
+docker compose logs -f
+```
+
+##### Add a configuration file (optional)
+
+A configuration file is **not required**. Reality Later uses its built-in defaults when `config.toml` does not exist. If you need to customize the service, create the file from the example and edit it:
+
+From the directory containing `compose.yaml`, download the example configuration:
+
+```bash
+curl -fL -o config.toml https://raw.githubusercontent.com/MiryanaNovak/reality-later/main/config.example.toml
+```
+
+Edit `config.toml` with your preferred text editor.
+
+Next, create a file named `compose.override.yaml` in the same directory with the following content:
+
+```yaml
+services:
+  reality-later:
+    volumes:
+      - ./config.toml:/app/config.toml:ro,Z
+```
+
+Docker Compose automatically loads this override file alongside `compose.yaml`. It makes your configuration file available inside the container without modifying the original Compose configuration.
+
+Apply the configuration by recreating the container:
+
+```bash
+docker compose up -d --force-recreate
+```
+
+After subsequent changes to `config.toml`, run the same command to restart Reality Later with the updated settings.
+
+The service can read this file but cannot modify it. See [Configuration](#2-configuration) for details.
+
+#### 1.4.2. Linux systemd service (Linux only)
 
 This option is intended for a Linux machine that runs Reality Later as a background server, starting automatically at boot. It uses:
 
@@ -326,6 +364,8 @@ sudo chmod -R u+rwX,go-rwx \
 
 The application can now save conversations, generated memories, paired-device information, and HTTPS certificates, but cannot change its own source code or installed dependencies.
 
+##### Add a configuration file (optional)
+
 A configuration file is **not required**. Reality Later uses its built-in defaults when `config.toml` does not exist. If you need to customize the service, create the file from the example and edit it:
 
 ```bash
@@ -335,7 +375,7 @@ sudo chmod 640 /opt/reality-later/config.toml
 sudoedit /opt/reality-later/config.toml
 ```
 
-The service can read this file but cannot modify it. This file is local configuration and is not tracked by Git. See [Configuration](#2-configuration) for details.
+The service can read this file but cannot modify it. See [Configuration](#2-configuration) for details.
 
 ##### Create the systemd unit
 
@@ -439,27 +479,6 @@ To stop it from starting at boot:
 sudo systemctl disable --now reality-later
 ```
 
-##### Update a systemd installation
-
-Stop Reality Later before updating it. The following commands update the root-owned Git checkout and Python environment while preserving `data/` and `certificates/`:
-
-```bash
-sudo systemctl stop reality-later
-
-sudo git -C /opt/reality-later pull --ff-only
-sudo /opt/reality-later/.venv/bin/python -m pip install /opt/reality-later
-
-# Reapply permissions after an update or package build
-sudo chown -R root:reality-later /opt/reality-later
-sudo chmod -R u+rwX,g+rX,go-w,o-rwx /opt/reality-later
-sudo chown -R reality-later:reality-later \
-    /opt/reality-later/data /opt/reality-later/certificates
-sudo chmod -R u+rwX,go-rwx \
-    /opt/reality-later/data /opt/reality-later/certificates
-
-sudo systemctl start reality-later
-```
-
 ## 2. Configuration
 
 ### 2.1. Default settings
@@ -479,6 +498,7 @@ The configuration file is named `config.toml`. Its location depends on how you i
 | Windows package | `%APPDATA%\Reality Later\config.toml` |
 | Linux Flatpak | `~/.var/app/io.github.MiryanaNovak.RealityLater/config/reality-later/config.toml` |
 | Windows, macOS, or Linux from source | `config.toml` next to `main.py` in the source directory |
+| Linux docker (as described above) | `config.toml` next to the `compose.yaml` file|
 | Linux systemd service (as described above) | `/opt/reality-later/config.toml` |
 
 If Reality Later is already running, the easiest way to access its configuration file is to open the **This computer** page from a browser on the computer running the application, then click **Open the settings file**. This will open the configuration file, creating it in the correct location if it doesn't already exist.
@@ -494,7 +514,7 @@ allowed_networks = ["private", "100.64.0.0/10"]
 
 The example file contains explanations for the other settings, including `port`, `address`, `pairing`, `https`, and `local_port`. Be careful when changing network access or disabling device pairing: Reality Later is not intended to be directly exposed to the public internet.
 
-After editing `config.toml`, quit Reality Later and start it again (or restart the systemd service).
+After editing `config.toml`, quit Reality Later and start it again.
 
 ## 3. First launch and connection
 
@@ -597,7 +617,33 @@ For **Windows**, follow the instructions provided with the new release. If it is
 
 For **Linux Flatpak**, install the new `.flatpak` bundle in the same way as the original, using the same installation scope (`--user` or system-wide).
 
-### 4.2 Update a docker Installation
+### 4.2. Update a source installation
+
+For Windows, macOS, or Linux **source installations**, stop Reality Later, open a terminal in your checkout, then run:
+
+```bash
+git pull --ff-only
+```
+
+Once the source has been updated, reinstall Reality Later and its dependencies into your existing virtual environment:
+
+**Windows (PowerShell):**
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install .
+.\.venv\Scripts\python.exe main.py
+```
+
+**macOS / Linux:**
+
+```bash
+.venv/bin/python -m pip install .
+.venv/bin/python main.py
+```
+
+### 4.3 Update a headless server installation
+
+#### 4.3.1 Update a docker Installation
 
 Open a terminal in the directory containing `compose.yaml`.
 
@@ -621,28 +667,25 @@ If the Compose configuration itself has changed, download the updated file befor
 curl -fL -o compose.yaml https://raw.githubusercontent.com/MiryanaNovak/reality-later/main/compose.yaml
 ```
 
-### 4.3. Update a source installation
+#### 4.3.2 Update a systemd service installation
 
-For Windows, macOS, or Linux **source installations**, stop Reality Later, open a terminal in your checkout, then run:
-
-```bash
-git pull --ff-only
-```
-
-Once the source has been updated, reinstall Reality Later and its dependencies into your existing virtual environment:
-
-**Windows (PowerShell):**
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install .
-.\.venv\Scripts\python.exe main.py
-```
-
-**macOS / Linux:**
+Stop Reality Later before updating it. The following commands update the root-owned Git checkout and Python environment while preserving `data/` and `certificates/`:
 
 ```bash
-.venv/bin/python -m pip install .
-.venv/bin/python main.py
+sudo systemctl stop reality-later
+
+sudo git -C /opt/reality-later pull --ff-only
+sudo /opt/reality-later/.venv/bin/python -m pip install /opt/reality-later
+
+# Reapply permissions after an update or package build
+sudo chown -R root:reality-later /opt/reality-later
+sudo chmod -R u+rwX,g+rX,go-w,o-rwx /opt/reality-later
+sudo chown -R reality-later:reality-later \
+    /opt/reality-later/data /opt/reality-later/certificates
+sudo chmod -R u+rwX,go-rwx \
+    /opt/reality-later/data /opt/reality-later/certificates
+
+sudo systemctl start reality-later
 ```
 
 ## 5. Using Reality Later
