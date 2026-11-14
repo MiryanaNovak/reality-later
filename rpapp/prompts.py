@@ -79,7 +79,7 @@ from .lorebooks import AT_DEPTH, LoreBook
 from .macros import fill
 from .personas import GENDERS, Persona
 from .presets import CONTINUE_INSTRUCTION, EXTEND_INSTRUCTION
-from .settings import Settings
+from .settings import PresetRef, Settings
 from .storage import JsonStore, StoredModel
 from .tokens import MESSAGE_OVERHEAD, estimate
 
@@ -95,6 +95,7 @@ ExtendMethod = Literal['', 'instruction', 'prefill']  # '' = a reply, not an ext
 DEFAULT_CONTEXT = 16_384  # tokens, when the connection doesn't say
 DEFAULT_REPLY = 1_024     # tokens kept for the reply, when the connection sets no maximum
 MARGIN = 0.10             # of the context size, for the estimates' errors
+SETTINGS_PRESET = object()  # build_prompt's preset_ref when not given: Settings › Chat's
 TRIM_STEP = 0.20          # of the chat's space: how much is left out at a time
 
 START_TEXT = '[Start of the chat]'
@@ -226,12 +227,15 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
                  settings: Settings, connection: Connection | None = None,
                  books: list[LoreBook] = (), missing_books: list[str] = (),
                  memories: LoreBook | None = None, preset: PromptPreset | None = None,
+                 preset_ref: PresetRef | None | object = SETTINGS_PRESET,
                  extend: ExtendMethod = '', continue_scene: bool = False, meaning: Meaning | None = None) -> Prompt:
     """The prompt for the model's next reply in this conversation.
 
     `character` and `persona` can be None if they were deleted: their remembered titles stand in for
     their names. `books` are the lore books in play (see lore_books_for), `memories` the chat's memories,
-    `preset` the prompt chosen in Settings › Chat, with the instructions (None: none chosen, or deleted).
+    `preset` the prompt the chat uses, with the instructions (None: none chosen, or deleted); `preset_ref`, which
+    one was chosen (chat_setup.py: the chat's own, its character's or Settings'), to say when it's missing
+    (Settings' when not given).
     `extend`: to extend the last message, a reply of the AI, rather than reply to it (see the notes at the top).
     `continue_scene`: for the AI's next message without one from you (the chat may end with the AI's, or be empty).
     `meaning`: from vector search (vectors.py), for entries close in meaning to the chat, besides their keywords.
@@ -253,6 +257,7 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
 
     # -- the fixed parts
     chat = settings.chat
+    chosen = chat.preset if preset_ref is SETTINGS_PRESET else preset_ref
     label = f' ({preset.name})' if preset is not None else ''
     add('instructions', filled(preset.instructions) if preset else '', f'Instructions{label}')
     if character and character.scenario.strip():  # (their description is only for you: never sent)
@@ -361,7 +366,7 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
         meaning_note=meaning.note if meaning else '',
         examples_total=len(dialogues), examples_sent=sent, examples_tokens=examples.tokens if examples else 0,
         preset=preset.name if preset else '',
-        missing_preset=chat.preset.name if chat.preset is not None and preset is None else '',
+        missing_preset=chosen.name if chosen is not None and preset is None else '',
         extend=extend, continue_scene=continue_scene and not extend,
     )
     return Prompt(

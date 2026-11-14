@@ -178,7 +178,8 @@ class SettingsSection:
                 .classes('text-sm muted -mt-1').mark('context-size')
 
         self._connection_choice(chat, connections, form, label='Chat connection', none_label='None chosen',
-                                hint='The connection used to write the character\'s replies', more=context_line)
+                                hint='The connection that writes the replies, unless a character or a chat has its own',
+                                more=context_line)
 
     def _chat_preset(self, settings: Settings, form: Form) -> None:
         """Which prompt (presets.py) chats use."""
@@ -193,7 +194,8 @@ class SettingsSection:
             details.refresh()
 
         form.choice('Prompt', options, get=lambda: chat.preset.id if chat.preset else NOT_SET, set=choose,
-                    hint='The instructions sent with every reply').mark('chat-preset')
+                    hint='The instructions sent with every reply, unless a character or a chat has its own') \
+            .mark('chat-preset')
 
         @ui.refreshable
         def details() -> None:
@@ -490,8 +492,9 @@ class SettingsSection:
                  'review them before. You can also generate them when you want, from a chat\'s menu.') \
             .classes('text-sm muted -mt-2')
         self._connection_choice(memory, connections, form, label='Memory connection',
-                                none_label='Same as the chat connection', marker='memory-connection-missing',
-                                hint='A cheaper or faster model can do this background work, or a smarter one')
+                                none_label='Same as the chat\'s connection', marker='memory-connection-missing',
+                                hint='A cheaper or faster model can do this background work, or a smarter one. '
+                                     'The chat\'s: its own, its character\'s, or the one above')
         with ui.element('div').classes('field-grid'):
             # stack-label: the label stays on top, so the default shows in the empty field
             form.number(memory, 'temperature', 'Temperature', min=0, max=2, step=0.05,

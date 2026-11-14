@@ -9,11 +9,13 @@
       "first_messages": ["...", "..."],        <- how a chat can open; at least one
       "example_dialogues": ["...", "..."],     <- short exchanges showing how they speak and act
       "image": "3f9a2c81d0b4e5a7.webp",        <- a file in data/characters/images/
-      "lorebooks": [{"id": "Eldoria", "name": "Eldoria"}]
+      "lorebooks": [{"id": "Eldoria", "name": "Eldoria"}],
+      "connection": {"id": "claude-1a2b3c", "name": "Claude"},   <- its chats' own, instead of Settings' (null:
+      "prompt": {"preset": {"id": "noir-4d5e6f", "name": "Noir"}}    Settings'); "prompt": {"preset": null}: none
     }
 
 Title, name, picture, description and lore books come from profiles.py,
-shared with personas.
+shared with personas. Which connection and prompt a chat uses: chat_setup.py.
 """
 from __future__ import annotations
 
@@ -23,6 +25,7 @@ from pathlib import Path
 from pydantic import Field
 
 from .profiles import Profile, ProfileStore
+from .settings import ConnectionRef, PromptChoice
 
 
 class Character(Profile):
@@ -36,6 +39,10 @@ class Character(Profile):
     # exported, and read back on import, so that publishing it again, here or elsewhere, makes a new version
     # of the same card ('' until then).
     shared_uuid: str = ''
+    # The connection and the prompt its chats use, instead of Settings › Chat's (None: those); a chat can have
+    # its own still (chat_setup.py). Not in the cards exported: they're this app's, and this computer's.
+    connection: ConnectionRef | None = None
+    prompt: PromptChoice | None = None
 
 
 def new_character(title: str) -> Character:

@@ -41,7 +41,8 @@ def test_saved_file_and_lookups(tmp_path):
 
     data = json.loads(store.path_for(a.id).read_text(encoding='utf-8'))
     assert list(data) == ['id', 'title', 'format_version', 'character', 'persona', 'created_at', 'updated_at',
-                          'messages']
+                          'connection', 'prompt', 'messages']  # (its own connection and prompt: none, by default)
+    assert data['connection'] is None and data['prompt'] is None
     assert data['character'] == {'id': seraphina.id, 'title': 'Seraphina'} and data['title'].startswith('Chat of ')
 
     assert [c.id for c in store.using('character', seraphina.id)] == [b.id, a.id]  # most recent first

@@ -8,7 +8,8 @@ Write the examples with the app itself, in a data folder of their own (keep it o
 
 then freeze them into rpapp/starter/, check what changed (git diff rpapp/starter), and commit.
 Their prompts, personas, characters, lore books and pictures go in, and which prompt chats use;
-nothing else (not the connections, which hold API keys). See rpapp/starter.py.
+nothing else (not the connections, which hold API keys, nor a character's own connection). See
+rpapp/starter.py.
 
     python tools/freeze_starter.py examples-data --to some/other/folder
 """

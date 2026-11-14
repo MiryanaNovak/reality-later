@@ -140,6 +140,17 @@ def freeze(source: str | Path, starter: str | Path = STARTER_DIR) -> Report:
 
     found = {folder: _read(source / folder, model) for folder, (model, _) in KINDS.items()}  # all, before any change
     report = Report()
+    presets = {preset.id for preset in found['presets']}
+    for character in found['characters']:  # (their own connection never goes in: a new install has none)
+        if character.connection is not None:
+            report.warnings.append(f'"{character.label}" has a connection of its own: left out (a new install has '
+                                   'no connections), its chats use Settings\'.')
+            character.connection = None
+        chosen = character.prompt.preset if character.prompt is not None else None
+        if chosen is not None and chosen.id not in presets:
+            report.warnings.append(f'"{character.label}" uses the prompt "{chosen.name}", which isn\'t there: left '
+                                   'out, its chats use Settings\'.')
+            character.prompt = None
     for folder, (model, has_pictures) in KINDS.items():
         target = starter / folder
         _empty(target)

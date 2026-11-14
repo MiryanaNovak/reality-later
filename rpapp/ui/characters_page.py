@@ -5,7 +5,8 @@
                                 Export (in each character's ⋮ menu) writes one as a PNG (V2)
     /characters/<character id>  one character: picture, identity, description, scenario,
                                 first messages, example dialogues, lore books; each part says
-                                whether the AI gets it. Its ⋮ menu: Publish to shared cards
+                                whether the AI gets it. Last, the connection and prompt its chats
+                                use (chat_settings.py). Its ⋮ menu: Publish to shared cards
                                 (sharing_page.py), when sharing cards can run here
 """
 from __future__ import annotations
@@ -27,6 +28,7 @@ from ..storage import JsonStore
 from .collection_page import safe_file_name
 from .form import Form, text_stats
 from .list_view import Link, Row, initials, plural
+from .chat_settings import ChatChoices, character_panel
 from .profile_page import ProfileSection
 from .widgets import MenuItems, audience_legend, browser_languages, confirm, panel
 
@@ -58,6 +60,7 @@ class CharactersSection(ProfileSection[Character]):
         self.conversations: ConversationStore = conversations
         self.personas = personas
         self.sharing = sharing  # publishing them as shared cards (None, or its .sharing None: not here)
+        self.chat_choices: ChatChoices | None = None  # the connections and prompts (build_root's; None: no panel)
         self._counts: Counter[str] = Counter()
 
     # -- importing a character card --------------------------------------------------------
@@ -208,6 +211,14 @@ class CharactersSection(ProfileSection[Character]):
                             placeholder='{{user}}: Who are you?\n{{char}}: *She tilts her head.* "The one who keeps '
                                         'this forest safe. And you are bleeding on my moss."',
                             add_label='Add an example dialogue', min_height='5rem')
+
+    def last_panels(self, character: Character, form: Form) -> None:
+        if self.chat_choices is None:
+            return
+        with panel('Model and prompt', 'The connection (the AI model) and the prompt chats with this character '
+                                       'use. By default, those of Settings › Chat. A chat can still have its own '
+                                       '(its ⋮ menu › Settings).'):
+            character_panel(character, form, self.chat_choices)
 
     def _text_list(self, character: Character, form: Form, attr: str, *, item: str, marker: str, minimum: int,
                    placeholder: str, add_label: str, min_height: str = '7rem') -> None:

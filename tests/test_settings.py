@@ -178,7 +178,7 @@ async def test_memory_settings(setup):
     await user.open('/settings')
     await user.should_see('Memory')
     selects = by_label(user, ui.select)
-    assert selects['Memory connection'].options[''] == 'Same as the chat connection'
+    assert selects['Memory connection'].options[''] == 'Same as the chat\'s connection'
     selects['Memory connection'].set_value(cheap.id)
     numbers = by_label(user, ui.number)
     numbers['Temperature'].set_value(0.2)

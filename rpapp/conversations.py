@@ -8,6 +8,8 @@
       "persona": {"id": "mira-abc51b", "title": "Mira, wandering healer"},
       "created_at": "2026-10-30T21:50:12.345678Z",
       "updated_at": "2026-10-30T21:50:12.345678Z",
+      "connection": null,                        <- its own (⋮ › Settings), instead of its character's or
+      "prompt": null,                               Settings' (see chat_setup.py; as on characters.py)
       "messages": [
         {"id": "a1b2c3d4e5f6", "role": "assistant", "greeting": true,
          "content": "*Seraphina kneels beside you...*",
@@ -58,6 +60,7 @@ from pydantic import BaseModel, Field
 
 from .macros import fill
 from .profiles import Profile
+from .settings import ConnectionRef, PromptChoice
 from .storage import JsonStore, StoredModel
 
 if TYPE_CHECKING:
@@ -112,6 +115,9 @@ class Conversation(StoredModel):
     persona: ProfileRef
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
+    # Its own connection and prompt, instead of its character's or Settings' (None: those). See chat_setup.py.
+    connection: ConnectionRef | None = None
+    prompt: PromptChoice | None = None
     messages: list[ChatMessage] = Field(default_factory=list)
 
     def touch(self) -> None:
@@ -292,6 +298,17 @@ class ConversationStore(JsonStore[Conversation]):
         if conversation is None:
             raise KeyError(f'No conversation {conversation_id!r}')
         conversation.title = title
+        self.save(conversation)
+        return conversation
+
+    def choose(self, conversation_id: str, *, connection: ConnectionRef | None,
+               prompt: PromptChoice | None) -> Conversation:
+        """Give the conversation its own connection and prompt (None: its character's, or Settings'), saved
+        right away. Like a new title, it doesn't count as an update. KeyError if it's gone."""
+        conversation = self.get(conversation_id)
+        if conversation is None:
+            raise KeyError(f'No conversation {conversation_id!r}')
+        conversation.connection, conversation.prompt = connection, prompt
         self.save(conversation)
         return conversation
 

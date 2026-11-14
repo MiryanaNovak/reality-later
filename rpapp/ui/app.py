@@ -31,6 +31,7 @@ from ..vectors import Vectorizer
 from ..settings import SettingsStore, SharingSettings
 from . import appearance, media, theme
 from .characters_page import CharactersSection
+from .chat_settings import ChatChoices
 from .computer_page import ComputerPage, on_this_computer
 from .connections_page import ConnectionsSection
 from .conversations_page import ConversationsSection
@@ -116,6 +117,8 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
     replies = Replies(conversation_store, characters=characters.store, personas=personas.store,
                       lore_books=lore_books, settings=settings_store, connections=connections.collection.store,
                       presets=presets.collection.store, vectors=vectors)
+    # Chats' own connection and prompt, and their characters' (chat_settings.py)
+    characters.chat_choices = ChatChoices(connections.collection.store, presets.collection.store, settings_store)
     conversations = ConversationsSection(conversation_store, characters, personas, replies)
     lorebooks = LoreBooksSection(lore_books, users=[characters, personas])
     settings = SettingsSection(settings_store, connections.collection.store, access, presets.collection.store,

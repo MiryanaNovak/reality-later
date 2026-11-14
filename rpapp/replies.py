@@ -6,7 +6,7 @@ the page or your phone drops the connection: the reply is saved to the
 conversation either way, and the chat page shows it when you're back.
 
     1. build the prompt (prompts.py) and save it under the id of the message replied to
-    2. send it to the chat connection chosen in Settings
+    2. send it to the chat's connection: its own, its character's, or Settings' (chat_setup.py)
     3. add the reply to the conversation, and save its details (model, tokens, cost,
        thinking) in data/conversations/replies/<conversation id>/<reply id>.json
 
@@ -46,6 +46,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from .chat_setup import ChatSetup, chat_setup, missing_connection
 from .connections import Connection, GenerationParams, ModelError, Reply, Usage
 from .conversations import ChatMessage, Conversation, ConversationStore
 from .lore import Meaning
@@ -57,7 +58,7 @@ from .memory import (
 from .presets import PromptPreset, chat_preset
 from .profiles import ProfileStore
 from .prompts import ExtendMethod, Prompt, build_prompt, lore_books_for
-from .settings import Settings, SettingsStore, chat_connection
+from .settings import Settings, SettingsStore
 from .storage import JsonStore, StoredModel
 
 if TYPE_CHECKING:
@@ -307,11 +308,19 @@ class Replies:
         character = self.characters.get(conversation.character.id)
         persona = self.personas.get(conversation.persona.id)
         books, missing = lore_books_for(character, persona, self.lore_books)
+        setup = chat_setup(settings, character, conversation)
         return build_prompt(conversation, character=character, persona=persona, settings=settings,
-                            connection=chat_connection(settings, self.connections.get), books=books,
+                            connection=self._connection(setup), books=books,
                             missing_books=missing, memories=self.conversations.memories.get(conversation.id).book,
-                            preset=chat_preset(settings.chat.preset, self.presets) if self.presets else None,
-                            extend=extend, continue_scene=continue_scene, meaning=meaning)
+                            preset=chat_preset(setup.preset, self.presets) if self.presets else None,
+                            preset_ref=setup.preset, extend=extend, continue_scene=continue_scene, meaning=meaning)
+
+    def setup_for(self, conversation: Conversation) -> ChatSetup:
+        """Which connection and prompt the conversation uses, and why (chat_setup.py)."""
+        return chat_setup(self.current_settings(), self.characters.get(conversation.character.id), conversation)
+
+    def _connection(self, setup: ChatSetup) -> Connection | None:
+        return self.connections.get(setup.connection.id) if setup.connection is not None else None
 
     async def _meaning(self, job: Job, conversation: Conversation, settings: Settings) -> Meaning | None:
         """Vector search's part in the prompt, once what isn't vectorized yet is (see vectors.py)."""
@@ -331,8 +340,9 @@ class Replies:
     async def _reply(self, job: Job) -> None:
         conversation = self._still_there(job)
         settings = self.current_settings()
-        connection = chat_connection(settings, self.connections.get)
         character = self.characters.get(conversation.character.id)
+        setup = chat_setup(settings, character, conversation)
+        connection = self._connection(setup)
         extend: ExtendMethod = (connection.extend_method if connection else 'instruction') if job.extend else ''
         if extend:  # the chat up to the reply, which goes on
             extended_version = conversation.messages[-1].alternative if conversation.messages[-1].alternatives else 0
@@ -346,9 +356,7 @@ class Replies:
         if not (extend or continuing):  # (those go with the details, below: they don't follow a message of yours)
             self.conversations.prompts.save(conversation.id, job.reply_to, prompt)
         if connection is None:
-            ref = settings.chat.connection
-            raise ReplyError(f'The chat connection "{ref.name}" is missing: choose another one in Settings.' if ref
-                             else 'No chat connection is chosen: choose one in Settings.')
+            raise ReplyError(missing_connection(setup, character.title if character else conversation.character.title))
 
         started = time.monotonic()
         reply = await connection.generate(prompt.messages(), continue_last=extend == 'prefill')
@@ -405,18 +413,22 @@ class Replies:
         to_read = [by_id[i] for i in job.reading]
         settings = self.current_settings()
         memory = settings.memory
-        ref = memory.connection or settings.chat.connection
-        connection = self.connections.get(ref.id) if ref else None
-        if connection is None:
-            raise MemoryCallError(f'The connection "{ref.name}" is missing: choose another one in Settings.' if ref
-                                  else 'No chat connection is chosen: choose one in Settings.')
+        character = self.characters.get(conversation.character.id)
+        setup = chat_setup(settings, character, conversation)  # (memory's "same as the chat connection": the chat's)
+        if memory.connection is not None:
+            connection = self.connections.get(memory.connection.id)
+            if connection is None:
+                raise MemoryCallError(f'The memory connection "{memory.connection.name}" is missing: choose another '
+                                      'one in Settings.')
+        elif (connection := self._connection(setup)) is None:
+            raise MemoryCallError(missing_connection(
+                setup, character.title if character else conversation.character.title))
         connection = connection.model_copy(deep=True)
         connection.params.stop = []  # stop sequences are for chat replies
         params = GenerationParams(
             temperature=memory.temperature if memory.temperature is not None else DEFAULT_TEMPERATURE,
             max_tokens=memory.max_tokens or DEFAULT_MAX_TOKENS)
 
-        character = self.characters.get(conversation.character.id)
         persona = self.personas.get(conversation.persona.id)
         char = (character.name or character.title) if character else conversation.character.title
         user = (persona.name or persona.title) if persona else conversation.persona.title

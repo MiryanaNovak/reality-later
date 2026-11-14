@@ -13,6 +13,7 @@ A section subclasses ProfileSection and overrides what it needs:
         def prepare_cards(self): ...                 # runs before the grid is drawn (to count things once)
         def identity_fields(self, character, form): ...  # extra fields next to the picture
         def panels(self, character, form): ...       # its own panels (description, scenario, ...)
+        def last_panels(self, character, form): ...  # and after Lore books
 
 Deleting a profile used by conversations warns about them in the confirm dialog.
 """
@@ -105,6 +106,9 @@ class ProfileSection(Generic[P]):
     def panels(self, item: P, form: Form) -> None:
         """The section's own panels, between Identity and Lore books."""
 
+    def last_panels(self, item: P, form: Form) -> None:
+        """The section's own panels after Lore books."""
+
     # -- pages -----------------------------------------------------------------------
 
     def list_page(self) -> None:
@@ -165,6 +169,8 @@ class ProfileSection(Generic[P]):
 
         with panel('Lore books', self.lore_books_caption, audience=self.lore_books_audience):
             self._lore_book_editor(item)
+
+        self.last_panels(item, form)
 
     # -- for other pages ---------------------------------------------------------------
 

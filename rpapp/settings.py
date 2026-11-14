@@ -45,6 +45,12 @@ class PresetRef(BaseModel):
     name: str
 
 
+class PromptChoice(BaseModel):
+    """A prompt chosen for a character or a chat, instead of the one it would use otherwise (chat_setup.py):
+    a saved one, or none at all."""
+    preset: PresetRef | None = None  # None: no instructions
+
+
 class ChatSettings(BaseModel):
     model_config = ConfigDict(extra='ignore', validate_assignment=True)
 

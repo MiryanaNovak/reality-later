@@ -15,7 +15,7 @@ from rpapp.lorebooks import lore_book_store, new_lore_book
 from rpapp.personas import PersonaStore, new_persona
 from rpapp.presets import new_preset, preset_store
 from rpapp.profiles import LoreBookRef
-from rpapp.settings import ConnectionRef, PresetRef, SettingsStore
+from rpapp.settings import ConnectionRef, PresetRef, PromptChoice, SettingsStore
 from rpapp.starter import freeze, is_new, seed
 from rpapp.ui.app import build_root
 
@@ -134,6 +134,27 @@ def test_freeze_warns_about_what_a_new_install_would_miss(examples, tmp_path):
     assert any('"Captain Hale" uses the lore book "Harbour town"' in w for w in report.warnings)
     assert any('No prompt is chosen' in w for w in report.warnings)
     assert not (tmp_path / 'starter' / 'settings.json').exists()
+
+
+def test_a_characters_own_connection_stays_out(examples, tmp_path):
+    """A new install has no connections: a character's own isn't kept (nor its own prompt if the starter set
+    hasn't it); its own prompt from the starter set is."""
+    characters = CharacterStore(examples)
+    hale = next(c for c in characters.list() if c.title == 'Captain Hale')
+    preset = next(p for p in preset_store(examples).list() if p.name == 'Plain')  # (not the one Settings uses)
+    hale.connection = ConnectionRef(id='mine-123456', name='My DeepSeek')
+    hale.prompt = PromptChoice(preset=PresetRef(id=preset.id, name=preset.name))
+    characters.save(hale)
+    report = freeze(examples, tmp_path / 'starter')
+    frozen = json.loads((tmp_path / 'starter' / 'characters' / f'{hale.id}.json').read_text(encoding='utf-8'))
+    assert frozen['connection'] is None and frozen['prompt'] == {'preset': {'id': preset.id, 'name': preset.name}}
+    assert any('"Captain Hale" has a connection of its own: left out' in w for w in report.warnings)
+
+    hale.prompt = PromptChoice(preset=PresetRef(id='elsewhere-111111', name='Not here'))
+    characters.save(hale)
+    report = freeze(examples, tmp_path / 'starter')
+    frozen = json.loads((tmp_path / 'starter' / 'characters' / f'{hale.id}.json').read_text(encoding='utf-8'))
+    assert frozen['prompt'] is None and any('uses the prompt "Not here"' in w for w in report.warnings)
 
 
 def test_the_command(examples, tmp_path, capsys):

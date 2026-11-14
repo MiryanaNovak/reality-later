@@ -73,6 +73,7 @@ from ..safe_html import chat_html
 from .list_view import plural, thumbnail
 from .prompt_view import show_prompt
 from .reply_view import show_reply_details
+from .chat_settings import ChatChoices, chat_settings_dialog
 from .widgets import ask_name, confirm, copy_js, page_header
 
 MEMORY_ICON = 'psychology'
@@ -218,13 +219,14 @@ class ChatPage:
                 ui.notify(f'Deleted "{c.title}"')
                 ui.navigate.to(self.back)
 
-        menu = [('Rename', self._rename, False), ('Delete conversation', delete_conversation, True)]
+        menu = [('Rename', self._rename, False), ('Settings', self._settings, False),
+                ('Delete conversation', delete_conversation, True)]
         settings = self.replies.current_settings()
         self.memory_on = settings.memory.enabled
         self.return_sends = settings.chat.return_key_desktop == 'send'  # on computers: for the tooltip
         if self.memory_on:
-            menu = [menu[0], ('Generate memories now', self._remember_now, False),
-                    ('Memories', lambda: ui.navigate.to(f'{self.path}/memories'), False), *menu[1:]]
+            menu = [*menu[:2], ('Generate memories now', self._remember_now, False),
+                    ('Memories', lambda: ui.navigate.to(f'{self.path}/memories'), False), *menu[2:]]
         with ui.column().classes('chat-page') as self.page_column:
             self.title_label = page_header(c.title, subtitle=f'{c.character.title}, with you as {c.persona.title}',
                                            back=self.back, menu=menu)
@@ -298,15 +300,30 @@ class ChatPage:
         ui.page_title(f'{name} · {APP_NAME}')
 
     def _save(self) -> None:
-        """Save the chat as this page has it, but with the title in the file: it may have been renamed
-        elsewhere (the list, another device) since this page was opened."""
+        """Save the chat as this page has it, but with the title, connection and prompt in the file: they may
+        have been changed elsewhere (the list, another device) since this page was opened."""
         try:
             stored = self.store.get(self.conversation.id)
         except ValueError:
             stored = None
         if stored is not None:
             self.conversation.title = stored.title
+            self.conversation.connection, self.conversation.prompt = stored.connection, stored.prompt
         self.store.save(self.conversation)
+
+    def _settings(self) -> None:
+        """⋮ › Settings: the chat's own connection and prompt (chat_settings.py)."""
+        try:
+            stored = self.store.get(self.conversation.id)
+        except ValueError:
+            stored = None
+        if stored is None:
+            ui.notify('This conversation was deleted.', type='warning')
+            return
+        self.conversation.connection, self.conversation.prompt = stored.connection, stored.prompt
+        choices = ChatChoices(self.replies.connections, self.replies.presets, self.replies.settings)
+        chat_settings_dialog(self.conversation, store=self.store, choices=choices,
+                             character=self.characters.store.get(self.conversation.character.id))
 
     @property
     def path(self) -> str:
