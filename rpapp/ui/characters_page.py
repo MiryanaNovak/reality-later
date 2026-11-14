@@ -150,7 +150,10 @@ class CharactersSection(ProfileSection[Character]):
             if personas:
                 ui.label('Who will you be? Choose a persona.').classes('muted')
                 with ui.column().classes('w-full browse-list'):
-                    self.personas.links(personas, on_click=dialog.submit)
+                    if hasattr(self.personas, 'picker'):  # (with their folders: personas_page.py)
+                        self.personas.picker(on_click=dialog.submit)
+                    else:
+                        self.personas.links(personas, on_click=dialog.submit)
             else:
                 ui.label('You need a persona first: who you are in the chat.').classes('muted')
                 ui.button('Create a persona', icon='face', on_click=lambda: dialog.submit('create'))

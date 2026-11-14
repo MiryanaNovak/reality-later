@@ -174,6 +174,7 @@ HEAD = f'''
   .card-link:hover {{ text-decoration: underline; }}
   .card-link:focus-visible {{ outline: 2px solid var(--q-primary); outline-offset: 2px; }}
   .tree-group-title {{ font-weight: 600; font-size: 1.05rem; }}
+  .picker-folder .q-item__section--avatar .q-icon {{ color: var(--q-primary); }}  /* (personas_page.picker) */
   .tree-items {{ border-left: 2px solid var(--line); margin: 0 0 0 19px; padding-left: 4px; align-self: stretch; }}
   .tree-items .q-item {{ border-radius: 10px; }}
   .panel.tree-focus {{ border-color: var(--q-primary); box-shadow: 0 0 0 1px var(--q-primary); }}

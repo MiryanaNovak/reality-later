@@ -108,6 +108,10 @@ class CollectionPage(Generic[T]):
 
         new_dialog = self._new_dialog()
 
+    def new_item_dialog(self) -> ui.dialog:
+        """The New dialog (opened by the New button): for a page that draws its own list."""
+        return self._new_dialog()
+
     def _new_dialog(self) -> ui.dialog:
         c = self.c
         with ui.dialog() as dialog, ui.card().classes('dialog-card').mark('new-dialog'):
