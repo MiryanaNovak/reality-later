@@ -25,7 +25,7 @@ from ..profiles import P
 from .form import error_text
 from .list_view import Action, actions_menu, plural, render_card
 from .opened import Opened
-from .widgets import ask_name, confirm, page_bar
+from .widgets import Dialog, ask_name, confirm, page_bar
 
 if TYPE_CHECKING:
     from .profile_page import ProfileSection
@@ -160,7 +160,7 @@ class FolderPage:
 
     async def new_folder(self, refresh: Callable[[], None]) -> Folder | None:
         """Ask for the new folder's name, then make it (open, to fill)."""
-        with ui.context.client.layout, ui.dialog() as dialog, ui.card().classes('dialog-card').mark('folder-dialog'):
+        with ui.context.client.layout, Dialog() as dialog, ui.card().classes('dialog-card').mark('folder-dialog'):
             ui.label('New folder').classes('panel-title')
             name = ui.input('Name', placeholder='e.g. Fantasy').classes('w-full') \
                 .props(f'autofocus maxlength={NAME_MAX}').mark('folder-name').on('keydown.enter', lambda: create())
@@ -210,7 +210,7 @@ class FolderPage:
     async def choose_folder(self, item: Any, current: Folder | None, refresh: Callable[[], None]) -> None:
         """Which folder to put the item in (or a new one, named here)."""
         others = [f for f in self.folders.list() if current is None or f.id != current.id]
-        with ui.context.client.layout, ui.dialog() as dialog, ui.card().classes('dialog-card').mark('folder-picker'):
+        with ui.context.client.layout, Dialog() as dialog, ui.card().classes('dialog-card').mark('folder-picker'):
             ui.label(f'Put "{item.label}" in a folder').classes('panel-title')
             if others:
                 with ui.list().props('separator bordered').classes('w-full rounded-borders browse-list'):

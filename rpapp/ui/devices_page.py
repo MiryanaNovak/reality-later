@@ -18,7 +18,7 @@ from nicegui import ui
 from ..access import Access, Who
 from ..devices import Device, JoinRequest
 from ..paths import command
-from .widgets import confirm, folding_panel, time_ago
+from .widgets import Dialog, confirm, folding_panel, time_ago
 
 
 def _who(access: Access) -> Who:
@@ -167,7 +167,7 @@ class DevicesSection:
         link = access.devices.new_link()
         state = {'address': addresses[0], 'done': False}
 
-        with ui.context.client.layout, ui.dialog() as dialog, ui.card().classes('dialog-card').mark('pair-dialog'):
+        with ui.context.client.layout, Dialog() as dialog, ui.card().classes('dialog-card').mark('pair-dialog'):
             with ui.row().classes('w-full items-center no-wrap'):
                 ui.label('Pair a device').classes('panel-title')
                 ui.space()

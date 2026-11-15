@@ -26,7 +26,7 @@ from nicegui import events, ui
 from ..storage import JsonStore, StoredModel
 from .form import error_text
 from .list_view import Action, ListView, Row
-from .widgets import MenuItems, confirm, file_picker, page_bar, page_header
+from .widgets import Dialog, MenuItems, confirm, file_picker, page_bar, page_header
 
 T = TypeVar('T', bound=StoredModel)
 
@@ -118,7 +118,7 @@ class CollectionPage(Generic[T]):
 
     def _new_dialog(self) -> ui.dialog:
         c = self.c
-        with ui.dialog() as dialog, ui.card().classes('dialog-card').mark('new-dialog'):
+        with Dialog() as dialog, ui.card().classes('dialog-card').mark('new-dialog'):
             ui.label(f'New {c.noun}').classes('panel-title')
             kind = None
             if c.kinds:

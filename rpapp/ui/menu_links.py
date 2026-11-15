@@ -12,7 +12,7 @@ from urllib.parse import quote
 from nicegui import ui
 
 from .. import APP_NAME, CONTACT_EMAIL, MANUAL_URL, PROJECT_URL, __version__
-from .widgets import copy_js
+from .widgets import Dialog, copy_js
 
 
 def menu_links() -> None:
@@ -28,7 +28,7 @@ def menu_links() -> None:
 
 def contact() -> None:
     mail = f'mailto:{CONTACT_EMAIL}?subject={quote(f"{APP_NAME} {__version__}")}'
-    with ui.context.client.layout, ui.dialog() as dialog, ui.card().classes('dialog-card').mark('contact-dialog'):
+    with ui.context.client.layout, Dialog() as dialog, ui.card().classes('dialog-card').mark('contact-dialog'):
         ui.label('Contact').classes('panel-title')
         ui.label(f'A question, a problem, an idea about {APP_NAME}? Write to:').classes('muted')
         ui.label(CONTACT_EMAIL).classes('contact-address').mark('contact-address')

@@ -40,7 +40,7 @@ from .frame_editor import FrameEditor
 from .list_view import Row, initials, plural
 from .media import serve_images
 from .opened import Opened
-from .widgets import Audience, MenuItems, file_picker, folding_panel, not_found, panel
+from .widgets import Audience, Dialog, MenuItems, file_picker, folding_panel, not_found, panel
 
 if TYPE_CHECKING:
     from ..conversations import ConversationStore
@@ -289,7 +289,7 @@ class ProfileSection(Generic[P]):
         if not full or self.store.images.path(full) is None:
             return None
         frame = item.image_frame or default_frame(*self.store.images.size(full))
-        with ui.context.client.layout, ui.dialog() as dialog, \
+        with ui.context.client.layout, Dialog() as dialog, \
                 ui.card().classes('dialog-card items-center').mark('frame-dialog'):
             ui.label('Frame the new picture' if new else 'Reframe the picture').classes('panel-title self-start')
             ui.label('Drag to move it; zoom with the slider, the mouse wheel or two fingers. The square is what '

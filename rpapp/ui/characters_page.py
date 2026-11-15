@@ -49,7 +49,7 @@ from .list_view import Link, Row, initials, plural
 from .chat_settings import ChatChoices, character_panel
 from .folders_page import folder_links
 from .profile_page import ProfileSection
-from .widgets import MenuItems, audience_legend, browser_languages, confirm, file_picker
+from .widgets import Dialog, MenuItems, audience_legend, browser_languages, confirm, file_picker
 
 if TYPE_CHECKING:
     from .sharing_page import SharingSection
@@ -203,7 +203,7 @@ class CharactersSection(ProfileSection[Character]):
     async def new_chat(self, character: Character) -> None:
         """Ask which persona to play, then start the conversation and open it."""
         personas = self.personas.store.list()
-        with ui.context.client.layout, ui.dialog() as dialog, \
+        with ui.context.client.layout, Dialog() as dialog, \
                 ui.card().classes('dialog-card').mark('persona-picker'):
             ui.label(f'New chat with {character.title}').classes('panel-title')
             if personas:

@@ -18,6 +18,7 @@ from ..connections import Connection
 from ..settings import ConnectionRef, PresetRef, PromptChoice, Settings, SettingsStore
 from ..storage import JsonStore
 from .form import NOT_SET, Form
+from .widgets import Dialog
 
 if TYPE_CHECKING:
     from ..characters import Character
@@ -218,7 +219,7 @@ def chat_settings_dialog(conversation: Conversation, *, store: ConversationStore
         prompt_why.refresh()
 
     form = Form(on_change=save)
-    with ui.context.client.layout, ui.dialog() as dialog, \
+    with ui.context.client.layout, Dialog() as dialog, \
             ui.card().classes('dialog-card chat-settings').mark('chat-settings-dialog'):
         ui.label('Chat settings').classes('panel-title')
         ui.label(f'For this chat only: other chats, with {title} too, keep theirs. Changes apply from the next '

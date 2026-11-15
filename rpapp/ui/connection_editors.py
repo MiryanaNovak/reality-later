@@ -17,7 +17,7 @@ from ..connections import (
     Connection, ModelError, ModelInfo, OpenAICompatibleConnection, OpenAIStyleConnection, OpenRouterConnection,
 )
 from .form import Form
-from .widgets import folding_panel, panel
+from .widgets import Dialog, folding_panel, panel
 
 Editor = Callable[[Connection, Form], None]
 EDITORS: dict[type, Editor] = {}
@@ -153,7 +153,7 @@ def model_panel(conn: OpenAIStyleConnection, form: Form, extra: Callable[[], Non
 
     models: list[ModelInfo] = []
 
-    with ui.dialog() as dialog, ui.card().classes('dialog-card'):
+    with Dialog() as dialog, ui.card().classes('dialog-card'):
         ui.label('Choose a model').classes('panel-title')
         search = ui.input(placeholder='Search').props('clearable debounce=200 autofocus').classes('w-full')
         status = ui.label().classes('text-sm muted')
