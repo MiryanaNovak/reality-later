@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Generic, Literal, TypeVar
 
@@ -71,29 +71,8 @@ class CollectionPage(Generic[T]):
 
     def list_page(self) -> None:
         c = self.c
-
-        async def handle_upload(e: events.UploadEventArguments) -> None:
-            try:
-                if c.import_file is not None:
-                    _, said = c.import_file(e.file.name, await e.file.read())
-                else:
-                    item = c.store.import_data(await e.file.json(), file_name=e.file.name)
-                    said = f'Imported "{item.label}".'
-            except (ValueError, UnicodeDecodeError) as err:
-                ui.notify(f'Could not import {e.file.name}: {error_text(err)}', type='negative', multi_line=True)
-                return
-            view.refresh()
-            ui.notify(said, type='positive', multi_line=True)
-
-        def buttons() -> None:
-            if c.importable:
-                upload = file_picker(handle_upload, accept=c.import_accept, max_size=c.import_max_size)
-                ui.button('Import', icon='upload_file').props('outline aria-label="Import"') \
-                    .on('click', js_handler=upload.js_open).mark('import')
-            ui.button('New', icon='add', on_click=lambda: new_dialog.open()).props('aria-label="New"').mark('new')
-
-        page_bar(c.title, actions=buttons)
-
+        new_dialog = self._new_dialog()
+        page_bar(c.title, actions=lambda: self.buttons(lambda: view.refresh(), new_dialog))
         view = ListView(
             items=c.items or c.store.list,
             key=lambda item: item.id,
@@ -106,7 +85,32 @@ class CollectionPage(Generic[T]):
             layout=c.layout,
         )
 
-        new_dialog = self._new_dialog()
+    def buttons(self, refresh: Callable[[], Any], new_dialog: ui.dialog, *,
+                before_new: Callable[[], Any] | None = None) -> None:
+        """The list page's buttons, in the top bar: Import (when it can), `before_new`'s, then New. `refresh`
+        redraws the list after an import."""
+        c = self.c
+
+        async def handle_upload(e: events.UploadEventArguments) -> None:
+            try:
+                if c.import_file is not None:
+                    _, said = c.import_file(e.file.name, await e.file.read())
+                else:
+                    item = c.store.import_data(await e.file.json(), file_name=e.file.name)
+                    said = f'Imported "{item.label}".'
+            except (ValueError, UnicodeDecodeError) as err:
+                ui.notify(f'Could not import {e.file.name}: {error_text(err)}', type='negative', multi_line=True)
+                return
+            refresh()
+            ui.notify(said, type='positive', multi_line=True)
+
+        if c.importable:
+            upload = file_picker(handle_upload, accept=c.import_accept, max_size=c.import_max_size)
+            ui.button('Import', icon='upload_file').props('outline aria-label="Import"') \
+                .on('click', js_handler=upload.js_open).mark('import')
+        if before_new is not None:
+            before_new()
+        ui.button('New', icon='add', on_click=lambda: new_dialog.open()).props('aria-label="New"').mark('new')
 
     def new_item_dialog(self) -> ui.dialog:
         """The New dialog (opened by the New button): for a page that draws its own list."""
@@ -136,14 +140,34 @@ class CollectionPage(Generic[T]):
 
     # -- actions, shared by the list page and the editor page ------------------------
 
-    def actions(self, refresh: Callable[[], Any]) -> list[Action[T]]:
-        """The ⋮ menu of an item in a list or grid; `refresh` redraws it after a duplicate or a delete."""
+    def actions(self, refresh: Callable[[], Any], *, extra: Sequence[Action[T]] = (),
+                duplicated: Callable[[T, T], Any] | None = None,
+                deleted: Callable[[T], Any] | None = None) -> list[Action[T]]:
+        """The ⋮ menu of an item in a list or grid; `refresh` redraws it after a duplicate or a delete.
+        `extra`: more of it, before Delete; `duplicated(item, copy)` and `deleted(item)`: what else to do
+        then, before redrawing."""
         c = self.c
+
+        def duplicate(item: T) -> None:
+            def after(copy: T) -> None:
+                if duplicated is not None:
+                    duplicated(item, copy)
+                refresh()
+            self.duplicate(item, after=after)
+
+        async def delete(item: T) -> None:
+            def after() -> None:
+                if deleted is not None:
+                    deleted(item)
+                refresh()
+            await self.delete(item, after=after)
+
         return [
             Action('Edit', lambda item: ui.navigate.to(c.item_path(item))),
-            Action('Duplicate', lambda item: self.duplicate(item, after=lambda copy: refresh())),
+            Action('Duplicate', duplicate),
             *([Action('Export', self.export)] if c.exportable else []),
-            Action('Delete', lambda item: self.delete(item, after=refresh), danger=True),
+            *extra,
+            Action('Delete', delete, danger=True),
         ]
 
     def duplicate(self, item: T, *, after: Callable[[T], Any] | None = None) -> T:

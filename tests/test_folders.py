@@ -1,5 +1,5 @@
-"""Folders of personas (rpapp/persona_folders.py), and the Personas page and new chat's picker that show them
-(rpapp/ui/personas_page.py), with NiceGUI's simulated user."""
+"""Folders of personas and of characters (rpapp/folders.py), and the pages and the new chat's picker that show
+them (rpapp/ui/folders_page.py), with NiceGUI's simulated user."""
 import json
 
 import pytest
@@ -8,7 +8,7 @@ from nicegui.testing import user_simulation
 
 from rpapp.characters import CharacterStore, new_character
 from rpapp.conversations import ConversationStore
-from rpapp.persona_folders import NAME_MAX, FolderError, PersonaFolderStore
+from rpapp.folders import NAME_MAX, FolderError, FolderStore
 from rpapp.personas import PersonaStore, new_persona
 from rpapp.ui.app import build_root
 
@@ -24,8 +24,8 @@ def personas(tmp_path):
     return store, made
 
 
-def folders_of(tmp_path, store) -> PersonaFolderStore:
-    return PersonaFolderStore(tmp_path, exists=store.exists)
+def folders_of(tmp_path, store, kind='personas') -> FolderStore:
+    return FolderStore(tmp_path, kind, exists=store.exists)
 
 
 # --- the folders ----------------------------------------------------------------------------------
@@ -56,11 +56,11 @@ def test_a_persona_in_one_folder_at_most(tmp_path, personas):
     folders.put(p['Ash'].id, fantasy.id)
     folders.put(p['Bram'].id, fantasy.id)
     folders.put(p['Ash'].id, sci.id)  # (moved: out of Fantasy)
-    assert folders.get(fantasy.id).personas == [p['Bram'].id] and folders.get(sci.id).personas == [p['Ash'].id]
+    assert folders.get(fantasy.id).members == [p['Bram'].id] and folders.get(sci.id).members == [p['Ash'].id]
     assert folders.folder_of(p['Ash'].id).name == 'Sci-fi' and folders.folder_of(p['Nell'].id) is None
     folders.put(p['Ash'].id, None)  # (in none)
     assert folders.folder_of(p['Ash'].id) is None
-    assert set(folders.by_persona()) == {p['Bram'].id}
+    assert set(folders.by_member()) == {p['Bram'].id}
 
 
 def test_deleting_a_folder_keeps_its_personas(tmp_path, personas):
@@ -81,10 +81,10 @@ def test_deleted_personas_are_forgotten(tmp_path, personas):
         folders.put(p[name].id, fantasy.id)
     store.delete(p['Ash'].id)
     folders.forget([p['Ash'].id])
-    assert folders.get(fantasy.id).personas == [p['Bram'].id]
+    assert folders.get(fantasy.id).members == [p['Bram'].id]
     store.delete(p['Bram'].id)  # (deleted elsewhere: forgotten at the next change)
     folders.create('Sci-fi')
-    assert folders.get(fantasy.id).personas == []
+    assert folders.get(fantasy.id).members == []
 
 
 def test_a_damaged_file(tmp_path, personas):
@@ -163,7 +163,7 @@ async def test_a_new_folder_from_the_picker(page):
     user.find(marker='picker-create').click()
     await user.should_see('"Nell, detective" is in Noir now')
     [noir] = folders.list()
-    assert noir.name == 'Noir' and noir.personas == [p['Nell'].id]
+    assert noir.name == 'Noir' and noir.members == [p['Nell'].id]
 
 
 async def test_renaming_and_deleting_a_folder(page):
@@ -202,7 +202,7 @@ async def test_a_copy_stays_in_its_folder(page, tmp_path):
     with user.scope(marker=f'row-{p["Ash"].id}'):
         user.find(marker='menu-duplicate').click()
     await user.should_see('Duplicated as')
-    assert len(folders.get(fantasy.id).personas) == 2
+    assert len(folders.get(fantasy.id).members) == 2
 
 
 async def test_searching_through_all(page):
@@ -234,3 +234,97 @@ async def test_the_new_chats_picker(page, tmp_path):
     await user.should_see(marker='chat-input')  # (the chat, started)
     [conversation] = ConversationStore(tmp_path).list()
     assert conversation.persona.id == p['Ash'].id
+
+
+def test_yesterdays_file(tmp_path, personas):
+    """The first version wrote the personas' ids as "personas": read the same, written as "members"."""
+    store, p = personas
+    old = {'id': 'persona-folders', 'format_version': 1,
+           'folders': [{'id': 'fantasy-111111', 'name': 'Fantasy', 'personas': [p['Ash'].id]}]}
+    (tmp_path / 'persona-folders.json').write_text(json.dumps(old), encoding='utf-8')
+    folders = folders_of(tmp_path, store)
+    assert folders.folder_of(p['Ash'].id).name == 'Fantasy'
+    folders.put(p['Bram'].id, 'fantasy-111111')
+    saved = json.loads((tmp_path / 'persona-folders.json').read_text(encoding='utf-8'))
+    assert saved['folders'][0]['members'] == [p['Ash'].id, p['Bram'].id] and 'personas' not in saved['folders'][0]
+
+
+# --- characters ---------------------------------------------------------------------------------
+
+@pytest.fixture
+async def characters_page(tmp_path):
+    store = CharacterStore(tmp_path)
+    made = {}
+    for title in ('Seraphina', 'Captain Hale', 'Wren'):
+        character = new_character(title)
+        character.first_messages = ['Hello, {{user}}.']
+        store.save(character)
+        made[title.split()[-1]] = character
+    PersonaStore(tmp_path).save(new_persona('Mira'))
+    async with user_simulation(build_root(tmp_path)) as user:
+        yield user, folders_of(tmp_path, store, 'characters'), made, store
+
+
+async def test_characters_in_folders(characters_page, tmp_path):
+    user, folders, c, store = characters_page
+    await user.open('/characters')
+    await user.should_see(marker='import')  # (Import, New folder and New, as for personas)
+    user.find(marker='new-folder').click()
+    await user.should_see(marker='folder-dialog')
+    user.find(marker='folder-name').type('Fantasy')
+    user.find(marker='folder-create').click()
+    await user.should_not_see(marker='folder-dialog')
+    [fantasy] = folders.list()
+    assert (tmp_path / 'character-folders.json').exists() and not (tmp_path / 'persona-folders.json').exists()
+    await user.should_see('This folder is empty: put characters in it from their ⋮ menu.')
+
+    with user.scope(marker=f'row-{c["Seraphina"].id}'):
+        await user.should_see(marker='menu-export')  # (the characters' own actions are there too)
+        user.find(marker='menu-add-to-folder').click()
+    await user.should_see(marker='folder-picker')
+    user.find(marker=f'pick-{fantasy.id}').click()
+    await user.should_see('"Seraphina" is in Fantasy now')
+    await user.should_see('1 character')
+    assert inside(user, f'folder-{fantasy.id}', f'row-{c["Seraphina"].id}')
+    assert not inside(user, f'folder-{fantasy.id}', f'row-{c["Wren"].id}')
+
+    with user.scope(marker=f'row-{c["Seraphina"].id}'):  # (its New chat button, in its folder)
+        user.find(marker='new-chat').click()
+    await user.should_see(marker='persona-picker')
+    user.find(marker='link-' + PersonaStore(tmp_path).list()[0].id).click()  # (Mira: in no folder)
+    await user.should_see(marker='chat-input')
+    assert ConversationStore(tmp_path).list()[0].character.id == c['Seraphina'].id
+
+
+async def test_deleting_a_character_or_its_folder(characters_page):
+    user, folders, c, store = characters_page
+    fantasy = folders.create('Fantasy')
+    folders.put(c['Seraphina'].id, fantasy.id)
+    folders.put(c['Hale'].id, fantasy.id)
+    await user.open('/characters')
+    with user.scope(marker=f'row-{c["Hale"].id}'):
+        user.find(marker='menu-delete').click()
+    await user.should_see(marker='confirm-dialog')
+    user.find(kind=ui.button, content='Delete').click()
+    await user.should_see('Deleted "Captain Hale"')
+    assert folders.get(fantasy.id).members == [c['Seraphina'].id]  # (forgotten in its folder)
+
+    with user.scope(marker=f'folder-{fantasy.id}'):
+        user.find(marker='menu-delete-folder').click()
+    await user.should_see('Its 1 character stays: in no folder any more.')
+    user.find(kind=ui.button, content='Delete').click()
+    await user.should_not_see(marker=f'folder-{fantasy.id}')
+    assert folders.list() == [] and store.exists(c['Seraphina'].id)
+
+
+async def test_each_folder_says_how_many_it_holds(characters_page):
+    """(Two folders: each its own count, in its delete dialog too.)"""
+    user, folders, c, _ = characters_page
+    one, two = folders.create('One'), folders.create('Two')
+    folders.put(c['Seraphina'].id, one.id)
+    folders.put(c['Hale'].id, two.id)
+    folders.put(c['Wren'].id, two.id)
+    await user.open('/characters')
+    with user.scope(marker=f'folder-{one.id}'):
+        user.find(marker='menu-delete-folder').click()
+    await user.should_see('Its 1 character stays: in no folder any more.')

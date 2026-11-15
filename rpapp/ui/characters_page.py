@@ -1,6 +1,8 @@
 """The Characters section, built on the shared profile page (profile_page.py).
 
-    /characters                 grid of characters, each with its conversation count and a New chat button;
+    /characters                 their folders (folders_page.py), each folding open onto its characters' cards,
+                                then the characters in none; each card with its conversation count and a
+                                New chat button (whose persona picker shows the personas' folders);
                                 Import reads a character card (PNG, JSON or CharX, V1 to V3: see cards.py),
                                 Export (in each character's ⋮ menu) writes one as a PNG (V2)
     /characters/<character id>  one character: picture, identity, description, scenario,
@@ -22,6 +24,7 @@ from nicegui import ui
 from ..cards import card_data, card_png, read_card, save_card
 from ..characters import Character, CharacterStore, new_character
 from ..conversations import ConversationStore
+from ..folders import FolderStore
 from ..lorebooks import LoreBook
 from ..personas import Persona
 from ..storage import JsonStore
@@ -29,6 +32,7 @@ from .collection_page import safe_file_name
 from .form import Form, text_stats
 from .list_view import Link, Row, initials, plural
 from .chat_settings import ChatChoices, character_panel
+from .folders_page import folder_links
 from .profile_page import ProfileSection
 from .widgets import MenuItems, audience_legend, browser_languages, confirm, panel
 
@@ -61,6 +65,7 @@ class CharactersSection(ProfileSection[Character]):
         self.personas = personas
         self.sharing = sharing  # publishing them as shared cards (None, or its .sharing None: not here)
         self.chat_choices: ChatChoices | None = None  # the connections and prompts (build_root's; None: no panel)
+        self.folders = FolderStore(store.folder.parent, 'characters', exists=store.exists)
         self._counts: Counter[str] = Counter()
 
     # -- importing a character card --------------------------------------------------------
@@ -150,10 +155,7 @@ class CharactersSection(ProfileSection[Character]):
             if personas:
                 ui.label('Who will you be? Choose a persona.').classes('muted')
                 with ui.column().classes('w-full browse-list'):
-                    if hasattr(self.personas, 'picker'):  # (with their folders: personas_page.py)
-                        self.personas.picker(on_click=dialog.submit)
-                    else:
-                        self.personas.links(personas, on_click=dialog.submit)
+                    folder_links(self.personas, on_click=dialog.submit)  # (in their folders, if they have any)
             else:
                 ui.label('You need a persona first: who you are in the chat.').classes('muted')
                 ui.button('Create a persona', icon='face', on_click=lambda: dialog.submit('create'))

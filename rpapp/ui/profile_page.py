@@ -15,7 +15,8 @@ A section subclasses ProfileSection and overrides what it needs:
         def panels(self, character, form): ...       # its own panels (description, scenario, ...)
         def last_panels(self, character, form): ...  # and after Lore books
 
-Deleting a profile used by conversations warns about them in the confirm dialog.
+Deleting a profile used by conversations warns about them in the confirm dialog. A section given its
+`folders` (rpapp/folders.py) lists its items in them: folders_page.py.
 """
 from __future__ import annotations
 
@@ -36,6 +37,7 @@ from .widgets import Audience, MenuItems, file_picker, not_found, panel
 
 if TYPE_CHECKING:
     from ..conversations import ConversationStore
+    from ..folders import FolderStore
 
 
 class ProfileSection(Generic[P]):
@@ -84,6 +86,7 @@ class ProfileSection(Generic[P]):
             empty_text=empty_text,
         )
         self.pages = CollectionPage(self.collection)
+        self.folders: FolderStore | None = None  # its folders (None: none, a plain grid)
 
     # -- what subclasses override ------------------------------------------------------
 
@@ -112,7 +115,11 @@ class ProfileSection(Generic[P]):
     # -- pages -----------------------------------------------------------------------
 
     def list_page(self) -> None:
-        self.pages.list_page()
+        if self.folders is None:
+            self.pages.list_page()
+        else:
+            from .folders_page import FolderPage
+            FolderPage(self).build()
 
     def _list_items(self) -> list[P]:
         items = self.store.list()
