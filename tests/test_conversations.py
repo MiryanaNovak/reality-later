@@ -75,7 +75,7 @@ def in_order(user, kind, prefix: str) -> list[str]:
 async def test_new_chat_from_a_character_card(setup):
     user, conversations, characters, personas = setup
     seraphina = new_character('Seraphina (forest guardian)')
-    seraphina.description = 'Guardian of the glade.\nGentle, but fierce when needed.'
+    seraphina.summary = 'Guardian of the glade.\nGentle, but fierce when needed.'
     characters.save(seraphina)
     mira = new_persona('Mira')
     personas.save(mira)

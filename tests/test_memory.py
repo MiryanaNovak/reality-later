@@ -129,7 +129,8 @@ def make_chat(tmp_path, *, context=600, scenario=''):
     character, persona = new_character('Seraphina'), new_persona('Mira')
     character.first_messages = ['*Seraphina kneels beside {{user}}.*']
     character.scenario = scenario
-    character.description = 'Just for the list.'  # only for the user: never sent, to memory calls either
+    character.summary = 'Just for the list.'  # only for the user: never sent, to memory calls either
+    character.description = 'Nor this.'
     characters.save(character)
     personas.save(persona)
     conn = FakeConnection(name='Fake', model='fake/model', context_window=context)
@@ -252,7 +253,7 @@ async def test_generate_now_and_undo_by_deleting(tmp_path, fake_model):
         [call] = fake_model.memory_calls
         assert call[1].content.endswith('Mira: Brann helped me cross the river.')
         assert '# Seraphina and the story\nThe guardian of the glade.' in call[1].content  # what the AI knows
-        assert 'Just for the list' not in call[1].content  # the description is only for you
+        assert 'Just for the list' not in call[1].content and 'Nor this' not in call[1].content  # only for you
         mine = conversations.load(conversation.id).messages[1]
         assert marker_state(user)[:3] == (
             mine.id, 'Memories generated up to here: added with your next message', True)

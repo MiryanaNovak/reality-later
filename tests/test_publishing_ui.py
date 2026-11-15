@@ -67,7 +67,7 @@ def aria(tmp_path):
     store = CharacterStore(tmp_path)
     character = new_character('Aria the Wanderer')
     character.name = 'Aria'
-    character.description = 'A wandering bard.'
+    character.summary = 'A wandering bard.'
     character.scenario = '{{char}} sings of old roads.'
     store.save(character)
     return store, character
@@ -197,6 +197,7 @@ async def test_publishing_a_character(user, tmp_path, sharing, relay):
 
     saved = store.get(character.id)
     assert saved.shared_uuid  # (given, and kept: publishing it again makes a new version)
+    assert (saved.summary, saved.tags) == ('A wandering bard.', ['fantasy', 'bard'])  # (the character's, as announced)
     [event] = relay.events.values()
     p = fmt.read_publication(nostr.Event.from_dict(event))
     assert (p.card_uuid, p.card_name, p.published_name, p.card_tags, p.content_rating, p.language) == \
@@ -268,9 +269,23 @@ async def test_what_the_format_refuses(user, tmp_path, sharing):
     set_value(user, 'publish-rating', 'nsfw')
     set_value(user, 'publish-description', 'é' * (fmt.MAX_DESCRIPTION_BYTES // 2 + 1))
     user.find(marker='publish-confirm').click()
-    await user.should_see('The description is too long: 16 KB at most', retries=SLOW)
+    await user.should_see('The summary is too long: 16 KB at most', retries=SLOW)
     assert not store.get(character.id).shared_uuid  # (nothing published: no UUID kept)
-    assert character.shared_uuid == ''
+    assert character.shared_uuid == '' and character.summary == 'A wandering bard.'  # (nor the summary changed)
+
+
+async def test_the_card_starts_from_the_characters_summary_and_tags(user, tmp_path, sharing):
+    sharing.create_identity()
+    accept_notice(tmp_path)
+    store, character = aria(tmp_path)
+    character.tags = ['fantasy', 'Music']
+    store.save(character)
+    await user.open(f'/characters/{character.id}')
+    user.find(marker='menu-publish-to-shared-cards').click()
+    await user.should_see(marker='publish-name')
+    assert value_of(user, 'publish-description') == 'A wandering bard.'
+    assert value_of(user, 'publish-tags') == ['fantasy', 'music']
+    await user.should_see('the character\'s summary (changed here, it\'s changed there too)')
 
 
 # --- the wizard, the first time --------------------------------------------------------------------------
@@ -505,7 +520,7 @@ async def test_published_before_fingerprints(user, tmp_path, sharing):
     await user.should_see(marker=f'row-{event_id}', retries=SLOW)
     await user.should_not_see(marker=f'published-changed-{event_id}')
 
-    character.description = 'Changed outside the page.'
+    character.summary = 'Changed outside the page.'
     store.save(character)
     await user.open(f'/characters/{character.id}')
     await user.should_see(marker='character-changed', retries=SLOW)

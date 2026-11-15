@@ -22,7 +22,11 @@ What goes where in this app:
     title               the card's name
     name                its nickname (V3: what {{char}} stands for), else its name
     description         creator_notes, the notes for people (V3: in your browser's language, when
-                        creator_notes_multilingual has it), as plain text
+                        creator_notes_multilingual has it), Markdown and HTML as they are, with their
+                        pictures (data: URIs) stored as the character's (descriptions.py)
+    summary             extensions.reality_later.summary, this app's own (see Exporting); else the first
+                        sentence of the creator notes, as plain text
+    tags                tags, normalized as shared cards' are (lowercase, 20 at most)
     scenario            description, personality and scenario, as SillyTavern puts them in a prompt:
                         the description, then "{{char}}'s personality: ...", then "Scenario: ..."
     first_messages      first_mes, then alternate_greetings
@@ -30,7 +34,7 @@ What goes where in this app:
     picture             the PNG itself; in a CharX or a V3 JSON, the "main" icon
     lore books          character_book, converted to a lore book (see convert_book)
 
-Everything else (system_prompt, post_history_instructions, tags, creator, extensions, other
+Everything else (system_prompt, post_history_instructions, creator, extensions, other
 pictures, group greetings...) has no place in this app, and is ignored. So are pictures the
 card's texts load from other websites (see without_outside_pictures), and anything that
 unpacks to more than MAX_CARD_BYTES.
@@ -41,7 +45,10 @@ group greetings) this app doesn't have. The other way round:
 
     name                the character's name (the title is only for you: it isn't exported)
     description         the scenario, all the AI is told about them
-    creator_notes       the description, for people
+    creator_notes       the description, for people, its pictures written into it (data: URIs);
+                        without one, the summary (other apps show creator notes)
+    tags                the tags
+    extensions.reality_later   {"summary": the summary, "card_uuid": its UUID as a shared card, if it has one}
     first_mes, alternate_greetings, mes_example (<START> before each dialogue)
     character_book      the character's lore books (several are merged into one: a card holds one)
     the picture         the character's picture as a PNG, or their initials when they have none
@@ -59,21 +66,26 @@ import re
 import struct
 import zipfile
 import zlib
+from collections.abc import Callable
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
 from .characters import Character, CharacterStore, new_character
+from .descriptions import MAX_SUMMARY_BYTES, clip, first_sentence, inlined_pictures, with_stored_pictures
 from .lorebooks import AT_DEPTH, LoreBook, LoreEntry, new_lore_book
+from .publishing.announcements import normalize_tags
 from .storage import JsonStore
 
 PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
 
 # The most a card may unpack to. Compressed data can be made to unpack to gigabytes (a "zip
 # bomb"): it's read up to these sizes only, and refused beyond.
-SHARED_EXTENSION = 'reality_later'  # data.extensions.reality_later.card_uuid: its UUID as a shared card
+SHARED_EXTENSION = 'reality_later'  # data.extensions.reality_later: {"card_uuid": its UUID as a shared card,
+                                    # "summary": its summary}
 SHARED_UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')  # (any version)
 # What a card file may unpack to: as much as a shared card's file may be (publishing/announcements.py's
 # MAX_FILE_BYTES, 100 MiB), so that any card within the format is one this app reads.
@@ -156,10 +168,13 @@ def check_shared_card(file_name: str, content: bytes, *, size_limit: int) -> Car
     card = read_card(file_name, content)
     if card.picture:
         _check_picture(card.picture)
+    for picture in inlined_pictures(card.character.description):  # (the description's, stored on adding it)
+        _check_picture(picture, which='one of the pictures in its description',
+                       theirs='a shared card\'s pictures are')
     return card
 
 
-def _check_picture(picture: bytes) -> None:
+def _check_picture(picture: bytes, *, which: str = 'its picture', theirs: str = 'a shared card\'s is') -> None:
     limit = MAX_PICTURE_PIXELS // 1_000_000
     if picture.startswith(PNG_SIGNATURE) and picture[12:16] == b'IHDR':  # (a PNG says its size first)
         width, height = struct.unpack('>II', picture[16:24])
@@ -169,13 +184,13 @@ def _check_picture(picture: bytes) -> None:
             with Image.open(io.BytesIO(picture)) as image:  # (its header only)
                 width, height = image.size
         except Image.DecompressionBombError:  # (beyond Pillow's own limit, which is higher)
-            raise SafeguardError(f'its picture is more than {2 * Image.MAX_IMAGE_PIXELS // 1_000_000} '
-                                 f'megapixels, and a shared card\'s is {limit} at most', what='picture') from None
+            raise SafeguardError(f'{which} is more than {2 * Image.MAX_IMAGE_PIXELS // 1_000_000} '
+                                 f'megapixels, and {theirs} {limit} at most', what='picture') from None
         except (UnidentifiedImageError, OSError, ValueError):
             return  # (not a picture this app reads: the card comes without one)
     if width * height > MAX_PICTURE_PIXELS:
-        raise SafeguardError(f'its picture is {width:,} × {height:,} pixels ({width * height / 1e6:.0f} '
-                             f'megapixels), and a shared card\'s is {limit} megapixels at most', what='picture')
+        raise SafeguardError(f'{which} is {width:,} × {height:,} pixels ({width * height / 1e6:.0f} '
+                             f'megapixels), and {theirs} {limit} megapixels at most', what='picture')
 
 
 def megabytes(size: int) -> str:
@@ -202,6 +217,8 @@ def save_card(card: Card, characters: CharacterStore, lore_books: JsonStore[Lore
             characters.set_picture(character, card.picture)  # kept whole, framed from the top (see profiles.py)
         except ValueError:  # not a picture this app can read: the character comes without one
             pass
+    # The description's pictures, as files (one this app can't read goes)
+    character.description = with_stored_pictures(character.description, characters.images.add)
     imported = Imported(character)
     if card.book is not None:
         book = card.book
@@ -364,7 +381,10 @@ def _to_app(fields: dict, version: str, picture: bytes | None, fallback_name: st
     name = text('name') or fallback_name or 'Imported character'
     character = new_character(name)
     character.name = text('nickname') or name
-    character.description = plain_text(_creator_notes(fields, languages))
+    notes = _creator_notes(fields, languages).strip()
+    character.description = without_outside_pictures(notes)
+    character.tags = list(normalize_tags(t for t in fields.get('tags') or [] if isinstance(t, str))) \
+        if isinstance(fields.get('tags'), list) else []
     parts = [card_text('description'),
              f'{{{{char}}}}\'s personality: {card_text("personality")}' if card_text('personality') else '',
              f'Scenario: {card_text("scenario")}' if card_text('scenario') else '']
@@ -379,6 +399,13 @@ def _to_app(fields: dict, version: str, picture: bytes | None, fallback_name: st
     uuid_ = shared.get('card_uuid') if isinstance(shared, dict) else None
     if isinstance(uuid_, str) and SHARED_UUID.fullmatch(uuid_):
         character.shared_uuid = uuid_
+    summary = shared.get('summary') if isinstance(shared, dict) else None
+    if isinstance(summary, str):  # (this app's own: as it is, even empty)
+        character.summary = clip(summary.strip(), MAX_SUMMARY_BYTES)
+        if character.summary and character.description == character.summary:
+            character.description = ''  # (exported without a description: its summary stood for it)
+    else:
+        character.summary = first_sentence(notes)
 
     book = None
     raw_book = fields.get('character_book')
@@ -527,9 +554,19 @@ def same_book(a: LoreBook, b: LoreBook) -> bool:
 
 # -- writing a card ----------------------------------------------------------------------------------
 
-def card_data(character: Character, books: list[LoreBook] = ()) -> dict:
-    """The character as a V2 card (see the module's notes), with its lore books merged into one."""
+def card_data(character: Character, books: list[LoreBook] = (), *,
+              pictures: Callable[[str], str] | None = None) -> dict:
+    """The character as a V2 card (see the module's notes), with its lore books merged into one. `pictures`:
+    writes its description's pictures into it (descriptions.with_inlined_pictures); without, they're left as
+    they are, by their file's name (made from its content: enough to tell whether a card changed)."""
     greetings = [g.strip() for g in character.first_messages if g.strip()]
+    description = character.description.strip()
+    if description and pictures is not None:
+        description = pictures(description)
+    notes = description or character.summary.strip()  # (the summary as it is: plain text)
+    shared = {'summary': character.summary.strip()}
+    if character.shared_uuid:
+        shared['card_uuid'] = character.shared_uuid
     data = {
         'name': character.name.strip() or character.title,
         'description': character.scenario.strip(),
@@ -537,14 +574,14 @@ def card_data(character: Character, books: list[LoreBook] = ()) -> dict:
         'scenario': '',
         'first_mes': greetings[0] if greetings else '',
         'mes_example': '\n'.join(f'<START>\n{d.strip()}' for d in character.example_dialogues if d.strip()),
-        'creator_notes': character.description.strip(),
+        'creator_notes': notes,
         'system_prompt': '',
         'post_history_instructions': '',
         'alternate_greetings': greetings[1:],
-        'tags': [],
+        'tags': list(character.tags),
         'creator': '',
         'character_version': '',
-        'extensions': {SHARED_EXTENSION: {'card_uuid': character.shared_uuid}} if character.shared_uuid else {},
+        'extensions': {SHARED_EXTENSION: shared},
     }
     if any(book.entries for book in books):
         data['character_book'] = book_to_card(books, data['name'])
@@ -583,6 +620,23 @@ def book_to_card(books: list[LoreBook], character_name: str) -> dict:
 
 def card_png(card: dict, picture: bytes | None, *, initials: str = '?') -> bytes:
     """A PNG character card: the picture (or the initials, when there's none), with the card inside."""
+    return _card_png(json.dumps(card, ensure_ascii=False).encode('utf-8'), picture, initials)
+
+
+def card_png_size(card: dict, picture: bytes | None, *, initials: str = '?', growth: int = 0) -> int:
+    """The size card_png() would make, without making it: the picture's part is drawn once (for the last few
+    pictures), and the card's is its JSON in base64. `growth`: bytes its JSON will have more (its description's
+    pictures, written in: descriptions.inlining_growth)."""
+    text = len(json.dumps(card, ensure_ascii=False).encode('utf-8')) + growth
+    return _picture_part(picture, initials) + 4 * -(-text // 3)
+
+
+@lru_cache(maxsize=4)
+def _picture_part(picture: bytes | None, initials: str) -> int:
+    return len(_card_png(b'{}', picture, initials)) - len(base64.b64encode(b'{}'))
+
+
+def _card_png(text: bytes, picture: bytes | None, initials: str) -> bytes:
     from PIL import Image, ImageDraw, ImageFont, PngImagePlugin
 
     image = None
@@ -600,7 +654,7 @@ def card_png(card: dict, picture: bytes | None, *, initials: str = '?') -> bytes
     if image.mode not in ('RGB', 'RGBA'):
         image = image.convert('RGBA')
     info = PngImagePlugin.PngInfo()
-    info.add_text('chara', base64.b64encode(json.dumps(card, ensure_ascii=False).encode('utf-8')).decode('ascii'))
+    info.add_text('chara', base64.b64encode(text).decode('ascii'))
     out = io.BytesIO()
     image.save(out, 'PNG', pnginfo=info, optimize=False)
     return out.getvalue()

@@ -130,6 +130,8 @@ HEAD = f'''
   .panel.fold > .q-expansion-item__container > .q-item .q-item__label--caption {{
     font-weight: 400; font-size: .85rem; color: var(--muted);
   }}
+  .panel.fold .fold-title {{ font-weight: 600; font-size: 1.05rem; }}
+  .panel.fold .fold-caption {{ font-size: .85rem; color: var(--muted); margin-top: 2px; }}
   /* A hint under a field can take two lines on phones: let it push what follows down rather than overlap it. */
   .q-field--with-bottom {{ padding-bottom: 0; }}
   .q-field__bottom--animated {{ position: static; transform: none; }}
@@ -340,6 +342,40 @@ HEAD = f'''
   .update-notice-text {{ flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }}
   .update-notice-title {{ font-weight: 600; }}
   .update-notice-actions {{ display: flex; gap: 4px; margin-left: auto; }}
+  /* A character's card too big to be published (characters_page.py): at the top of its page, in red */
+  .size-warning {{
+    width: 100%; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: 12px;
+    background: color-mix(in srgb, var(--q-negative) 9%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--q-negative) 35%, var(--line));
+    border-left: 4px solid var(--q-negative); color: var(--q-negative); font-weight: 500;
+  }}
+  .size-warning-icon {{ font-size: 1.4rem; flex-shrink: 0; }}
+  /* A character's description, as it shows (Markdown, basic HTML, its own pictures) */
+  .description-view {{ line-height: 1.6; overflow-wrap: anywhere; }}
+  .description-view > :first-child {{ margin-top: 0; }}
+  .description-view p, .description-view ul, .description-view ol, .description-view pre,
+  .description-view blockquote, .description-view table {{ margin: 0 0 .8em; }}
+  .description-view h1, .description-view h2, .description-view h3,
+  .description-view h4, .description-view h5, .description-view h6 {{
+    font-family: 'Literata', Georgia, serif; font-weight: 600; line-height: 1.25; margin: 1em 0 .5em;
+    letter-spacing: normal;
+  }}
+  .description-view h1 {{ font-size: 1.6rem; }}
+  .description-view h2 {{ font-size: 1.35rem; }}
+  .description-view h3 {{ font-size: 1.15rem; }}
+  .description-view h4, .description-view h5, .description-view h6 {{ font-size: 1rem; }}
+  .description-view ul, .description-view ol {{ padding-left: 1.5em; }}
+  .description-view ul {{ list-style: disc; }}
+  .description-view ol {{ list-style: decimal; }}
+  .description-view img {{ max-width: 100%; height: auto; border-radius: 10px; vertical-align: middle; }}
+  .description-view blockquote {{ border-left: 3px solid var(--line); padding-left: 12px; color: var(--muted); }}
+  .description-view hr {{ border: 0; border-top: 1px solid var(--line); margin: 1.2em 0; }}
+  .description-view table {{ border-collapse: collapse; display: block; overflow-x: auto; max-width: 100%; }}
+  .description-view th, .description-view td {{ border: 1px solid var(--line); padding: 4px 8px; }}
+  .description-view code {{ background: var(--tint); border-radius: 4px; padding: 0 4px; font-size: .9em; }}
+  .description-view pre {{ background: var(--tint); border-radius: 8px; padding: 10px 12px; overflow-x: auto; }}
+  .description-view pre code {{ background: none; padding: 0; }}
+  .description-view a {{ color: var(--q-primary); text-underline-offset: 2px; }}
   .conversation-image {{ position: relative; }}
   .conversation-persona {{
     position: absolute; right: 8px; bottom: 8px; width: 36%; aspect-ratio: 1; border-radius: 50%;

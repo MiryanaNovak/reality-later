@@ -22,7 +22,8 @@ from rpapp.ui.app import build_root
 def seraphina(*greetings: str):
     character = new_character('Seraphina (forest guardian)')
     character.name = 'Seraphina'
-    character.description = 'The guardian of a forest glade.'  # only for you: never sent
+    character.summary = 'The guardian of a forest glade.'  # only for you: never sent
+    character.description = 'A **long** one, never sent either.'
     character.scenario = 'Guardian of the glade. Protective of {{user}}.\n\n{{user}} wakes up wounded in the glade.'
     character.first_messages = list(greetings) or ['']
     return character
@@ -132,7 +133,8 @@ def test_prompt():
         'Mira wakes up wounded in the glade.\n\n'
         'About Mira, played by the user:\nGender: female\nPronouns: she/her\nA healer who walks the old roads.'
     )
-    assert 'forest glade' not in str(prompt.messages())  # the description is only for you
+    assert 'forest glade' not in str(prompt.messages())  # the summary is only for you
+    assert 'never sent either' not in str(prompt.messages())  # and the description
     assert messages[1].content == '[Start of the chat]'
     assert messages[-1].content == 'Write only what Seraphina says and does.'
     # Deleted character and persona: their remembered titles stand in for the names.

@@ -12,8 +12,15 @@ draw a fake "enter your API key" box over it; with a <form>, send what you type
 elsewhere. Links don't tell the other site where they came from (rel="noreferrer").
 
 It's the first of two layers: the browser also runs NiceGUI's DOMPurify on the result.
+
+A character's description (descriptions.py) is cleaned harder, by description_html(): only the most basic
+HTML (no <div>, <span>, <details>...), links to websites only (opened in a new tab), and pictures only its
+own: the app's files of them, or ones written into the text (data: URIs). Nothing it shows is loaded from
+anywhere else.
 """
 from __future__ import annotations
+
+import re
 
 import nh3
 
@@ -58,3 +65,50 @@ def _url_filter(tag: str, attribute: str, value: str) -> str | None:
                                                                       'data:image/gif', 'data:image/webp'))
         return value if allowed else None
     return value
+
+
+# -- a character's description ----------------------------------------------------------------------------
+
+DESCRIPTION_TAGS = {
+    'p', 'br', 'hr', 'em', 'strong', 'b', 'i', 'u', 's', 'del', 'ins', 'mark', 'small', 'sub', 'sup',
+    'code', 'pre', 'blockquote', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'table', 'thead', 'tbody', 'tr', 'th', 'td', 'a', 'img',
+}
+DESCRIPTION_ATTRIBUTES = {
+    'a': {'href', 'title'},
+    'img': {'src', 'alt', 'title', 'width', 'height'},
+    'ol': {'start'},
+    'td': {'colspan', 'rowspan'},
+    'th': {'colspan', 'rowspan'},
+}
+_PICTURE_FILE = re.compile(r'[0-9a-f]{16,64}\.(?:webp|png|jpe?g|gif)')
+_RASTER = ('data:image/png;', 'data:image/jpeg;', 'data:image/jpg;', 'data:image/gif;', 'data:image/webp;')
+_WITHOUT_SOURCE = re.compile(r'<img\b(?![^>]*\ssrc=")[^>]*>')
+
+
+def description_html(html: str, *, pictures: str) -> str:
+    """The HTML of a description, with only the most basic of formatting (see the module's notes). `pictures`:
+    where the character's own are ('/media/characters/'): a picture from anywhere else goes."""
+    def keep(tag: str, attribute: str, value: str) -> str | None:
+        v = value.strip()
+        if tag == 'img' and attribute == 'src':
+            own = v.startswith(pictures) and _PICTURE_FILE.fullmatch(v[len(pictures):])
+            return v if own or v.lower().startswith(_RASTER) else None
+        if tag == 'a' and attribute == 'href':
+            return v if v.lower().startswith(('https://', 'http://', 'mailto:')) else None
+        if attribute in ('width', 'height', 'start', 'colspan', 'rowspan'):
+            return v if re.fullmatch(r'\d{1,4}', v) else None
+        return value
+
+    cleaned = nh3.clean(
+        html,
+        tags=DESCRIPTION_TAGS,
+        attributes=DESCRIPTION_ATTRIBUTES,
+        clean_content_tags=DROPPED_WITH_CONTENT,
+        url_schemes={'http', 'https', 'mailto', 'data'},
+        attribute_filter=keep,
+        link_rel='noopener noreferrer nofollow',
+        set_tag_attribute_values={'a': {'target': '_blank'}},
+        strip_comments=True,
+    )
+    return _WITHOUT_SOURCE.sub('', cleaned)  # (a picture from elsewhere: no broken picture in its place)

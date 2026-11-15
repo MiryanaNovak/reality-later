@@ -14,14 +14,20 @@ A section subclasses ProfileSection and overrides what it needs:
         def identity_fields(self, character, form): ...  # extra fields next to the picture
         def panels(self, character, form): ...       # its own panels (description, scenario, ...)
         def last_panels(self, character, form): ...  # and after Lore books
+        def search_text(self, character): ...        # what the search looks in
+
+A section's panels are drawn with `with self.part(key, title, ...)`: always open, or, with `foldable`, each
+folding away (all but Identity), open or not as last left on this device (opened.py; `fold_default`: those
+open until then).
 
 Deleting a profile used by conversations warns about them in the confirm dialog. A section given its
 `folders` (rpapp/folders.py) lists its items in them: folders_page.py.
 """
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Generic, Literal
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal
 
 from nicegui import events, ui
 
@@ -33,7 +39,8 @@ from .form import Form
 from .frame_editor import FrameEditor
 from .list_view import Row, initials, plural
 from .media import serve_images
-from .widgets import Audience, MenuItems, file_picker, not_found, panel
+from .opened import Opened
+from .widgets import Audience, MenuItems, file_picker, folding_panel, not_found, panel
 
 if TYPE_CHECKING:
     from ..conversations import ConversationStore
@@ -45,7 +52,10 @@ class ProfileSection(Generic[P]):
     title_hint = 'Only shown in this app'
     name_hint = 'Used in the chat'
     lore_books_caption = 'Their entries can come into play in chats.'
+    lore_books_short = 'Background for chats'  # (folded: the line under its title)
     lore_books_audience: Audience | None = None  # tag the Lore books panel "Sent to the AI"
+    foldable = False                        # its panels fold away (see part())
+    fold_default: ClassVar[set[str]] = set()  # those open until changed on a device
 
     def __init__(self, store: ProfileStore[P], lore_books: JsonStore[LoreBook], *,
                  title: str, noun: str, path: str, create: Callable[[str], P],
@@ -71,6 +81,7 @@ class ProfileSection(Generic[P]):
         self.conversations = conversations
         self.conversation_field = conversation_field
         self.image_url = serve_images(path.strip('/'), store.images)
+        self.image_path = f'/media/{path.strip("/")}/'  # (where image_url's are)
         self.collection = Collection(
             title=title, noun=noun, path=path, store=store,
             row=self.card,
@@ -82,16 +93,20 @@ class ProfileSection(Generic[P]):
             import_file=import_file, import_accept=import_accept or '.json,application/json',
             import_max_size=100_000_000,
             label_name='Title', name_placeholder=title_placeholder,
-            search=lambda item: f'{item.title} {item.name} {item.description}',
+            search=lambda item: self.search_text(item),
             empty_text=empty_text,
         )
         self.pages = CollectionPage(self.collection)
         self.folders: FolderStore | None = None  # its folders (None: none, a plain grid)
+        self.opened = Opened(f'rp_{noun}_sections', default=self.fold_default)  # (with `foldable`)
 
     # -- what subclasses override ------------------------------------------------------
 
     def card_subtitle(self, item: P) -> str:
         return item.name
+
+    def search_text(self, item: P) -> str:
+        return f'{item.title} {item.name} {item.description}'
 
     def prepare_cards(self) -> None:
         """Runs once before the grid is drawn: count things here rather than once per card."""
@@ -174,10 +189,27 @@ class ProfileSection(Generic[P]):
 
         self.panels(item, form)
 
-        with panel('Lore books', self.lore_books_caption, audience=self.lore_books_audience):
+        missing = bool(item.missing_lorebooks(self.lore_books.exists))  # (open, to see which)
+        with self.part('lore-books', 'Lore books', short=self.lore_books_short, about=self.lore_books_caption,
+                       audience=self.lore_books_audience, opened=True if missing else None):
             self._lore_book_editor(item)
 
         self.last_panels(item, form)
+
+    @contextmanager
+    def part(self, key: str, title: str, *, short: str = '', about: str = '', audience: Audience | None = None,
+             opened: bool | None = None) -> Iterator[None]:
+        """One of the editor's panels. `about`: what it's for; `short`, the same in a few words, shown under its
+        title when it's folded (`foldable`). `opened`: open (or not) whatever it was last time."""
+        if not self.foldable:
+            with panel(title, about or short, audience=audience):
+                yield
+            return
+        is_open = self.opened.is_open(key) if opened is None else opened
+        with folding_panel(title, short, opened=is_open, audience=audience, about=about) as expansion:
+            expansion.mark(f'part-{key}')
+            expansion.on_value_change(lambda e: self.opened.set(key, bool(e.value)))
+            yield
 
     # -- for other pages ---------------------------------------------------------------
 
@@ -226,7 +258,7 @@ class ProfileSection(Generic[P]):
             self.store.save(item)
             picture.refresh()
 
-        picker = file_picker(handle_file, accept='image/*')
+        picker = file_picker(handle_file, accept='image/*').mark('picture-upload')
 
         @ui.refreshable
         def picture() -> None:

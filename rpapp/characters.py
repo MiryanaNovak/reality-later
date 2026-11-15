@@ -4,7 +4,9 @@
       "id": "seraphina-3f9a2c",
       "title": "Seraphina (forest guardian)",  <- only shown in this app
       "name": "Seraphina",                     <- used in the chat
-      "description": "...",                    <- what they're about: only for you, never sent
+      "tags": ["fantasy", "forest"],           <- only for you (and in its card): normalized as shared cards' are
+      "summary": "...",                        <- what they're about, in a sentence or two, plain text
+      "description": "...",                    <- as long as one likes: Markdown, basic HTML, its own pictures
       "scenario": "...",                       <- all the AI is told about them and the story
       "first_messages": ["...", "..."],        <- how a chat can open; at least one
       "example_dialogues": ["...", "..."],     <- short exchanges showing how they speak and act
@@ -15,21 +17,34 @@
     }
 
 Title, name, picture, description and lore books come from profiles.py,
-shared with personas. Which connection and prompt a chat uses: chat_setup.py.
+shared with personas. The summary and the description are only for people,
+never sent to the AI: descriptions.py. Which connection and prompt a chat uses:
+chat_setup.py.
+
+Version 1 had one text for people, the short one: it's the summary now (the
+description starts empty).
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator, model_validator
 
+from .descriptions import pictures_in
 from .profiles import Profile, ProfileStore
+from .publishing.announcements import normalize_tags
 from .settings import ConnectionRef, PromptChoice
 
 
 class Character(Profile):
+    format_version: int = 2
     title: str = 'New character'
+    # For people only: on its card in the list, and announced with it when it's published (descriptions.py).
+    # The description (Profile's) is the long one.
+    summary: str = ''
+    tags: list[str] = Field(default_factory=list)  # as shared cards have them: lowercase, 20 at most
     scenario: str = ''
     first_messages: list[str] = Field(default_factory=lambda: [''], min_length=1)
     # Each one a few lines like "{{user}}: ..." / "{{char}}: ...". Sent as examples of style, not as
@@ -43,6 +58,24 @@ class Character(Profile):
     # its own still (chat_setup.py). Not in the cards exported: they're this app's, and this computer's.
     connection: ConnectionRef | None = None
     prompt: PromptChoice | None = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def _upgrade(cls, data: Any) -> Any:
+        """Version 1's description was the short one: it's the summary now."""
+        if isinstance(data, dict) and isinstance(data.get('format_version'), int) and data['format_version'] < 2 \
+                and 'summary' not in data:
+            data = {**data, 'summary': data.get('description') or '', 'description': '', 'format_version': 2}
+        return data
+
+    @field_validator('tags')
+    @classmethod
+    def _normalized(cls, tags: list[str]) -> list[str]:
+        return list(normalize_tags(tags))
+
+    def pictures(self) -> set[str]:
+        """Its picture's files, and those its description shows."""
+        return super().pictures() | pictures_in(self.description)
 
 
 def new_character(title: str) -> Character:

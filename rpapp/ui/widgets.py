@@ -60,14 +60,28 @@ def audience_tag(audience: Audience) -> ui.row:
 
 
 @contextmanager
-def folding_panel(title: str, caption: str = '', *, opened: bool = False) -> Iterator[None]:
-    """A group of fields that folds away; closed until you open it, unless `opened`."""
-    with ui.expansion(title, caption=caption or None, value=opened).classes('panel fold') as expansion:
+def folding_panel(title: str, caption: str = '', *, opened: bool = False, audience: Audience | None = None,
+                  about: str = '') -> Iterator[ui.expansion]:
+    """A group of fields that folds away; closed until you open it, unless `opened`. `caption`: a line under
+    the title; `audience`: a tag beside it saying whether the AI gets what's in it; `about`: a longer
+    explanation, at the top inside."""
+    plain = audience is None  # (else: its own header, with the tag)
+    with ui.expansion(title if plain else '', caption=(caption or None) if plain else None,
+                      value=opened).classes('panel fold') as expansion:
+        if audience:
+            with expansion.add_slot('header'), ui.item_section().classes('min-w-0'):
+                with ui.row().classes('items-center gap-x-2 gap-y-1'):
+                    ui.label(title).classes('fold-title')
+                    audience_tag(audience)
+                if caption:
+                    ui.label(caption).classes('fold-caption')
         # Text areas that grow with their text can't measure it while folded away: have them do it on opening.
         expansion.on('after-show', js_handler=f'() => getElement({expansion.id}).$el.querySelectorAll("textarea")'
                                               '.forEach(t => t.dispatchEvent(new Event("input")))')
         with ui.column().classes('w-full gap-3'):
-            yield
+            if about:
+                ui.label(about).classes('muted text-sm')
+            yield expansion
 
 
 async def confirm(title: str, text: str, action_label: str, *, danger: bool = True, warning: str = '') -> bool:

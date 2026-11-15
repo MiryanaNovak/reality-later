@@ -108,7 +108,7 @@ async def test_recent_conversations_and_characters(home):
     for i, title in enumerate(['Seraphina', 'Hale', 'Wren']):
         character = new_character(title)
         character.created_at = datetime(2026, 10, 1, tzinfo=timezone.utc) + timedelta(days=i)
-        character.description = f'About {title}.'
+        character.summary = f'About {title}.'
         characters.save(character)
         cast.append(character)
     old = conversations.start(cast[0], mira)

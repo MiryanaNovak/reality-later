@@ -98,6 +98,7 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
         _sharing(data_dir, settings_store, sharing_relays, key_folder=server.config.folder)
     characters = CharactersSection(CharacterStore(data_dir), lore_books, conversation_store, personas,
                                    sharing=shared)
+    characters.store.sweep_pictures()  # (those descriptions stopped showing, since the app last started)
     shared.characters = characters.store
     shared.card_fingerprint = characters.card_fingerprint  # (Your publications: whether a card's character
     shared.card_export = lambda c: characters.export_card(c)[0]  # changed since it was published)

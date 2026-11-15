@@ -12,7 +12,8 @@ from rpapp.settings import Settings
 def cast():
     character = new_character('Seraphina')
     character.scenario = 'Guardian of the glade.'
-    character.description = 'Only for the user.'  # never sent
+    character.summary = 'Only for the user.'  # never sent
+    character.description = 'Nor this one.'
     persona = new_persona('Mira')
     return character, persona
 

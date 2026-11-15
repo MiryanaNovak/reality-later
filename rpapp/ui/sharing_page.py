@@ -15,8 +15,9 @@ A downloaded card's character says where it came from, on its page (character_no
 or a newer version out.
 
 Publishing starts from a character's ⋮ menu (publish_dialog(), from characters_page.py): the card's name,
-description, tags, rating and language, then the card file exported as for Export (with the card's UUID
-in it, so that publishing it again makes a new version). The first time, a wizard comes first: what
+description (the character's summary), tags (the character's: both changed there too), rating and language,
+then the card file exported as for Export (with the card's UUID in it, so that publishing it again makes a new
+version). The first time, a wizard comes first: what
 publishing means (agreed to), the publisher key (made or imported, and backed up: there's no recovering
 it), how the file is shared (the port, the router). Settings › Sharing cards has all of it too.
 
@@ -114,11 +115,11 @@ def rejected_text(e: Rejected) -> str:
         'too_long:title': f'The card\'s name is too long: {fmt.MAX_TITLE} characters at most.',
         'empty:publisher': 'Give your publisher name.',
         'too_long:publisher': f'Your publisher name is too long: {fmt.MAX_PUBLISHER} characters at most.',
-        'too_long:description': f'The description is too long: {fmt.MAX_DESCRIPTION_BYTES // 1024} KB at most '
+        'too_long:description': f'The summary is too long: {fmt.MAX_DESCRIPTION_BYTES // 1024} KB at most '
                                 f'(about {fmt.MAX_DESCRIPTION_BYTES // 1000},000 letters).',
         'file_too_big': f'The card\'s file is too big to share: {megabytes(fmt.MAX_FILE_BYTES)} at most.',
-        'control_character': 'The name or the description has invisible control characters: remove them.',
-        'too_large': 'Its announcement would be too big: shorten the description, or remove tags.',
+        'control_character': 'The name or the summary has invisible control characters: remove them.',
+        'too_large': 'Its announcement would be too big: shorten the summary, or remove tags.',
     }.get(e.code, f'It can\'t be published ({e}).')
 
 
@@ -1424,15 +1425,19 @@ class SharingSection:
                 .props(f'outlined maxlength={fmt.MAX_PUBLISHER}').classes('w-full').mark('publish-publisher')
             ui.label('Shown with all your cards. Names aren\'t unique: your key tells you apart.') \
                 .classes('text-sm muted -mt-3')
+            # The character's own summary and tags (else, from before it had them, what was announced last)
             fields['description'] = ui.textarea(
-                'Description', value=last.card_description if last else character.description.strip()) \
-                .props('outlined autogrow').classes('w-full').mark('publish-description')
-            ui.label('What people read before downloading it.').classes('text-sm muted -mt-3')
-            fields['tags'] = keep_typed(ui.input_chips('Tags', value=list(last.card_tags) if last else [],
-                                                       new_value_mode='add-unique'), split=',') \
+                'Summary', value=character.summary.strip() or (last.card_description if last else '')) \
+                .props(f'outlined autogrow maxlength={fmt.MAX_DESCRIPTION_BYTES}').classes('w-full') \
+                .mark('publish-description')
+            ui.label('What people read before downloading it: the character\'s summary (changed here, it\'s '
+                     'changed there too).').classes('text-sm muted -mt-3')
+            fields['tags'] = keep_typed(ui.input_chips(
+                'Tags', value=list(character.tags) or (list(last.card_tags) if last else []),
+                new_value_mode='add-unique'), split=',') \
                 .props('outlined dense clearable hide-bottom-space').classes('w-full').mark('publish-tags')
             ui.label(f'Press Enter after each, or separate them with commas: {fmt.MAX_CARD_TAGS} at most, '
-                     f'e.g. fantasy, romance, sci-fi.').classes('text-sm muted -mt-3')
+                     f'e.g. fantasy, romance, sci-fi. The character\'s tags.').classes('text-sm muted -mt-3')
             with ui.row().classes('w-full items-center gap-x-6 gap-y-1'):
                 with ui.column().classes('gap-0'):
                     ui.label('Rated').classes('text-sm muted')
@@ -1467,25 +1472,31 @@ class SharingSection:
                                      card_description=fields['description'].value or '',
                                      card_tags=tuple(fields['tags'].value or ()), content_rating=rating,
                                      language=fields['language'].value or None)
+            before = (character.shared_uuid, character.summary, list(character.tags))
+
+            def undo() -> None:
+                character.shared_uuid, character.summary, character.tags = before
+
             given = not character.shared_uuid
             if given:  # (in the card file too: publishing it again, here or elsewhere, makes a new version)
                 character.shared_uuid = fmt.new_card_uuid()
+            # What's announced is the character's, in its card too
+            character.summary = fmt.tidy(draft.card_description).strip()
+            character.tags = list(fmt.normalize_tags(draft.card_tags))
             fields['button'].props('loading')
             try:
                 content = await asyncio.to_thread(export, character)
                 published = await sharing.publish(draft, content, card_uuid=character.shared_uuid)
             except (Rejected, SharingError) as e:
-                if given:
-                    character.shared_uuid = ''
+                undo()
                 return failed(rejected_text(e) if isinstance(e, Rejected) else str(e))
             except Exception as e:  # (the disk, the card's picture...)
                 log.exception('Publishing %s failed', character.id)
-                if given:
-                    character.shared_uuid = ''
+                undo()
                 return failed(f'It couldn\'t be published: {e}')
             finally:
                 fields['button'].props(remove='loading')
-            if given:
+            if (character.shared_uuid, character.summary, list(character.tags)) != before:
                 save(character)
             if fingerprint is not None:  # (what it was published from, as it was)
                 await sharing.call(sharing.catalog.record_source, published.publication.event_id, character.id,

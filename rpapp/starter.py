@@ -162,7 +162,7 @@ def freeze(source: str | Path, starter: str | Path = STARTER_DIR) -> Report:
             _write(target / f'{item.id}.json', item)
             report.items.setdefault(folder, []).append(item.label)
         if has_pictures:
-            for name in sorted({name for item in items for name in (item.image, item.image_full) if name}):
+            for name in sorted({name for item in items for name in item.pictures()}):  # (descriptions' too)
                 picture = source / folder / 'images' / name
                 if picture.is_file():
                     (target / 'images').mkdir(exist_ok=True)

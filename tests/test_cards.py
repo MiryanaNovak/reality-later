@@ -82,7 +82,9 @@ def test_v2():
         tags=['fantasy'], personality='')))
     c = card.character
     assert card.version == 'V2'
-    assert c.description == 'A gentle guardian.\nBest with long replies.'  # plain text, for the list
+    assert c.description == '<p>A gentle guardian.<br>Best with <b>long</b> replies.</p>'  # as it is, but outside pictures
+    assert c.summary == 'A gentle guardian.'  # its first sentence, as plain text
+    assert c.tags == ['fantasy']
     assert c.scenario == 'A forest guardian.\n\nScenario: {{user}} wakes up in the glade.'  # no empty personality
     assert c.first_messages == ['*She smiles.* "You\'re awake."', '*She waves.*']
     assert 'Ignored' not in json.dumps(c.model_dump(mode='json'))  # fields with no place here are left out
@@ -213,7 +215,9 @@ def seraphina_here():
     from rpapp.characters import new_character
     c = new_character('Seraphina (forest guardian)')
     c.name = 'Seraphina'
-    c.description = 'A gentle guardian, for long chats.'
+    c.summary = 'A gentle guardian, for long chats.'
+    c.description = '# Seraphina\n\nThe guardian of the **Eldwood**.'
+    c.tags = ['Fantasy', 'slow burn']
     c.scenario = '{{char}} guards the glade.\n\n{{user}} wakes up there.'
     c.first_messages = ['*She smiles.*', '  ', '*She waves.*']
     c.example_dialogues = ['{{user}}: Hi.\n{{char}}: Hello.', '', '{{char}}: Rest now.']
@@ -231,7 +235,9 @@ def test_what_a_card_holds():
     assert data['name'] == 'Seraphina'  # the title is only for you
     assert data['description'] == '{{char}} guards the glade.\n\n{{user}} wakes up there.'  # the scenario
     assert (data['personality'], data['scenario']) == ('', '')
-    assert data['creator_notes'] == 'A gentle guardian, for long chats.'
+    assert data['creator_notes'] == '# Seraphina\n\nThe guardian of the **Eldwood**.'  # the description
+    assert data['tags'] == ['fantasy', 'slow-burn']  # (kept so: as shared cards have them)
+    assert data['extensions'] == {'reality_later': {'summary': 'A gentle guardian, for long chats.'}}
     assert (data['first_mes'], data['alternate_greetings']) == ('*She smiles.*', ['*She waves.*'])
     assert data['mes_example'] == '<START>\n{{user}}: Hi.\n{{char}}: Hello.\n<START>\n{{char}}: Rest now.'
     assert {k: card[k] for k in ('name', 'description', 'first_mes')} == \
@@ -249,7 +255,8 @@ def test_export_then_import_gives_the_same_character():
     back = read_card('Seraphina.png', png)
     c = back.character
     assert back.version == 'V2' and c.title == c.name == 'Seraphina'
-    assert (c.description, c.scenario) == (original.description, original.scenario)
+    assert (c.summary, c.description, c.tags, c.scenario) == \
+        (original.summary, original.description, original.tags, original.scenario)
     assert c.first_messages == ['*She smiles.*', '*She waves.*']
     assert c.example_dialogues == ['{{user}}: Hi.\n{{char}}: Hello.', '{{char}}: Rest now.']
 

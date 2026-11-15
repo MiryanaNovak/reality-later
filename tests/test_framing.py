@@ -126,7 +126,7 @@ async def test_framing_in_the_editor(tmp_path):
     async with user_simulation(build_root(tmp_path)) as user:
         await user.open(f'/characters/{hale.id}')
         await user.should_see('Add picture')
-        picker = user.find(ui.upload).elements.pop()
+        picker = user.find(marker='picture-upload').elements.pop()
         await picker.handle_uploads([SmallFileUpload(name='hale.png', content_type='image/png', _data=portrait())])
         await user.should_see(marker='frame-dialog', retries=40)
         await user.should_see('Frame the new picture')

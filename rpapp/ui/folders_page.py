@@ -11,14 +11,10 @@ AI never knows of them.
   - the search goes through them all, saying which folder each one found is in.
 
 The folders open are kept while you go to an item and back (for the browser tab), and in a cookie (for the
-device), as appearance.py keeps the look. folder_links() is the same, folded, for choosing one (the new
-chat's persona picker).
+device: opened.py). folder_links() is the same, folded, for choosing one (the new chat's persona picker).
 """
 from __future__ import annotations
 
-import json
-import re
-import weakref
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -28,13 +24,11 @@ from ..folders import NAME_MAX, Folder, FolderError
 from ..profiles import P
 from .form import error_text
 from .list_view import Action, actions_menu, plural, render_card
+from .opened import Opened
 from .widgets import ask_name, confirm, page_bar
 
 if TYPE_CHECKING:
     from .profile_page import ProfileSection
-
-COOKIE_DAYS = 400
-_opened: weakref.WeakKeyDictionary[Any, dict[str, set[str]]] = weakref.WeakKeyDictionary()
 
 
 class FolderPage:
@@ -43,7 +37,7 @@ class FolderPage:
         self.section = section
         self.folders = section.folders
         self.noun = section.noun
-        self.cookie = f'rp_{section.noun}_folders'
+        self.opened = Opened(f'rp_{section.noun}_folders')
 
     def build(self) -> None:
         pages, collection = self.section.pages, self.section.collection
@@ -253,21 +247,10 @@ class FolderPage:
 
     def _open(self) -> set[str]:
         """The folders open on this browser tab's page (from the device's cookie, the first time)."""
-        client = ui.context.client
-        tabs = _opened.setdefault(client, {})
-        if self.cookie not in tabs:
-            request = client.request
-            value = request.cookies.get(self.cookie, '') if request is not None else ''
-            tabs[self.cookie] = {v for v in value.split('.') if re.fullmatch(r'[a-z0-9-]{1,64}', v)}
-        return tabs[self.cookie]
+        return self.opened.keys()
 
     def _set_open(self, folder_id: str, is_open: bool) -> None:
-        opened = self._open()
-        if (folder_id in opened) == is_open:
-            return
-        (opened.add if is_open else opened.discard)(folder_id)
-        cookie = f'{self.cookie}={".".join(sorted(opened))}; path=/; max-age={COOKIE_DAYS * 86400}; samesite=lax'
-        ui.run_javascript(f'document.cookie = {json.dumps(cookie)}')
+        self.opened.set(folder_id, is_open)
 
 
 def folder_links(section: ProfileSection[P], on_click: Callable[[P], Any]) -> None:

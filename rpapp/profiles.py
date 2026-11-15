@@ -9,9 +9,15 @@ it with their own fields; ProfileStore saves them with their pictures:
 
 A lore book is referenced by its id, and its name is remembered too: if the
 book is deleted later, the profile can still say which one is missing.
+
+A picture file goes when no profile uses it any more (pictures(): a
+character's description has some too). Those a description stops showing,
+when its text is edited, go the next time the app starts (sweep_pictures):
+until then, undoing the edit brings them back.
 """
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -22,6 +28,8 @@ from pydantic import BaseModel, Field
 
 from .images import ImageStore
 from .storage import JsonStore, StoredModel
+
+log = logging.getLogger(__name__)
 
 
 class LoreBookRef(BaseModel):
@@ -81,6 +89,10 @@ class Profile(StoredModel):
 
     def missing_lorebooks(self, exists: Callable[[str], bool]) -> list[LoreBookRef]:
         return [ref for ref in self.lorebooks if not exists(ref.id)]
+
+    def pictures(self) -> set[str]:
+        """The files of the image folder it uses."""
+        return {name for name in (self.image, self.image_full) if name}
 
 
 P = TypeVar('P', bound=Profile)
@@ -145,8 +157,26 @@ class ProfileStore(JsonStore[P]):
 
     def release_image(self, name: str) -> None:
         """Delete a picture file unless a profile of this store still uses it."""
-        if name and not any(name in (p.image, p.image_full) for p in self.list()):
+        if name and not any(name in p.pictures() for p in self.list()):
             self.images.delete(name)
+
+    def sweep_pictures(self) -> int:
+        """Delete the picture files no profile uses (one a description stopped showing): none if a profile's file
+        can't be read, as what it uses is unknown then. How many went."""
+        self.flush()
+        used: set[str] = set()
+        for path in self.folder.glob('*.json'):
+            try:
+                used |= self._load_file(path).pictures()
+            except (OSError, ValueError):
+                log.warning('Pictures not swept: %s can\'t be read', path)
+                return 0
+        removed = 0
+        for path in self.images.folder.iterdir():
+            if path.name not in used and self.images.path(path.name) is not None:
+                path.unlink(missing_ok=True)
+                removed += 1
+        return removed
 
     def using_lorebook(self, book_id: str) -> list[P]:
         """The profiles that link to this lore book, sorted by title."""
@@ -160,5 +190,5 @@ class ProfileStore(JsonStore[P]):
         profile = self.get(item_id)
         super().delete(item_id)
         if profile:
-            self.release_image(profile.image)
-            self.release_image(profile.image_full)
+            for name in profile.pictures():
+                self.release_image(name)

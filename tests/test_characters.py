@@ -93,23 +93,23 @@ async def test_create_and_edit(setup):
 
     by_label(user, ui.input)['Name'].set_value('Seraphina')
     areas = by_label(user, ui.textarea)
-    areas['Description'].set_value('Guardian of the glade. Kind, but fierce when needed.')
+    areas['Summary'].set_value('Guardian of the glade. Kind, but fierce when needed.')
     areas['Scenario'].set_value('{{user}} wakes up wounded in Seraphina\'s glade.')
     await user.should_see('47 characters, about 14 tokens')
-    await user.should_see('52 characters')  # the description: no tokens, it's never sent
+    await user.should_see('52 characters · 0.1 of 16 KB')  # the summary: no tokens, it's never sent
     # Each part says who gets it.
     await user.should_see(marker='audience-legend')
     await user.should_see('Name, Scenario, First messages, Example dialogues, Lore books')
-    await user.should_see('Title, Picture, Description')
+    await user.should_see('Title, Picture, Tags, Summary, Description')
     assert len(user.find(marker='audience-ai').elements) == 5   # intro, Scenario, First and example, Lore
-    assert len(user.find(marker='audience-you').elements) == 2  # intro, Description
+    assert len(user.find(marker='audience-you').elements) == 3  # intro, Summary, Description
     await user.should_see('The AI never sees it.')
     message_box(user, 0).set_value('*She smiles.* "You\'re awake."')
     by_label(user, ui.select)['Add a lore book'].set_value(eldoria.id)
     await user.should_see(marker=f'lorebook-{eldoria.id}')
 
     saved = store.load(character.id)
-    assert saved.name == 'Seraphina' and saved.description.startswith('Guardian')
+    assert saved.name == 'Seraphina' and saved.summary.startswith('Guardian') and saved.description == ''
     assert saved.scenario.startswith('{{user}}') and saved.first_messages == ['*She smiles.* "You\'re awake."']
     assert [r.name for r in saved.lorebooks] == ['Eldoria']
 
@@ -179,7 +179,7 @@ async def test_picture_and_missing_lore_book(setup):
 
     await user.open(f'/characters/{character.id}')
     await user.should_see('Lore book "Ashfall Isles" is missing')
-    picker = user.find(ui.upload).elements.pop()
+    picker = user.find(marker='picture-upload').elements.pop()
     await picker.handle_uploads([SmallFileUpload(name='wren.png', content_type='image/png', _data=png())])
     await until(lambda: store.load(character.id).image != '')
     image = store.load(character.id).image
