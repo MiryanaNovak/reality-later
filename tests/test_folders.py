@@ -328,3 +328,20 @@ async def test_each_folder_says_how_many_it_holds(characters_page):
     with user.scope(marker=f'folder-{one.id}'):
         user.find(marker='menu-delete-folder').click()
     await user.should_see('Its 1 character stays: in no folder any more.')
+
+
+async def test_cards_in_no_folder_line_up_with_the_folders(characters_page):
+    """Under folders, the grid of those in none is as wide as theirs: cards of the same size, in the same columns."""
+    user, folders, c, store = characters_page
+
+    def grids():
+        return [e for e in user.client.layout.descendants() if 'item-grid' in e.classes]
+
+    await user.open('/characters')
+    await user.should_see(marker=f'row-{c["Wren"].id}')
+    assert ['inset' in g.classes for g in grids()] == [False]  # (no folders: the whole width)
+    fantasy = folders.create('Fantasy')
+    folders.put(c['Seraphina'].id, fantasy.id)
+    await user.open('/characters')
+    await user.should_see(marker=f'folder-{fantasy.id}')
+    assert ['inset' in g.classes for g in grids()] == [False, True]  # (the folder's, then the rest)

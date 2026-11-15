@@ -113,13 +113,13 @@ class FolderPage:
                         .classes('muted text-sm')
 
         unfiled = [item for item in items if item.id not in folder_of]
-        if unfiled:
-            self._grid(unfiled, folder_of, refresh)
+        if unfiled:  # (under folders: as wide as theirs, for cards of the same size, in the same columns)
+            self._grid(unfiled, folder_of, refresh, inset=bool(folders))
 
     def _grid(self, items: list, folder_of: dict[str, Folder], refresh: Callable[[], None], *,
-              with_folder: bool = False) -> None:
+              with_folder: bool = False, inset: bool = False) -> None:
         section = self.section
-        with ui.element('div').classes('item-grid'):
+        with ui.element('div').classes('item-grid' + (' inset' if inset else '')):
             for item in items:
                 folder = folder_of.get(item.id)
                 row = section.card(item)

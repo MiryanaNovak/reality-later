@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, Generic, Literal, TypeVar
 
@@ -63,8 +64,9 @@ class Row:
     note: str = ''          # an extra small line, e.g. where the item is used
     warning: str = ''       # a problem to point out, shown in red
     link: Link | None = None    # a clickable line under the title
-    body: str = ''          # grid cards: a text shown in full, under the title
+    body: str = ''          # grid cards: a text under the title (in full; with `golden`, as much as fits, then …)
     button: Link | None = None  # grid cards: a button at the bottom
+    golden: bool = False    # grid cards: all as high, whatever they hold (the golden ratio's: see theme.py)
 
 
 @dataclass
@@ -196,8 +198,11 @@ def render_row(item: T, row: Row, *, key: str, on_open: Callable[[T], Any] | Non
 
 def render_card(item: T, row: Row, *, key: str, on_open: Callable[[T], Any] | None = None,
                 actions: Sequence[Action[T]] = ()) -> ui.element:
-    with ui.element('div').classes('grid-card' + (' opacity-60' if row.dimmed else '')) \
-            .mark(f'row-{key}').props('tabindex=0') as card:
+    """A picture card. `row.golden`: of a fixed height, whatever it holds: under the picture, the golden ratio
+    times its height; its title on two lines at most, its body cut with … where the card ends (theme.py's
+    rpFitCards), its button at the bottom."""
+    classes = 'grid-card' + (' golden' if row.golden else '') + (' opacity-60' if row.dimmed else '')
+    with ui.element('div').classes(classes).mark(f'row-{key}').props('tabindex=0') as card:
         if on_open:
             card.on('click', lambda: on_open(item))
             card.on('keydown.enter', lambda: on_open(item))
@@ -207,30 +212,42 @@ def render_card(item: T, row: Row, *, key: str, on_open: Callable[[T], Any] | No
                     .classes('w-full h-full')
             else:
                 ui.label(initials(row.title)).classes('grid-card-initials')
-        with ui.row().classes('w-full items-start no-wrap gap-0 pl-3 pr-1 pt-2'):
-            with ui.column().classes('min-w-0 grow gap-0'):
-                ui.label(row.title).classes('grid-card-title')
-                if row.subtitle:
-                    ui.label(row.subtitle).classes('text-sm muted truncate w-full')
-                if row.link:
-                    _link(row.link)
-                if row.note:
-                    ui.label(row.note).classes('text-xs muted truncate w-full row-note')
-                if row.warning:
-                    with ui.row().classes('items-center no-wrap gap-1 text-negative text-xs mt-1'):
-                        ui.icon('error_outline', size='1.1em')
-                        ui.label(row.warning)
-            if actions:
-                actions_menu(item, actions)
-        if row.body:
-            ui.label(row.body).classes('grid-card-body')
-        if row.button:
-            ui.button(row.button.label, icon=row.button.icon or None, on_click=row.button.handler) \
-                .props('outline dense').classes('grid-card-button').on('click.stop', js_handler=NO_BUBBLE) \
-                .mark(row.button.marker or f'button-{slug(row.button.label)}')
-        else:
-            ui.element('div').classes('pb-2')
+        with ui.element('div').classes('grid-card-under') if row.golden else nullcontext():
+            _card_text(item, row, actions)
     return card
+
+
+def _card_text(item: T, row: Row, actions: Sequence[Action[T]]) -> None:
+    """What's under a card's picture."""
+    with ui.row().classes('w-full items-start no-wrap gap-0 pl-3 pr-1 pt-2 grid-card-head'):
+        with ui.column().classes('min-w-0 grow gap-0'):
+            title = ui.label(row.title).classes('grid-card-title')
+            if row.golden:
+                title.props['title'] = row.title  # (in full, when it's cut)
+            if row.subtitle:
+                ui.label(row.subtitle).classes('text-sm muted truncate w-full')
+            if row.link:
+                _link(row.link)
+            if row.note:
+                ui.label(row.note).classes('text-xs muted truncate w-full row-note')
+            if row.warning:
+                with ui.row().classes('items-center no-wrap gap-1 text-negative text-xs mt-1'):
+                    ui.icon('error_outline', size='1.1em')
+                    ui.label(row.warning)
+        if actions:
+            actions_menu(item, actions)
+    if row.golden:  # (the room left, even empty: the button stays at the bottom)
+        with ui.element('div').classes('grid-card-body'):
+            if row.body:
+                ui.label(row.body).classes('grid-card-text')
+    elif row.body:
+        ui.label(row.body).classes('grid-card-body')
+    if row.button:
+        ui.button(row.button.label, icon=row.button.icon or None, on_click=row.button.handler) \
+            .props('outline dense').classes('grid-card-button').on('click.stop', js_handler=NO_BUBBLE) \
+            .mark(row.button.marker or f'button-{slug(row.button.label)}')
+    else:
+        ui.element('div').classes('pb-2')
 
 
 def actions_menu(item: T, actions: Sequence[Action[T]]) -> None:

@@ -82,7 +82,7 @@ async def test_new_chat_from_a_character_card(setup):
 
     await user.open('/characters')
     with user.scope(marker=f'row-{seraphina.id}'):
-        await user.should_see('Guardian of the glade.\nGentle, but fierce when needed.')  # in full
+        await user.should_see('Guardian of the glade.\nGentle, but fierce when needed.')  # (cut to fit, in a browser)
         await user.should_see('No conversations yet')
         user.find(marker='new-chat').click()
     await user.should_see(marker='persona-picker')

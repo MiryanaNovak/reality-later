@@ -126,6 +126,7 @@ HEAD = f'''
   .panel.fold > .q-expansion-item__container > .q-item {{ padding: 14px 18px; border-radius: 14px; }}
   .panel.fold .q-expansion-item__content {{ padding: 0; }}
   .panel.fold .nicegui-expansion-content {{ padding: 4px 18px 18px; }}
+  .item-grid.inset {{ padding: 0 19px; }}  /* (as a folder's grid is: its border, then its padding above) */
   .panel.fold > .q-expansion-item__container > .q-item .q-item__label {{ font-weight: 600; font-size: 1.05rem; }}
   .panel.fold > .q-expansion-item__container > .q-item .q-item__label--caption {{
     font-weight: 400; font-size: .85rem; color: var(--muted);
@@ -169,6 +170,22 @@ HEAD = f'''
     flex-grow: 1;
   }}
   .grid-card-button {{ margin: 10px 12px 12px; }}
+  /* A character's card (list_view's Row.golden): its height fixed by the golden ratio, whatever it holds. Under
+     its square picture, φ (1.618…) times the picture's height: the whole card is 1 + φ = φ² (2.618…) times as
+     high as it's wide. The title takes two lines at most; the summary, the room left, cut with … (rpFitCards,
+     below); the button stays at the bottom. */
+  .grid-card.golden {{ aspect-ratio: 1 / 2.6180339887; min-height: 0; box-sizing: content-box; }}  /* (in its border) */
+  .grid-card.golden > * {{ box-sizing: border-box; }}  /* (what's in it, as everywhere: Quasar has them inherit it) */
+  .grid-card.golden > .grid-card-image {{ flex: none; }}
+  .grid-card-under {{ flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }}
+  .grid-card.golden .grid-card-head {{ flex: 0 1 auto; min-height: 0; overflow: hidden; }}
+  .grid-card.golden .grid-card-title {{
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }}
+  .grid-card.golden .row-note {{ white-space: normal; }}  /* ("No conversations yet": whole, on phones too) */
+  .grid-card.golden .grid-card-body {{ flex: 1 1 0; min-height: 0; overflow: hidden; }}
+  .grid-card-text {{ display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; }}
+  .grid-card.golden .grid-card-button {{ flex: none; }}
   .card-link {{
     color: var(--q-primary); font-size: .85rem; font-weight: 500; cursor: pointer; width: fit-content;
     border-radius: 6px;
@@ -461,6 +478,36 @@ HEAD = f'''
     area.value = text; area.setAttribute('readonly', ''); area.style.position = 'fixed'; area.style.opacity = '0';
     document.body.appendChild(area); area.select(); document.execCommand('copy'); area.remove();
   }};
+  // Characters' cards (Row.golden): their summary cut with "…" at the last line that fits in the card. CSS can
+  // only cut at a given number of lines: that number is worked out here, again whenever the card's size changes
+  // (another width, a folder opened...). Each new card is found as it's added to the page.
+  (() => {{
+    const fit = (box) => {{
+      const text = box.firstElementChild;
+      if (!text) return;
+      const line = parseFloat(getComputedStyle(text).lineHeight) || 18;
+      const room = box.clientHeight - (parseFloat(getComputedStyle(box).paddingTop) || 0);
+      const lines = Math.floor((room + 0.5) / line);
+      text.style.webkitLineClamp = String(Math.max(lines, 1));
+      text.style.visibility = lines >= 1 ? '' : 'hidden';
+    }};
+    const sizes = new ResizeObserver((entries) => entries.forEach((entry) => fit(entry.target)));
+    const watch = (node) => {{
+      if (node.nodeType !== 1) {{
+        const box = node.parentElement && node.parentElement.closest('.golden .grid-card-body');
+        if (box) fit(box);  // (its text changed)
+        return;
+      }}
+      const boxes = node.matches('.golden .grid-card-body') ? [node] : node.querySelectorAll('.golden .grid-card-body');
+      boxes.forEach((box) => {{
+        if (!box.rpFitted) {{ box.rpFitted = true; sizes.observe(box); }} else fit(box);
+      }});
+      const inside = node.parentElement && node.parentElement.closest('.golden .grid-card-body');
+      if (inside) fit(inside);
+    }};
+    new MutationObserver((changes) => changes.forEach((change) => change.addedNodes.forEach(watch)))
+      .observe(document.documentElement, {{ childList: true, subtree: true }});
+  }})();
 </script>
 '''
 

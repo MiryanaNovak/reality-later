@@ -217,3 +217,33 @@ def test_the_size_said_is_the_cards(tmp_path):
     assert section.card_size(character) == len(section.export_card(character)[0])
     character.description = ''  # (the summary stands for it then)
     assert section.card_size(character) == len(section.export_card(character)[0])
+
+
+async def test_the_cards_are_all_as_high(page, tmp_path):
+    """Of the golden ratio's height whatever they hold (theme.py): the summary in a box of its own, cut in the
+    browser; the title on two lines at most, in full as its tooltip."""
+    from rpapp.conversations import ConversationStore
+    from rpapp.personas import PersonaStore, new_persona
+    user, store, sera, hale = page
+    sera.summary = 'A guardian. ' * 40
+    store.save(sera)
+    mira = new_persona('Mira')
+    PersonaStore(tmp_path).save(mira)
+    ConversationStore(tmp_path).start(sera, mira)
+    await user.open('/characters')
+    await user.should_see(marker=f'row-{sera.id}')
+    card, empty = one(user, f'row-{sera.id}'), one(user, f'row-{hale.id}')
+    assert 'golden' in card.classes and 'golden' in empty.classes
+    texts = [e for e in card.descendants() if 'grid-card-text' in e.classes]
+    assert len(texts) == 1 and texts[0].text == sera.summary.strip()
+    assert any('grid-card-body' in e.classes for e in empty.descendants())  # (even empty: the button stays down)
+    [title] = [e for e in card.descendants() if 'grid-card-title' in e.classes]
+    assert title.props['title'] == 'Seraphina'
+    with user.scope(marker=f'row-{sera.id}'):
+        await user.should_see('1 conversation')
+    with user.scope(marker=f'row-{hale.id}'):
+        await user.should_see('No conversations yet')
+
+    await user.open('/personas')  # (theirs aren't: nothing under their picture but their names)
+    await user.should_see(marker=f'row-{mira.id}')
+    assert 'golden' not in one(user, f'row-{mira.id}').classes

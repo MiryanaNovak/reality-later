@@ -1,8 +1,10 @@
 """The Characters section, built on the shared profile page (profile_page.py).
 
     /characters                 their folders (folders_page.py), each folding open onto its characters' cards,
-                                then the characters in none; each card with its conversation count and a
-                                New chat button (whose persona picker shows the personas' folders);
+                                then the characters in none. Each card is as high as the others, whatever
+                                it holds (the golden ratio's: theme.py): its conversation count, its summary
+                                cut to fit, a New chat button at the bottom (whose persona picker shows the
+                                personas' folders);
                                 Import reads a character card (PNG, JSON or CharX, V1 to V3: see cards.py),
                                 Export (in each character's ⋮ menu) writes one as a PNG (V2)
     /characters/<character id>  one character: picture, title, name and tags; then, each folding away
@@ -193,6 +195,7 @@ class CharactersSection(ProfileSection[Character]):
         else:
             row.note = 'No conversations yet'
         row.body = character.summary.strip()
+        row.golden = True  # (all as high: the summary cut where the card ends)
         row.button = Link('New chat', icon='add_comment', marker='new-chat',
                           handler=lambda: self.new_chat(character))
         return row
