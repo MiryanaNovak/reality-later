@@ -19,7 +19,7 @@ from nicegui import ui
 
 from ..conversations import ChatMessage
 from ..replies import ReplyDetails
-from .widgets import folding_panel
+from .widgets import Dialog, folding_panel
 
 FINISH = {
     'stop': 'It finished on its own.',
@@ -33,7 +33,7 @@ def show_reply_details(details: ReplyDetails | None, message: ChatMessage, *, ti
                        open_prompt: Callable[[], None] | None, version: str = '') -> None:
     """`open_prompt`: shows the prompt the reply was written from (None if it's gone).
     `version`: which version of the reply this is ('Version 2 of 3'), if there are several."""
-    with ui.context.client.layout, ui.dialog() as dialog, \
+    with ui.context.client.layout, Dialog() as dialog, \
             ui.card().classes('dialog-card prompt-card').mark('reply-dialog'):
         with ui.row().classes('w-full items-center no-wrap'):
             ui.label('About this reply').classes('panel-title')

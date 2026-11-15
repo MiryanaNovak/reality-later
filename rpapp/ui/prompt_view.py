@@ -16,7 +16,7 @@ from ..conversations import ChatMessage
 from ..prompts import MARGIN, Prompt, PromptReport
 from ..tokens import MESSAGE_OVERHEAD, estimate
 from .list_view import plural
-from .widgets import folding_panel
+from .widgets import Dialog, folding_panel
 
 ROLE_LABELS = {'system': 'Instructions (system)', 'user': 'You (user)', 'assistant': 'Character (assistant)'}
 LORE_STATUS = {'over_budget': 'Left out: over the lore budget', 'skipped': 'Left out'}
@@ -25,7 +25,7 @@ LORE_STATUS = {'over_budget': 'Left out: over the lore budget', 'skipped': 'Left
 def show_prompt(prompt: Prompt | None, message: ChatMessage | None, *, time: Callable[[datetime], str],
                 copy_js: Callable[[str], str], title: str = 'Prompt for this message') -> None:
     """`message` is the message the prompt follows (to say if it was edited since)."""
-    with ui.context.client.layout, ui.dialog() as dialog, \
+    with ui.context.client.layout, Dialog() as dialog, \
             ui.card().classes('dialog-card prompt-card').mark('prompt-dialog'):
         with ui.row().classes('w-full items-center no-wrap'):
             ui.label(title).classes('panel-title')

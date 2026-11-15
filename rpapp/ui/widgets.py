@@ -1,6 +1,10 @@
-"""Small building blocks shared by all pages."""
+"""Small building blocks shared by all pages.
+
+Dialogs are made with Dialog(), not ui.dialog(): see there why.
+"""
 from __future__ import annotations
 
+import asyncio
 import functools
 import json
 import weakref
@@ -15,6 +19,27 @@ from .. import APP_NAME
 
 from .form import text_stats  # noqa: F401  (kept importable from here)
 from .list_view import slug
+
+
+class Dialog(ui.dialog):
+    """ui.dialog, steady as it opens. It opens at once, under the pointer: the second click of a double click on
+    what opened it (a menu item, say), or a mouse button that bounces, would land on the shade around it, which
+    closes a dialog. The dialog seemed to open and close by itself. So for its first STEADY seconds, a click there
+    does nothing (Escape and its own buttons still close it); after, it closes it, as usual."""
+    STEADY = 0.6  # seconds: more than a double click takes (half a second, by default, on most computers)
+
+    def open(self) -> Dialog:
+        if 'persistent' not in self.props and not self.value:
+            self.props('no-backdrop-dismiss no-shake')
+            asyncio.get_running_loop().call_later(self.STEADY, self._settle)
+        return super().open()
+
+    def _settle(self) -> None:
+        try:
+            if not self.is_deleted:
+                self.props(remove='no-backdrop-dismiss no-shake')
+        except (RuntimeError, ValueError, KeyError):  # (its page closed meanwhile)
+            pass
 
 
 Audience = Literal['ai', 'you']
@@ -86,7 +111,7 @@ def folding_panel(title: str, caption: str = '', *, opened: bool = False, audien
 
 async def confirm(title: str, text: str, action_label: str, *, danger: bool = True, warning: str = '') -> bool:
     """Ask a yes/no question in a dialog. `warning`, if given, is an extra line in bold red."""
-    with ui.context.client.layout, ui.dialog() as dialog, ui.card().classes('dialog-card').mark('confirm-dialog'):
+    with ui.context.client.layout, Dialog() as dialog, ui.card().classes('dialog-card').mark('confirm-dialog'):
         ui.label(title).classes('panel-title')
         if text:
             ui.label(text).classes('muted')
@@ -107,7 +132,7 @@ async def ask_name(title: str, value: str, *, label: str = 'Name', action_label:
                    max_length: int | None = None) -> str | None:
     """Ask for a name in a dialog, starting from `value` (selected, to type over it). Return becomes the
     button. Returns the name, stripped, or None if cancelled. An empty name isn't accepted."""
-    with ui.context.client.layout, ui.dialog() as dialog, ui.card().classes('dialog-card').mark('name-dialog'):
+    with ui.context.client.layout, Dialog() as dialog, ui.card().classes('dialog-card').mark('name-dialog'):
         ui.label(title).classes('panel-title')
         field = ui.input(label, value=value).classes('w-full').props('autofocus').mark('name-input')
         if max_length:

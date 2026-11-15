@@ -54,7 +54,7 @@ from ..publishing.service import DEFAULT_RELAYS, Published, Sharing, SharingErro
 from ..settings import Settings, SettingsStore
 from .form import Form, keep_typed
 from .list_view import Link, Row, plural, render_row
-from .widgets import browser_languages, confirm, not_found, page_bar, panel, time_ago
+from .widgets import Dialog, browser_languages, confirm, not_found, page_bar, panel, time_ago
 
 if TYPE_CHECKING:
     from ..characters import Character, CharacterStore
@@ -1168,7 +1168,7 @@ class SharingSection:
         p = entry.publication
         others = [v.publication.event_id for v in versions
                   if v.withdrawn is None and v.publication.event_id != p.event_id]
-        with ui.context.client.layout, ui.dialog() as dialog, ui.card().classes('dialog-card') \
+        with ui.context.client.layout, Dialog() as dialog, ui.card().classes('dialog-card') \
                 .mark('withdraw-dialog'):
             ui.label(f'Withdraw "{p.card_name}"?').classes('panel-title')
             ui.label('Its file is no longer shared from here, and the relays are asked to delete its '
@@ -1243,7 +1243,7 @@ class SharingSection:
         state = {'step': steps[0], 'made': False}
         fields: dict[str, ui.element] = {}
 
-        with ui.context.client.layout, ui.dialog().props('persistent') as dialog, \
+        with ui.context.client.layout, Dialog().props('persistent') as dialog, \
                 ui.card().classes('dialog-card publish-card').mark('publish-dialog') as card:
             ui.label(f'Publish "{character.title}" to shared cards').classes('panel-title')
 
@@ -1540,7 +1540,7 @@ class SharingSection:
                 what_to_do = 'Most of it is its picture: choose a smaller one.'
         else:
             what_to_do = 'Choose a smaller picture for the character.'
-        with ui.context.client.layout, ui.dialog() as dialog, ui.card().classes('dialog-card') \
+        with ui.context.client.layout, Dialog() as dialog, ui.card().classes('dialog-card') \
                 .mark('publish-beyond-safeguards'):
             ui.label(f'"{character.title}" can\'t be published').classes('panel-title')
             ui.label(f'Its card is too big to share: {e}. Others\' apps would refuse it, so that a shared card '
@@ -1660,7 +1660,7 @@ class SharingSection:
 
     async def _backup_dialog(self, me: Identity) -> None:
         nsec = me.nsec()
-        with ui.context.client.layout, ui.dialog() as dialog, ui.card().classes('dialog-card').mark('key-backup'):
+        with ui.context.client.layout, Dialog() as dialog, ui.card().classes('dialog-card').mark('key-backup'):
             ui.label('Back up your publisher key').classes('panel-title')
             ui.label('Keep this text somewhere safe and private, like a password manager. With it, you can '
                      'publish as yourself again: after reinstalling, or on another computer (Settings › Sharing '
@@ -1686,7 +1686,7 @@ class SharingSection:
         """Import a key from its backup, or (`replace`) make or import another one instead of the current
         one, which is kept in a file beside it. The key now used, or None if cancelled."""
         sharing = self.sharing
-        with ui.context.client.layout, ui.dialog() as dialog, ui.card().classes('dialog-card').mark('key-dialog'):
+        with ui.context.client.layout, Dialog() as dialog, ui.card().classes('dialog-card').mark('key-dialog'):
             ui.label('Use another publisher key' if replace else 'Import your publisher key').classes('panel-title')
             if replace:
                 ui.label('Your cards are signed with your current key: only it can publish new versions of '
