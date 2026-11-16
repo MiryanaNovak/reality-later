@@ -1,5 +1,5 @@
 """The Settings page: one folding section per topic (Chat, Lore books, Memory, Vector search, Sharing cards,
-Appearance, Updates, Devices).
+Appearance, Privacy, Updates, Devices).
 
     /settings
 
@@ -27,7 +27,7 @@ from ..presets import PromptPreset
 from ..settings import ConnectionRef, MemorySettings, PresetRef, Settings, SettingsStore
 from ..storage import JsonStore
 from ..vector_files import delete_model_vectors
-from . import appearance, theme
+from . import appearance, privacy, theme
 from .devices_page import DevicesSection
 from .form import NOT_SET, Form, error_text, text_stats
 from .widgets import confirm, folding_panel, page_bar, time_ago
@@ -128,6 +128,9 @@ class SettingsSection:
 
         with folding_panel('Appearance', 'Light or dark, text size, accent color'):
             self._appearance(settings)
+
+        with folding_panel('Privacy', 'Pictures blurred when the app is opened away from home'):
+            self._privacy(settings, form)
 
         if self.updates is not None:
             with folding_panel('Updates', 'Whether the app tells you when a new version is out'):
@@ -438,6 +441,35 @@ class SettingsSection:
         ui.label('Accent color: buttons, links and highlights. Pages open elsewhere change when reloaded.') \
             .classes('text-sm muted -mt-2')
         swatches()
+
+    @staticmethod
+    def _privacy(settings: Settings, form: Form) -> None:
+        def switched(on: bool) -> None:
+            privacy.changed(on)
+            status.refresh()
+
+        form.switch(settings.privacy, 'blur_away', 'Blur pictures away from home') \
+            .on_value_change(lambda e: switched(bool(e.value))).mark('privacy-blur-away')
+        ui.label('When the app is opened from the internet, or through a service like Tailscale, every picture is '
+                 'blurred, on every page: characters\', personas\', those in descriptions and in chats. On this '
+                 'computer and on your home network, they show. It keeps them from the eyes of people around you; '
+                 'the pictures still reach that browser.').classes('text-sm muted -mt-3 ml-12')
+
+        @ui.refreshable
+        def status() -> None:
+            place, on = privacy.this_place(), settings.privacy.blur_away
+            text = {
+                'computer': 'This browser is on this computer: its pictures show.',
+                'home': 'This browser connects from your home network: its pictures show.',
+                'away': 'This browser connects from away from home: its pictures are blurred.' if on else
+                        'This browser connects from away from home: its pictures would be blurred.',
+            }[place]
+            with ui.row().classes('items-center no-wrap gap-2').mark(f'privacy-{place}'):
+                ui.icon({'computer': 'computer', 'home': 'home', 'away': 'public'}[place], size='1.2em') \
+                    .classes('text-primary')
+                ui.label(text).classes('text-sm')
+
+        status()
 
     @staticmethod
     def _updates(settings: Settings, form: Form, updates: Updates) -> None:

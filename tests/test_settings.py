@@ -42,6 +42,7 @@ def test_defaults_file_and_lookup(tmp_path):
                     'port': None, 'port_mapping': True, 'publishing_accepted': 0},
         'appearance': {'accent': 'jade'},
         'updates': {'notify': True},  # (told when a newer version is out: updates.py)
+        'privacy': {'blur_away': True},  # (pictures blurred away from home: privacy.py)
     }
     assert chat_connection(store.load(), connections.get).id == conn.id
     connections.delete(conn.id)

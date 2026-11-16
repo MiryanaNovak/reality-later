@@ -12,7 +12,8 @@
       },
       "lore": {"scan_depth": 2, "budget_percent": 25, "recursive": true, ...},
       "memory": {"enabled": true, "connection": null, "instructions": "", ...},
-      "appearance": {"accent": "jade"}
+      "appearance": {"accent": "jade"},
+      "privacy": {"blur_away": true}
     }
 
 Settings are grouped by topic, one sub-object per section of the Settings
@@ -135,6 +136,13 @@ class UpdateSettings(BaseModel):
     notify: bool = True
 
 
+class PrivacySettings(BaseModel):
+    """Pictures blurred on the pages of browsers away from home (privacy.py: the internet, Tailscale...)."""
+    model_config = ConfigDict(extra='ignore', validate_assignment=True)
+
+    blur_away: bool = True
+
+
 class Settings(StoredModel):
     id: str = SETTINGS_ID
     name: str = Field('', exclude=True)  # from StoredModel; settings have no name
@@ -145,6 +153,7 @@ class Settings(StoredModel):
     sharing: SharingSettings = Field(default_factory=SharingSettings)
     appearance: AppearanceSettings = Field(default_factory=AppearanceSettings)
     updates: UpdateSettings = Field(default_factory=UpdateSettings)
+    privacy: PrivacySettings = Field(default_factory=PrivacySettings)
 
 
 class SettingsStore:

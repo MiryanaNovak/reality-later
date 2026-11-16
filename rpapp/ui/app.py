@@ -29,7 +29,7 @@ from ..replies import Replies
 from ..updates import Updates
 from ..vectors import Vectorizer
 from ..settings import SettingsStore, SharingSettings
-from . import appearance, media, theme
+from . import appearance, media, privacy, theme
 from .characters_page import CharactersSection
 from .chat_settings import ChatChoices
 from .computer_page import ComputerPage, on_this_computer
@@ -145,10 +145,17 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
         except ValueError:  # a damaged settings file: the Settings page says so
             return theme.DEFAULT_ACCENT
 
+    def blur_away() -> bool:
+        try:
+            return settings_store.load().privacy.blur_away
+        except ValueError:  # a damaged settings file: the Settings page says so (and pictures stay private)
+            return True
+
     def root() -> None:
         media.ensure_route()
         theme.add_head(accent())
         appearance.apply_look(appearance.device_look())  # light or dark, and text size, of this device
+        privacy.blur_pictures(blur_away())  # away from home: the pictures blurred (Settings › Privacy)
         ui.page_title(APP_NAME)
         watch_requests(access)  # on the computer itself: a notice when a device asks to join
 

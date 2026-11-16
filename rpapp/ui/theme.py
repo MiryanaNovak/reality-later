@@ -367,6 +367,12 @@ HEAD = f'''
     border-left: 4px solid var(--q-negative); color: var(--q-negative); font-weight: 500;
   }}
   .size-warning-icon {{ font-size: 1.4rem; flex-shrink: 0; }}
+  /* Away from home, with Settings › Privacy on (privacy.py): every picture blurred, whatever page it's on. The
+     pictures of Quasar's ui.image (characters', personas', framed: 220 pixels at most) are scaled up inside their
+     frame, so that their edges don't fade; the others (descriptions', chats': as wide as the page) are blurred
+     more, and kept to their own box. */
+  body.privacy-blur img {{ filter: blur(40px) saturate(1.2); clip-path: inset(0 round 8px); }}
+  body.privacy-blur .q-img__image {{ filter: blur(22px) saturate(1.2); transform: scale(1.3); clip-path: none; }}
   /* A character's page (characters_page.py's view_page): its picture beside its title, tags and summary */
   .character-identity {{ display: grid; grid-template-columns: 1fr; gap: 18px; }}
   @media (min-width: 600px) {{ .character-identity {{ grid-template-columns: 220px 1fr; }} }}
