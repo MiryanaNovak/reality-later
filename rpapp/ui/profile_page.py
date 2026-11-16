@@ -63,7 +63,7 @@ class ProfileSection(Generic[P]):
                  conversations: ConversationStore | None = None,
                  conversation_field: Literal['character', 'persona'] = 'character',
                  import_file: Callable[[str, bytes], tuple[P, str]] | None = None, import_accept: str = '',
-                 export_file: Callable[[P], tuple[bytes, str, str]] | None = None) -> None:
+                 export_file: Callable[[P], tuple[bytes, str, str]] | None = None, edit_suffix: str = '') -> None:
         """
         :param title: page title, e.g. 'Characters'
         :param noun: one item in lower case, e.g. 'character'
@@ -74,6 +74,7 @@ class ProfileSection(Generic[P]):
         :param import_file: reads a file into a saved item (see Collection.import_file); None: no Import button
         :param import_accept: the files the Import button offers, e.g. '.png,.json'
         :param export_file: writes an item to a file (see Collection.export_file); None: no Export
+        :param edit_suffix: where the editor is, after an item's own page (see Collection.edit_suffix)
         """
         self.store = store
         self.lore_books = lore_books
@@ -95,6 +96,7 @@ class ProfileSection(Generic[P]):
             label_name='Title', name_placeholder=title_placeholder,
             search=lambda item: self.search_text(item),
             empty_text=empty_text,
+            edit_suffix=edit_suffix,
         )
         self.pages = CollectionPage(self.collection)
         self.folders: FolderStore | None = None  # its folders (None: none, a plain grid)
@@ -216,7 +218,7 @@ class ProfileSection(Generic[P]):
     def links(self, items: list[P], on_click: Callable[[P], Any] | None = None) -> None:
         """A compact list of items with their picture. Clicking one opens its editor, or calls `on_click`."""
         def clicked(item: P) -> Any:
-            return on_click(item) if on_click else ui.navigate.to(self.collection.item_path(item))
+            return on_click(item) if on_click else ui.navigate.to(self.collection.edit_path(item))
 
         with ui.list().props('separator bordered').classes('w-full rounded-borders'):
             for item in items:

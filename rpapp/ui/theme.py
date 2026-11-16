@@ -367,6 +367,22 @@ HEAD = f'''
     border-left: 4px solid var(--q-negative); color: var(--q-negative); font-weight: 500;
   }}
   .size-warning-icon {{ font-size: 1.4rem; flex-shrink: 0; }}
+  /* A character's page (characters_page.py's view_page): its picture beside its title, tags and summary */
+  .character-identity {{ display: grid; grid-template-columns: 1fr; gap: 18px; }}
+  @media (min-width: 600px) {{ .character-identity {{ grid-template-columns: 220px 1fr; }} }}
+  .character-picture {{
+    width: 220px; max-width: 100%; aspect-ratio: 1; border-radius: 14px; overflow: hidden; background: var(--tint);
+    display: flex; align-items: center; justify-content: center; justify-self: center;
+  }}
+  .character-title {{
+    font-family: 'Literata', Georgia, serif; font-weight: 600; font-size: 1.6rem; line-height: 1.2;
+    overflow-wrap: anywhere;
+  }}
+  .character-summary {{ white-space: pre-line; overflow-wrap: anywhere; line-height: 1.55; }}
+  .tag-chip {{
+    font-size: .8rem; font-weight: 500; line-height: 1.6; padding: 0 9px; border-radius: 999px;
+    background: var(--tint); color: var(--q-primary);
+  }}
   /* A character's description, as it shows (Markdown, basic HTML, its own pictures) */
   .description-view {{ line-height: 1.6; overflow-wrap: anywhere; }}
   .description-view > :first-child {{ margin-top: 0; }}

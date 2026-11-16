@@ -144,7 +144,7 @@ def accept_notice(tmp_path):
 
 
 async def open_publishing(user, character):
-    await user.open(f'/characters/{character.id}')
+    await user.open(f'/characters/{character.id}/edit')
     user.find(marker='menu-publish-to-shared-cards').click()
     await user.should_see(marker='publish-dialog')
 
@@ -219,7 +219,7 @@ async def test_publishing_a_character(user, tmp_path, sharing, relay):
 
     saved.scenario = '{{char}} sings, and fights.'
     store.save(saved)
-    await user.open(f'/characters/{character.id}')
+    await user.open(f'/characters/{character.id}/edit')
     user.find(marker='menu-publish-to-shared-cards').click()
     await user.should_see(marker='publish-new-version')
     user.find(marker='publish-confirm').click()
@@ -235,7 +235,7 @@ async def test_beyond_the_safeguards_said_first(user, tmp_path, sharing, relay, 
     sharing.create_identity()
     store, character = aria(tmp_path)
     monkeypatch.setattr(fmt, 'MAX_FILE_BYTES', 2_000)  # (its picture alone is bigger)
-    await user.open(f'/characters/{character.id}')
+    await user.open(f'/characters/{character.id}/edit')
     user.find(marker='menu-publish-to-shared-cards').click()
     await user.should_see(marker='publish-beyond-safeguards', retries=SLOW)
     await user.should_see('"Aria the Wanderer" can\'t be published')
@@ -251,7 +251,7 @@ async def test_beyond_the_safeguards_said_first(user, tmp_path, sharing, relay, 
     character.add_lorebook(book.id, book.name)
     store.save(character)
     monkeypatch.setattr(fmt, 'MAX_FILE_BYTES', 50_000)
-    await user.open(f'/characters/{character.id}')
+    await user.open(f'/characters/{character.id}/edit')
     user.find(marker='menu-publish-to-shared-cards').click()
     await user.should_see('Most of it is its texts and lore books', retries=SLOW)
     await user.should_see('shorten them, or take a lore book off the character.')
@@ -262,7 +262,7 @@ async def test_what_the_format_refuses(user, tmp_path, sharing):
     sharing.create_identity()
     accept_notice(tmp_path)
     store, character = aria(tmp_path)
-    await user.open(f'/characters/{character.id}')
+    await user.open(f'/characters/{character.id}/edit')
     user.find(marker='menu-publish-to-shared-cards').click()
     await user.should_see(marker='publish-name')
     user.find(marker='publish-publisher').type('Marie')
@@ -280,7 +280,7 @@ async def test_the_card_starts_from_the_characters_summary_and_tags(user, tmp_pa
     store, character = aria(tmp_path)
     character.tags = ['fantasy', 'Music']
     store.save(character)
-    await user.open(f'/characters/{character.id}')
+    await user.open(f'/characters/{character.id}/edit')
     user.find(marker='menu-publish-to-shared-cards').click()
     await user.should_see(marker='publish-name')
     assert value_of(user, 'publish-description') == 'A wandering bard.'
@@ -445,7 +445,11 @@ async def test_published_by_you_and_changed_since(user, tmp_path, sharing, relay
     [event_id] = relay.events
     assert sharing.catalog.source(event_id).character_id == character.id  # (what it was published from)
 
-    await user.open(f'/characters/{character.id}')
+    await user.open(f'/characters/{character.id}')  # (its page says so too)
+    await user.should_see(marker='character-published', retries=SLOW)
+    await user.should_see(marker='character-up-to-date', retries=SLOW)
+
+    await user.open(f'/characters/{character.id}/edit')
     await user.should_see(marker='character-published', retries=SLOW)
     await user.should_see('"Aria the Wanderer"', retries=SLOW)
     await user.should_see(marker='character-up-to-date', retries=SLOW)
@@ -514,7 +518,7 @@ async def test_published_before_fingerprints(user, tmp_path, sharing):
     published = await sharing.publish(PublicationDraft(publisher_name='Marie', card_name='Aria'), content,
                                       card_uuid=character.shared_uuid)
     event_id = published.publication.event_id
-    await user.open(f'/characters/{character.id}')
+    await user.open(f'/characters/{character.id}/edit')
     await user.should_see(marker='character-up-to-date', retries=SLOW)
     await user.open('/published')
     await user.should_see(marker=f'row-{event_id}', retries=SLOW)
@@ -522,7 +526,7 @@ async def test_published_before_fingerprints(user, tmp_path, sharing):
 
     character.summary = 'Changed outside the page.'
     store.save(character)
-    await user.open(f'/characters/{character.id}')
+    await user.open(f'/characters/{character.id}/edit')
     await user.should_see(marker='character-changed', retries=SLOW)
     await user.open('/published')
     await user.should_see(marker=f'published-changed-{event_id}', retries=SLOW)
@@ -561,7 +565,7 @@ async def test_the_note_doesnt_jump(user, tmp_path, sharing, monkeypatch):
         return answer
     monkeypatch.setattr(page, 'changed_since', slow)
 
-    await user.open(f'/characters/{character.id}')
+    await user.open(f'/characters/{character.id}/edit')
     await user.should_see(marker='character-up-to-date', retries=SLOW)
     shown_meanwhile.clear()  # (the page as it opened: no note yet, of course)
     scenario_field(user).set_value('{{char}} sings, and now she fights too.')
@@ -599,7 +603,7 @@ async def test_withdrawn_and_not_yours(user, tmp_path, sharing):
                                   torrents.card_file(b'theirs'), card_uuid=character.shared_uuid,
                                   secret=nostr.new_secret())
     sharing.catalog.receive(other.event.to_dict())  # (the same card's UUID, someone else's: not yours)
-    await user.open(f'/characters/{character.id}')
+    await user.open(f'/characters/{character.id}/edit')
     await user.should_see('Description', retries=SLOW)
     await user.should_not_see(marker='character-published')
 
@@ -607,7 +611,7 @@ async def test_withdrawn_and_not_yours(user, tmp_path, sharing):
     mine = await sharing.publish(PublicationDraft(publisher_name='Marie', card_name='Aria'), small_card(),
                                  card_uuid=character.shared_uuid)
     await sharing.withdraw([mine.publication.event_id])
-    await user.open(f'/characters/{character.id}')
+    await user.open(f'/characters/{character.id}/edit')
     await user.should_see(marker='character-published-withdrawn', retries=SLOW)
     await user.should_not_see(marker='character-changed')
 
@@ -616,7 +620,7 @@ async def test_no_publishing_where_sharing_cant_run(tmp_path, monkeypatch):
     monkeypatch.setattr('rpapp.ui.app.sharing_problem', lambda: 'a library it needs is missing (coincurve)')
     store, character = aria(tmp_path)
     async with user_simulation(build_root(tmp_path)) as user:
-        await user.open(f'/characters/{character.id}')
+        await user.open(f'/characters/{character.id}/edit')
         await user.should_see(marker='menu-export')
         await user.should_not_see(marker='menu-publish-to-shared-cards')
 

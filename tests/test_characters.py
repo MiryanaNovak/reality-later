@@ -122,7 +122,7 @@ async def test_first_messages_add_reorder_delete(setup):
     character = new_character('Hale')
     character.first_messages = ['First']
     store.save(character)
-    await user.open(f'/characters/{character.id}')
+    await user.open(f'/characters/{character.id}/edit')
     await user.should_not_see(marker='delete-message')  # the only message can't be deleted
 
     user.find('Add a first message').click()
@@ -149,7 +149,7 @@ async def test_example_dialogues(setup):
     character = new_character('Hale')
     store.save(character)
     assert character.example_dialogues == []  # none to start with
-    await user.open(f'/characters/{character.id}')
+    await user.open(f'/characters/{character.id}/edit')
     await user.should_see('Example dialogues')
     await user.should_not_see(marker='example-0')
 
@@ -177,7 +177,7 @@ async def test_picture_and_missing_lore_book(setup):
     store.save(character)
     lore.delete(book.id)
 
-    await user.open(f'/characters/{character.id}')
+    await user.open(f'/characters/{character.id}/edit')
     await user.should_see('Lore book "Ashfall Isles" is missing')
     picker = user.find(marker='picture-upload').elements.pop()
     await picker.handle_uploads([SmallFileUpload(name='wren.png', content_type='image/png', _data=png())])

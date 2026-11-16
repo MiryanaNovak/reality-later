@@ -7,11 +7,13 @@
     /conversations/<conversation id>/memories   what the AI remembers of it (memories_page.py)
 
 Conversations are started from a character's card (New chat), titled with the date and time. Their
-⋮ menu, here and in the chat, can rename them.
+⋮ menu, here and in the chat, can rename them. A character's page lists its own the same way
+(character_list()).
 """
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 
 from nicegui import ui
 
@@ -21,7 +23,7 @@ from ..personas import Persona
 from ..replies import Replies
 from .chat_page import ChatPage
 from .memories_page import MemoriesPage
-from .list_view import Action, Row, plural
+from .list_view import Action, ListView, Row, plural
 from .profile_page import ProfileSection
 from .tree_view import TreeGroup, TreeView
 from .widgets import ask_name, confirm, not_found, page_bar, time_ago
@@ -43,14 +45,49 @@ class ConversationsSection:
     def list_page(self, character: str = '') -> None:
         """`character` (from ?character=...) is the group to open and bring into view."""
         page_bar('Conversations')
+        tree = TreeView(
+            groups=self._groups,
+            key=lambda conversation: conversation.id,
+            row=self._row,
+            on_open=lambda conversation: ui.navigate.to(f'{self.path}/{conversation.id}'),
+            actions=self._actions(lambda: tree.refresh()),
+            focus=character,
+            empty_title='No conversations yet',
+            empty_text='Start one from a character: open Characters and press New chat on a card.',
+        )
+        if character and not self.store.using('character', character):
+            ui.notify('This character has no conversations yet.')
 
+    def character_list(self, character: Character) -> ListView[Conversation]:
+        """A character's conversations, most recently updated first, as the tree shows them (for its page)."""
+        def items() -> list[Conversation]:
+            self._personas = {p.id: p for p in self.personas.store.list()}
+            found = self.store.using('character', character.id)
+            for conversation in found:
+                self._refresh_titles(conversation, {character.id: character}, self._personas)
+            return found
+
+        view = ListView(
+            items=items,
+            key=lambda conversation: conversation.id,
+            row=self._row,
+            on_open=lambda conversation: ui.navigate.to(f'{self.path}/{conversation.id}'),
+            actions=self._actions(lambda: view.refresh()),
+            search=lambda conversation: f'{conversation.title} {conversation.persona.title}',
+            empty_title='No conversations yet',
+            empty_text='Start one with New chat.',
+        )
+        return view
+
+    def _actions(self, refresh: Callable[[], None]) -> list[Action[Conversation]]:
+        """A conversation's ⋮ menu: Rename, Delete. `refresh` redraws the list after either."""
         async def delete(conversation: Conversation) -> None:
             if await confirm(f'Delete "{conversation.title}"?', 'The whole chat is lost. This can\'t be undone.',
                              'Delete'):
                 self.replies.stop(conversation.id)
                 self.store.delete(conversation.id)
                 ui.notify(f'Deleted "{conversation.title}"')
-                tree.refresh()
+                refresh()
 
         async def rename(conversation: Conversation) -> None:
             if name := await ask_name('Rename the conversation', conversation.title, max_length=TITLE_MAX):
@@ -58,20 +95,9 @@ class ConversationsSection:
                     self.store.rename(conversation.id, name)
                 except KeyError:
                     ui.notify('This conversation was deleted meanwhile.', type='warning')
-                tree.refresh()
+                refresh()
 
-        tree = TreeView(
-            groups=self._groups,
-            key=lambda conversation: conversation.id,
-            row=self._row,
-            on_open=lambda conversation: ui.navigate.to(f'{self.path}/{conversation.id}'),
-            actions=[Action('Rename', rename), Action('Delete', delete, danger=True)],
-            focus=character,
-            empty_title='No conversations yet',
-            empty_text='Start one from a character: open Characters and press New chat on a card.',
-        )
-        if character and not self.store.using('character', character):
-            ui.notify('This character has no conversations yet.')
+        return [Action('Rename', rename), Action('Delete', delete, danger=True)]
 
     def _groups(self) -> list[TreeGroup[Conversation]]:
         characters = {c.id: c for c in self.characters.store.list()}

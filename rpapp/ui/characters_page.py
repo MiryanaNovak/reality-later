@@ -7,12 +7,16 @@
                                 personas' folders);
                                 Import reads a character card (PNG, JSON or CharX, V1 to V3: see cards.py),
                                 Export (in each character's ⋮ menu) writes one as a PNG (V2)
-    /characters/<character id>  one character: picture, title, name and tags; then, each folding away
-                                (open or not as last left on this device), its summary, description,
-                                scenario, first messages, example dialogues, lore books, and the
-                                connection and prompt its chats use (chat_settings.py); each part says
-                                whether the AI gets it. Its ⋮ menu: Publish to shared cards
-                                (sharing_page.py), when sharing cards can run here
+    /characters/<character id>  one character, to look at: its picture, title, tags and summary, whether it's
+                                published or downloaded (sharing_page.py), its description as it shows,
+                                and its conversations (conversations_page.py), with New chat; Edit opens
+                                its editor. A card opens it
+    /characters/<id>/edit       its editor (the cards' ⋮ › Edit, New, Duplicate): picture, title, name and
+                                tags; then, each folding away (open or not as last left on this device), its
+                                summary, description, scenario, first messages, example dialogues, lore books,
+                                and the connection and prompt its chats use (chat_settings.py); each part says
+                                whether the AI gets it. Its ⋮ menu: Publish to shared cards (sharing_page.py),
+                                when sharing cards can run here
 
 The summary is plain text, as much as a shared card's announcement holds; the description, Markdown with
 basic HTML and pictures of its own (descriptions.py): written, or seen as it shows (Write, Preview). Too big
@@ -26,9 +30,9 @@ import json
 import logging
 import re
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from nicegui import events, ui
 
@@ -49,7 +53,8 @@ from .list_view import Link, Row, initials, plural
 from .chat_settings import ChatChoices, character_panel
 from .folders_page import folder_links
 from .profile_page import ProfileSection
-from .widgets import Dialog, MenuItems, audience_legend, browser_languages, confirm, file_picker
+from .widgets import (Dialog, MenuItems, audience_legend, browser_languages, confirm, file_picker, not_found,
+                      page_bar, panel)
 
 if TYPE_CHECKING:
     from .sharing_page import SharingSection
@@ -86,12 +91,14 @@ class CharactersSection(ProfileSection[Character]):
                        'you, a scenario telling the AI who they are and what the story is, and how the chat opens.',
             conversations=conversations, conversation_field='character',
             import_file=self.import_card, import_accept='.png,.json,.charx,image/png,application/json',
-            export_file=self.export_card,
+            export_file=self.export_card, edit_suffix='/edit',
         )
         self.conversations: ConversationStore = conversations
         self.personas = personas
         self.sharing = sharing  # publishing them as shared cards (None, or its .sharing None: not here)
         self.chat_choices: ChatChoices | None = None  # the connections and prompts (build_root's; None: no panel)
+        # A character's conversations, listed on its page (conversations_page.py's character_list; build_root's)
+        self.conversation_list: Callable[[Character], Any] | None = None
         self.folders = FolderStore(store.folder.parent, 'characters', exists=store.exists)
         self._counts: Counter[str] = Counter()
 
@@ -231,16 +238,79 @@ class CharactersSection(ProfileSection[Character]):
     def search_text(self, character: Character) -> str:
         return ' '.join((character.title, character.name, character.summary, *character.tags))
 
-    def intro(self, character: Character) -> None:
-        audience_legend('Name, Scenario, First messages, Example dialogues, Lore books',
-                        'Title, Picture, Tags, Summary, Description')
-        self._size_warning(character)
+    # -- its page: to look at it ------------------------------------------------------------------------------
+
+    def view_page(self, item_id: str) -> None:
+        """The character as it is, nothing to edit: Edit, in the top bar, opens its editor."""
+        try:
+            character = self.store.get(item_id)
+        except ValueError:
+            character = None
+        if character is None:
+            not_found('Character', self.collection.path)
+            return
+
+        def edit_button() -> None:
+            ui.button('Edit', icon='edit', on_click=lambda: ui.navigate.to(self.collection.edit_path(character))) \
+                .props('aria-label="Edit"').mark('edit-character')
+
+        page_bar(character.title or 'Untitled', back=self.collection.path, actions=edit_button)
+        self._shared_note(character)
+
+        with ui.element('div').classes('panel character-identity').mark('character-identity'):
+            with ui.element('div').classes('character-picture'):
+                if character.image:
+                    ui.image(self.image_url(character.image)) \
+                        .props(f'ratio=1 fit=cover alt="Picture of {character.title.replace(chr(34), "")}"') \
+                        .classes('w-full h-full')
+                else:
+                    ui.label(initials(character.title)).classes('grid-card-initials')
+            with ui.column().classes('gap-2 min-w-0'):
+                ui.label(character.title or 'Untitled').classes('character-title').mark('character-title')
+                if character.tags:
+                    with ui.row().classes('gap-1').mark('character-tags'):
+                        for tag in character.tags:
+                            ui.label(tag).classes('tag-chip')
+                if character.summary.strip():
+                    ui.label(character.summary.strip()).classes('character-summary').mark('character-summary')
+                else:
+                    ui.label('No summary yet.').classes('muted')
+
+        with panel('Description'):
+            if character.description.strip():
+                self._description_view(character.description).mark('character-description')
+            else:
+                ui.label('No description yet.').classes('muted').mark('no-description')
+
+        with ui.row().classes('w-full items-center justify-between no-wrap mt-2'):
+            ui.label('Conversations').classes('section-title')
+            ui.button('New chat', icon='add_comment', on_click=lambda: self.new_chat(character)) \
+                .props('outline').mark('new-chat')
+        if self.conversation_list is not None:
+            self.conversation_list(character)
+
+    def _shared_note(self, character: Character) -> None:
+        """From a shared card, or published as one? Said once the catalog answered (withdrawn since, a newer
+        version, changed since...): sharing_page.py."""
         if self.sharing is not None and self.sharing.sharing is not None:
-            # From a shared card? Said once the catalog answered (withdrawn since, a newer version...)
             with ui.column().classes('w-full gap-2'):
                 ui.timer(0.01, lambda: self.sharing.character_note(
                     character, fingerprint=self.card_fingerprint, export=lambda c: self.export_card(c)[0],
                     publish=lambda: self.publish(character)), once=True)
+
+    def _description_view(self, text: str) -> ui.markdown:
+        """A description as it shows: its Markdown and basic HTML, its own pictures (see safe_html.py)."""
+        return ui.markdown(with_picture_urls(text, self._picture_url), extras=DESCRIPTION_MARKDOWN,
+                           sanitize=self._description_html) \
+            .props('sanitize').classes('description-view w-full').on('click', js_handler=NEW_TAB)
+
+    # -- its editor --------------------------------------------------------------------------------------
+
+    def intro(self, character: Character) -> None:
+        audience_legend('Name, Scenario, First messages, Example dialogues, Lore books',
+                        'Title, Picture, Tags, Summary, Description')
+        self._size_warning(character)
+        self._shared_note(character)
 
     def identity_fields(self, character: Character, form: Form) -> None:
         def put(values: list[str] | None) -> None:
@@ -376,9 +446,7 @@ class CharactersSection(ProfileSection[Character]):
                          'Basic HTML too: <b>, <i>, <u>, <s>, <br>, <sub>, <sup>, <img width="…">. Only its own '
                          'pictures show, those inserted here: pictures from websites never do.') \
             .classes('text-xs muted').mark('description-help')
-        preview = ui.markdown('', extras=DESCRIPTION_MARKDOWN, sanitize=self._description_html) \
-            .props('sanitize').classes('description-view w-full').mark('description-preview') \
-            .on('click', js_handler=NEW_TAB)
+        preview = self._description_view('').mark('description-preview')
         empty = ui.label('Nothing yet: write it in Write.').classes('muted').mark('description-empty')
         show()
 

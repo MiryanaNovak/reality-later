@@ -107,7 +107,7 @@ async def test_withdrawn_or_newer_since(user, marie, mine, tmp_path):
     character_id = fetch.character_id
 
     second = await published(marie, mine, aria_card('{{char}} sings, and fights.'), uuid=uuid)
-    await user.open(f'/characters/{character_id}')
+    await user.open(f'/characters/{character_id}/edit')
     await user.should_see(marker='character-shared-newer', retries=SLOW)
     user.find(kind=ui.link, content='see it').click()
     await user.should_see('Add it to your characters', retries=SLOW)  # (the new version's page)
@@ -117,7 +117,7 @@ async def test_withdrawn_or_newer_since(user, marie, mine, tmp_path):
     mine.catalog.receive(withdrawal.event.to_dict())
     await mine.resume_sharing()  # (as after a discovery: the files of withdrawn cards no longer shared)
     assert mine.session.sharing() == ()
-    await user.open(f'/characters/{character_id}')
+    await user.open(f'/characters/{character_id}/edit')
     await user.should_see(marker='character-shared-withdrawn', retries=SLOW)
     await user.should_see('Their reason: Replaced by a better card.', retries=SLOW)
     await user.open(f'/shared/{first.event_id}')
@@ -147,7 +147,7 @@ async def test_edited_since(user, marie, mine, tmp_path):
     await fetch.task
     character_id = fetch.character_id
     assert CharacterStore(tmp_path).get(character_id).image  # (its picture, kept)
-    await user.open(f'/characters/{character_id}')
+    await user.open(f'/characters/{character_id}/edit')
     await user.should_see(marker='character-not-edited', retries=SLOW)  # (as added: nothing changed it since)
     await user.should_see('Not edited since you downloaded it')
 
@@ -162,10 +162,10 @@ async def test_edited_since(user, marie, mine, tmp_path):
     again = mine.download(p.event_id)
     await again.task
     assert again.character_id not in ('', character_id)
-    await user.open(f'/characters/{character_id}')  # (the one edited: still from it, still edited)
+    await user.open(f'/characters/{character_id}/edit')  # (the one edited: still from it, still edited)
     await user.should_see(marker='character-shared-from', retries=SLOW)
     await user.should_see(marker='character-edited', retries=SLOW)
-    await user.open(f'/characters/{again.character_id}')
+    await user.open(f'/characters/{again.character_id}/edit')
     await user.should_see(marker='character-not-edited', retries=SLOW)
 
 
@@ -176,7 +176,7 @@ async def test_downloaded_before_fingerprints(user, marie, mine, tmp_path):
     aria = new_character('Aria')
     store.save(aria)
     mine.catalog.record_download(p.event_id, p.torrent_infohash, p.file_name, aria.id)  # (no fingerprint)
-    await user.open(f'/characters/{aria.id}')
+    await user.open(f'/characters/{aria.id}/edit')
     await user.should_see(marker='character-shared-from', retries=SLOW)
     await user.should_see('Downloaded on')
     await user.should_not_see(marker='character-edited')

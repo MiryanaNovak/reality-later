@@ -50,7 +50,7 @@ async def page(tmp_path):
 
 async def test_the_parts_fold_but_identity(page, tmp_path):
     user, store, sera, hale = page
-    await user.open(f'/characters/{sera.id}')
+    await user.open(f'/characters/{sera.id}/edit')
     await user.should_see('Identity')
     opened = {key: one(user, f'part-{key}').value for key in PARTS}
     assert opened == {'summary': True, 'description': True, 'scenario': True, 'first-messages': True,
@@ -59,7 +59,7 @@ async def test_the_parts_fold_but_identity(page, tmp_path):
 
     one(user, 'part-summary').set_value(False)  # (as left: so it is for the next character too)
     one(user, 'part-example-dialogues').set_value(True)
-    user.navigate.to(f'/characters/{hale.id}')
+    user.navigate.to(f'/characters/{hale.id}/edit')
     await user.should_see('Hale')
     await until(lambda: one(user, 'part-scenario').value is True)
     assert (one(user, 'part-summary').value, one(user, 'part-example-dialogues').value) == (False, True)
@@ -67,9 +67,9 @@ async def test_the_parts_fold_but_identity(page, tmp_path):
     book = new_lore_book('Ashfall Isles')  # (a missing lore book: its part open, to see it)
     hale.add_lorebook(book.id, book.name)
     store.save(hale)
-    user.navigate.to(f'/characters/{sera.id}')
+    user.navigate.to(f'/characters/{sera.id}/edit')
     await user.should_see('Seraphina')
-    user.navigate.to(f'/characters/{hale.id}')
+    user.navigate.to(f'/characters/{hale.id}/edit')
     await user.should_see('Lore book "Ashfall Isles" is missing')
     assert one(user, 'part-lore-books').value is True
 
@@ -79,7 +79,7 @@ async def test_the_parts_open_are_kept_for_the_device(page, monkeypatch):
     ran = []
     monkeypatch.setattr(opened.ui, 'run_javascript', lambda code: ran.append(code))
     user, store, sera, _ = page
-    await user.open(f'/characters/{sera.id}')
+    await user.open(f'/characters/{sera.id}/edit')
     await user.should_see('Identity')
     one(user, 'part-description').set_value(False)
     assert ran == ['document.cookie = "rp_character_sections=first-messages.scenario.summary; path=/; '
@@ -88,7 +88,7 @@ async def test_the_parts_open_are_kept_for_the_device(page, monkeypatch):
 
 async def test_the_summary(page):
     user, store, sera, _ = page
-    await user.open(f'/characters/{sera.id}')
+    await user.open(f'/characters/{sera.id}/edit')
     field = one(user, 'summary')
     field.set_value('A guardian. Kind, but fierce.')
     await user.should_see('29 characters · 0.0 of 16 KB')
@@ -106,7 +106,7 @@ async def test_the_summary(page):
 
 async def test_tags(page):
     user, store, sera, _ = page
-    await user.open(f'/characters/{sera.id}')
+    await user.open(f'/characters/{sera.id}/edit')
     tags = one(user, 'character-tags')
     tags.set_value(['Dark Fantasy', '#Slow Burn'])
     await until(lambda: tags.value == ['dark-fantasy', 'slow-burn'])  # (shown as they're kept)
@@ -141,7 +141,7 @@ async def test_the_description_written_and_as_it_shows(page):
                         f'![elsewhere](https://example.com/x.png) [Her song](https://example.com/song)')
     store.save(sera)
 
-    await user.open(f'/characters/{sera.id}')
+    await user.open(f'/characters/{sera.id}/edit')
     assert one(user, 'description-mode').value == 'preview'  # (it has one: as it shows)
     preview = one(user, 'description-preview')
     html = preview.props['innerHTML']
@@ -158,7 +158,7 @@ async def test_the_description_written_and_as_it_shows(page):
     assert '<em>shorter</em>' in preview.props['innerHTML']
     await until(lambda: store.load(sera.id).description == 'Now *shorter*.')
 
-    await user.open(f'/characters/{hale.id}')  # (none yet: to write it)
+    await user.open(f'/characters/{hale.id}/edit')  # (none yet: to write it)
     assert one(user, 'description-mode').value == 'write' and one(user, 'description').visible
     one(user, 'description-mode').set_value('preview')
     await user.should_see('Nothing yet: write it in Write.')
@@ -168,7 +168,7 @@ async def test_inserting_a_picture(page):
     user, store, sera, _ = page
     sera.description = 'Before.'
     store.save(sera)
-    await user.open(f'/characters/{sera.id}')
+    await user.open(f'/characters/{sera.id}/edit')
     picker = one(user, 'description-upload')
     await picker.handle_uploads([SmallFileUpload(name='glade.png', content_type='image/png', _data=png())])
     await until(lambda: pictures_in(store.load(sera.id).description))
@@ -186,7 +186,7 @@ async def test_inserting_a_picture(page):
 async def test_a_card_too_big_to_publish_is_said(page, monkeypatch):
     import rpapp.ui.characters_page as characters_page
     user, store, sera, hale = page
-    await user.open(f'/characters/{sera.id}')
+    await user.open(f'/characters/{sera.id}/edit')
     await user.should_see('Identity')
     await asyncio.sleep(0.3)
     await user.should_not_see(marker='too-big')
@@ -197,7 +197,7 @@ async def test_a_card_too_big_to_publish_is_said(page, monkeypatch):
     name = store.images.add(noise.getvalue())
     hale.description = f'![a](picture:{name})'
     store.save(hale)
-    await user.open(f'/characters/{hale.id}')
+    await user.open(f'/characters/{hale.id}/edit')
     await user.should_see(marker='too-big', retries=40)
     await user.should_see('Too big to be published: its card would be')
     await user.should_see('Its description\'s pictures take the most room: remove some.')

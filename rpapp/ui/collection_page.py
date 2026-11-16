@@ -58,9 +58,15 @@ class Collection(Generic[T]):
     empty_text: str = ''
     label_name: str = 'Name'                    # what "New" asks for, e.g. 'Name' or 'Title'
     name_placeholder: str = ''
+    # Where an item's editor is, after its own page: '' (its page is its editor), or e.g. '/edit' (its page
+    # only shows it: characters). Edit, New and Duplicate go to the editor; opening an item, to its page.
+    edit_suffix: str = ''
 
     def item_path(self, item: T) -> str:
         return f'{self.path}/{item.id}'
+
+    def edit_path(self, item: T) -> str:
+        return self.item_path(item) + self.edit_suffix
 
 
 class CollectionPage(Generic[T]):
@@ -133,7 +139,7 @@ class CollectionPage(Generic[T]):
             item = c.create((name.value or '').strip(), kind.value if kind else None)  # create() picks a default name
             c.store.save(item)
             dialog.close()
-            ui.navigate.to(c.item_path(item))
+            ui.navigate.to(c.edit_path(item))
 
         dialog.on_value_change(lambda e: name.set_value('') if e.value else None)
         return dialog
@@ -163,7 +169,7 @@ class CollectionPage(Generic[T]):
             await self.delete(item, after=after)
 
         return [
-            Action('Edit', lambda item: ui.navigate.to(c.item_path(item))),
+            Action('Edit', lambda item: ui.navigate.to(c.edit_path(item))),
             Action('Duplicate', duplicate),
             *([Action('Export', self.export)] if c.exportable else []),
             *extra,
@@ -202,14 +208,15 @@ class CollectionPage(Generic[T]):
 
     def item_header(self, item: T, caption: str, *, menu: MenuItems = ()) -> ui.label:
         """Back arrow, title and ⋮ menu for the top of an item's editor page (`menu`: more of it, before
-        Delete)."""
+        Delete). Back goes to the list, or to the item's own page when its editor is apart."""
         c = self.c
 
         async def delete() -> None:
             await self.delete(item, after=lambda: ui.navigate.to(c.path))
 
-        return page_header(item.label or 'Untitled', caption, back=c.path, menu=[
-            ('Duplicate', lambda: self.duplicate(item, after=lambda copy: ui.navigate.to(c.item_path(copy))), False),
+        back = c.item_path(item) if c.edit_suffix else c.path
+        return page_header(item.label or 'Untitled', caption, back=back, menu=[
+            ('Duplicate', lambda: self.duplicate(item, after=lambda copy: ui.navigate.to(c.edit_path(copy))), False),
             *([('Export', lambda: self.export(item), False)] if c.exportable else []),
             *menu,
             ('Delete', delete, True),

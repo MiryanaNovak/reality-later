@@ -121,6 +121,7 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
     # Chats' own connection and prompt, and their characters' (chat_settings.py)
     characters.chat_choices = ChatChoices(connections.collection.store, presets.collection.store, settings_store)
     conversations = ConversationsSection(conversation_store, characters, personas, replies)
+    characters.conversation_list = conversations.character_list  # (on a character's page)
     lorebooks = LoreBooksSection(lore_books, users=[characters, personas])
     settings = SettingsSection(settings_store, connections.collection.store, access, presets.collection.store,
                                vectors=vectors, sharing=shared, updates=updates)
@@ -194,7 +195,8 @@ def build_root(data_dir: str | Path, *, access: Access | None = None,
             '/personas': personas.list_page,
             '/personas/{item_id}': personas.edit_page,
             '/characters': characters.list_page,
-            '/characters/{item_id}': characters.edit_page,
+            '/characters/{item_id}': characters.view_page,
+            '/characters/{item_id}/edit': characters.edit_page,
             '/shared': shared.list_page,
             '/shared/{event_id}': shared.card_page,
             '/published': shared.published_page,

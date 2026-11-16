@@ -289,7 +289,7 @@ async def test_exporting_from_the_characters_page(tmp_path):
         exported = read_card('x.png', (await user.download.next()).content)
         assert exported.character.scenario == character.scenario and len(exported.book.entries) == 3
 
-        await user.open(f'/characters/{character.id}')  # and from the character's own ⋮ menu
+        await user.open(f'/characters/{character.id}/edit')  # and from the character's own ⋮ menu
         user.find(marker='menu-export').click()
         assert read_card('x.png', (await user.download.next()).content).version == 'V2'
 

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from conftest import FakeConnection
+from nicegui import ui
 from nicegui.testing import user_simulation
 
 from rpapp.characters import CharacterStore, new_character
@@ -51,7 +52,7 @@ def select(user, marker):
 
 async def test_on_the_characters_page(app):
     user, c = app.user, app.characters
-    await user.open(f'/characters/{app.seraphina.id}')
+    await user.open(f'/characters/{app.seraphina.id}/edit')
     await user.should_see('Model and prompt')
     connection = select(user, 'character-connection')
     assert connection.value == '' and connection.options[''] == 'Same as in Settings: Fake'
@@ -78,7 +79,7 @@ async def test_on_the_characters_page(app):
 async def test_a_missing_connection_on_the_characters_page(app):
     app.seraphina.connection = ConnectionRef(id='gone-123456', name='Old Claude')
     app.characters.save(app.seraphina)
-    await app.user.open(f'/characters/{app.seraphina.id}')
+    await app.user.open(f'/characters/{app.seraphina.id}/edit')
     assert select(app.user, 'character-connection').options['gone-123456'] == 'Old Claude (missing)'
     await app.user.should_see(marker='chat-connection-missing')
 
@@ -94,6 +95,8 @@ async def test_in_a_chat(app, fake_model):
     connection = select(user, 'chat-connection')
     assert connection.value == '' and connection.options[''] == 'Same as for Seraphina: Other'
     await user.should_see('Chosen for Seraphina: their chats use it, unless one has its own.')
+    [their_page] = user.find(kind=ui.link, content='Their page').elements  # (where it's chosen: their editor)
+    assert their_page.props['href'] == f'/characters/{app.seraphina.id}/edit'
     prompt = select(user, 'chat-prompt')
     assert prompt.options[''] == 'Same as in Settings: no instructions'
     await user.should_see('From Settings › Chat: what chats use, unless their character or the chat has its own.')

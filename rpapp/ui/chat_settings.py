@@ -188,7 +188,7 @@ def because(source: Source, *, character: str, character_id: str, marker: str) -
             ui.label('Chosen for this chat only.')
         elif source == 'character':
             ui.label(f'Chosen for {character}: their chats use it, unless one has its own.')
-            ui.link('Their page', f'/characters/{character_id}')
+            ui.link('Their page', f'/characters/{character_id}/edit')
         else:
             ui.label('From Settings › Chat: what chats use, unless their character or the chat has its own.')
             ui.link('Settings', '/settings')
