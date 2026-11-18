@@ -160,7 +160,7 @@ HEAD = f'''
     display: flex; align-items: center; justify-content: center;
   }}
   .profile-thumb {{
-    width: 40px; height: 40px; border-radius: 10px; overflow: hidden; background: var(--tint);
+    width: 40px; height: 40px; flex: none; border-radius: 10px; overflow: hidden; background: var(--tint);
     display: flex; align-items: center; justify-content: center;
     font-family: 'Literata', Georgia, serif; font-weight: 600; font-size: .9rem; color: var(--q-primary);
   }}

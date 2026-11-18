@@ -93,9 +93,10 @@ class TreeView(Generic[T]):
     @staticmethod
     def _group_header(row: Row) -> None:
         with ui.row().classes('w-full items-center no-wrap gap-3 min-w-0'):
-            thumbnail(row.title, row.image)
-            with ui.column().classes('gap-0 min-w-0'):
-                ui.label(row.title).classes('tree-group-title')
+            thumbnail(row.title, row.image)  # (its full size, whatever the title: see theme.py's .profile-thumb)
+            with ui.column().classes('gap-0 min-w-0 grow'):
+                title = ui.label(row.title).classes('tree-group-title truncate w-full')  # (one line, then …)
+                title.props['title'] = row.title  # (in full, on hover)
                 if row.subtitle:
                     ui.label(row.subtitle).classes('text-sm muted')
                 if row.warning:
