@@ -25,20 +25,18 @@ so the memories are back to what they were before those messages existed. A
 pending update that read deleted messages is dropped. Editing a message
 changes nothing.
 
-The prompt of a memory call is made of:
-
-    system  the memory instructions (Settings › Memory: editable, DEFAULT_INSTRUCTIONS
-            until you change them), then ANSWER_FORMAT (fixed)
-    user    MATERIAL_FORMAT, filled in: the scenario, your persona, the lore book entries the
-            messages bring in, the memories so far, the messages
-
-The lore book entries are those a chat reply would get with these messages (the character's books and
-the persona's: keywords, entries always in, recursion, vector search when it's on for lore books, the
-same share of the prompt's space), all the messages scanned whatever the scan depth: so that the AI
-knows what's already written down, and doesn't remember it again.
-
-The answer format and the material are fixed so that editing the instructions
-can never break how the app reads the answer. Settings shows the answer format, read-only.
+Forking
+-------
+A fork of the chat (conversations.py) ends with one of the AI's replies, and its memories are exactly as
+they were right after it (Memories.as_of): with the update written after it, before the chat went on,
+still pending, as it was then. For that, the moments the chat goes on past a message (you post one, or
+the AI continues the scene: Memories.moving_on) are recorded:
+- each applied update says after which message it was applied;
+- your own changes to the memories in use (on the Memories page, without an update pending) are recorded
+  there as a step of their own (undone with the updates before them, like now);
+- when the AI continues the scene with an update pending, the update as it is then is kept with it (it
+  can still grow with the next reply).
+Updates from files from before that were applied with your messages, whose times place them.
 """
 from __future__ import annotations
 
@@ -49,7 +47,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .connections import Message
 from .lorebooks import LoreBook, LoreEntry
@@ -123,21 +121,28 @@ def _empty_book() -> LoreBook:
     return LoreBook(id='memories', name='Memories', entries={})
 
 
-class MemoryStep(BaseModel):
-    """An applied update, with what's needed to undo it."""
-    first: str                 # ids of the first and last messages it read
-    last: str
-    before: dict[str, LoreEntry] = Field(default_factory=dict)  # the memories before it
-    before_read_until: str = ''
-    applied_at: datetime = Field(default_factory=_now)
-
-
 class PendingMemory(BaseModel):
     """A proposed update: the memories as they'll be once it's applied (at your next message)."""
     first: str
     last: str
     proposed: LoreBook
     created_at: datetime = Field(default_factory=_now)
+    # For forks: what it was when the AI continued the scene after a message (`after`: that message's id)
+    after: str = ''
+    earlier: list[PendingMemory] = Field(default_factory=list)
+
+
+class MemoryStep(BaseModel):
+    """An applied update, with what's needed to undo it; or your own changes to the memories in use (`yours`)."""
+    first: str                 # ids of the first and last messages it read ('' for yours)
+    last: str
+    before: dict[str, LoreEntry] = Field(default_factory=dict)  # the memories before it
+    before_read_until: str = ''
+    applied_at: datetime = Field(default_factory=_now)
+    # Where in the chat (for forks): the chat's last message when it was applied ('' in files from before)
+    applied_after: str = ''
+    yours: bool = False
+    earlier: list[PendingMemory] = Field(default_factory=list)  # its pending versions (PendingMemory.earlier)
 
 
 class Memories(StoredModel):
@@ -147,6 +152,16 @@ class Memories(StoredModel):
     read_until: str = ''                  # id of the last message the applied updates read ('' = none yet)
     history: list[MemoryStep] = Field(default_factory=list)
     pending: PendingMemory | None = None
+    # The memories in use as the chat last went on (moving_on): your changes since are recorded the next time.
+    # None in files from before.
+    settled: dict[str, LoreEntry] | None = Field(default_factory=dict)
+
+    @model_validator(mode='before')
+    @classmethod
+    def _from_before(cls, data: Any) -> Any:
+        if isinstance(data, dict) and 'format_version' in data and 'settled' not in data:  # (a file from before)
+            data = {**data, 'settled': None}
+        return data
 
     @property
     def editable(self) -> LoreBook:
@@ -165,33 +180,119 @@ class Memories(StoredModel):
 
     def propose(self, first: str, last: str, proposed: LoreBook) -> None:
         """Set (or extend) the pending update."""
-        self.pending = PendingMemory(first=self.pending.first if self.pending else first, last=last,
-                                     proposed=proposed)
+        p = self.pending
+        self.pending = PendingMemory(first=p.first if p else first, last=last, proposed=proposed,
+                                     earlier=p.earlier if p else [])
 
-    def apply_pending(self) -> bool:
-        """Apply the pending update, if any (returns whether there was one)."""
+    def apply_pending(self, *, after: str = '') -> bool:
+        """Apply the pending update, if any (returns whether there was one). `after`: the chat's last message now
+        (the one your new message answers)."""
         if self.pending is None:
             return False
         p = self.pending
         self.history = [*self.history, MemoryStep(first=p.first, last=p.last, before=_copy(self.book.entries),
-                                                  before_read_until=self.read_until)]
+                                                  before_read_until=self.read_until, applied_after=after,
+                                                  earlier=p.earlier)]
         self.book = p.proposed
         self.read_until = p.last
         self.pending = None
+        self.settled = _copy(self.book.entries)
         return True
 
-    def forget(self, deleted: set[str]) -> bool:
-        """Undo what was learnt from deleted messages (returns whether anything changed)."""
+    def moving_on(self, after: str, *, posting: bool) -> bool:
+        """The chat goes on after the message `after` (its id): you post a message (`posting`: the pending update is
+        applied), or the AI continues the scene (it stays pending). Records where things were, for forks (see the
+        notes at the top). Returns whether anything changed."""
         changed = False
-        if self.pending and (self.pending.first in deleted or self.pending.last in deleted):
-            self.pending, changed = None, True
-        while self.history and (self.history[-1].last in deleted or self.history[-1].first in deleted):
-            step = self.history[-1]
-            self.history = self.history[:-1]
-            self.book = self.book.model_copy(update={'entries': step.before})
-            self.read_until = step.before_read_until
+        if self.settled is None:  # (from before: your changes so far can't be told apart)
+            self.settled, changed = _copy(self.book.entries), True
+        elif self.settled != self.book.entries:  # your own changes since the chat last went on
+            self.history = [*self.history, MemoryStep(first='', last='', before=self.settled, yours=True,
+                                                      before_read_until=self.read_until, applied_after=after)]
+            self.settled, changed = _copy(self.book.entries), True
+        if self.pending is not None and posting:
+            return self.apply_pending(after=after) or changed
+        if self.pending is not None and after:
+            p = self.pending
+            then = p.model_copy(update={'after': after, 'earlier': []}, deep=True)
+            p.earlier = [*(e for e in p.earlier if e.after != after), then]
             changed = True
         return changed
+
+    def forget(self, deleted: set[str]) -> bool:
+        """Undo what was learnt from deleted messages (returns whether anything changed). Your own changes made
+        after an update that's undone go with it."""
+        changed = False
+        p = self.pending
+        if p and (p.first in deleted or p.last in deleted):
+            self.pending, changed = None, True
+        elif p and any(e.after in deleted for e in p.earlier):
+            p.earlier, changed = [e for e in p.earlier if e.after not in deleted], True
+        cut = len(self.history)
+        for k in reversed(range(len(self.history))):
+            step = self.history[k]
+            if step.yours:
+                continue
+            if step.first not in deleted and step.last not in deleted:
+                break
+            cut = k
+        if cut < len(self.history):
+            step = self.history[cut]
+            self.history = self.history[:cut]
+            self.book = self.book.model_copy(update={'entries': step.before})
+            self.read_until = step.before_read_until
+            self.settled = _copy(step.before)
+            changed = True
+        return changed
+
+    def as_of(self, message_id: str, messages: list[ChatMessage], *, new_id: str) -> Memories:
+        """The memories as they were right after this message, for a copy of the chat that ends with it (a fork,
+        whose id is `new_id`), with the update written after it still pending (see the notes at the top).
+        `messages`: the chat's, all of them."""
+        ids = [m.id for m in messages]
+        at = ids.index(message_id)
+        if at == len(ids) - 1:  # (the last one: as they are now)
+            return self.model_copy(update={'id': new_id}, deep=True)
+
+        def place(step: MemoryStep) -> int:
+            """Where in the chat a step was applied: after which message (its index; -1: before them all)."""
+            if step.applied_after in ids:
+                return ids.index(step.applied_after)
+            earlier = [i for i, m in enumerate(messages) if m.created_at <= step.applied_at]  # (by the times)
+            return earlier[-1] if earlier else -1
+
+        steps = self.history
+        done = 0  # the steps from before the chat went on after the message, and your changes then
+        while done < len(steps) and (place(steps[done]) < at or (steps[done].yours and place(steps[done]) == at)):
+            done += 1
+
+        def before(k: int) -> dict[str, LoreEntry]:
+            """The memories in use before step k (k = len(steps): after them all, as the chat last went on)."""
+            if k < len(steps):
+                return steps[k].before
+            return self.settled if self.settled is not None else self.book.entries
+
+        def book(entries: dict[str, LoreEntry]) -> LoreBook:
+            return self.book.model_copy(update={'entries': _copy(entries)}, deep=True)
+
+        # The update pending then: one applied later, or still pending, as it was when the chat went on after it
+        pending = None
+        later = next((k for k in range(done, len(steps)) if not steps[k].yours), None)
+        if later is not None:
+            step = steps[later]
+            versions = [*step.earlier, PendingMemory(first=step.first, last=step.last, proposed=book(before(later + 1)),
+                                                     after=ids[place(step)] if place(step) >= 0 else '',
+                                                     earlier=step.earlier)]
+        else:
+            versions = [*self.pending.earlier] if self.pending else []
+        then = [v for v in versions if v.after == message_id]
+        if then:
+            pending = then[-1].model_copy(update={'after': '', 'earlier': []}, deep=True)
+            pending.earlier = [v.model_copy(deep=True) for v in versions if v.after in ids[:at]]
+        entries = before(done)
+        return Memories(id=new_id, book=book(entries), read_until=steps[done].before_read_until if done < len(steps)
+                        else self.read_until, history=[s.model_copy(deep=True) for s in steps[:done]],
+                        pending=pending, settled=_copy(entries))
 
     def changes(self) -> MemoryChanges:
         """What the pending update changes, compared to the memories in use."""
@@ -253,12 +354,16 @@ class MemoryStore:
     def delete(self, conversation_id: str) -> None:
         self._store.delete(conversation_id)
 
-    def apply_pending(self, conversation_id: str) -> bool:
+    def exists(self, conversation_id: str) -> bool:
+        return self._store.exists(conversation_id)
+
+    def moving_on(self, conversation_id: str, after: str, *, posting: bool) -> None:
+        """The chat goes on after the message `after`: see Memories.moving_on."""
+        if not self.exists(conversation_id):
+            return
         memories = self.get(conversation_id)
-        if memories.apply_pending():
+        if memories.moving_on(after, posting=posting):
             self.save(memories)
-            return True
-        return False
 
     def forget(self, conversation_id: str, deleted_ids: list[str]) -> None:
         memories = self.get(conversation_id)

@@ -8,7 +8,8 @@ vectors of a text as base64 float32, a row per piece of it. A text's fingerprint
 vector belongs to a text, not to an entry, so whatever an entry's text becomes (edited, or undone), the
 right vector is found if it's there, and made if it isn't.
 
-Only paths and files here (no numpy): the stores delete a lore book's or a conversation's vectors with it.
+Only paths and files here (no numpy): the stores delete a lore book's or a conversation's vectors with it
+(and a forked chat's memories start with a copy of its original's).
 """
 from __future__ import annotations
 
@@ -35,6 +36,12 @@ def delete_vectors(data_dir: str | Path, kind: str, owner: str) -> None:
     """A lore book's (kind 'lorebooks') or a conversation's memories' ('memories'), for every model."""
     for path in vectors_dir(data_dir).glob(f'*/{kind}/{owner}.json'):
         path.unlink(missing_ok=True)
+
+
+def copy_vectors(data_dir: str | Path, kind: str, owner: str, new_owner: str) -> None:
+    """Copy them for a copy of what they belong to (a forked chat's memories), for every model."""
+    for path in vectors_dir(data_dir).glob(f'*/{kind}/{owner}.json'):
+        shutil.copyfile(path, path.with_name(f'{new_owner}.json'))
 
 
 def delete_model_vectors(data_dir: str | Path, model_key: str) -> None:

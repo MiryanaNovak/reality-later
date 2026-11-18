@@ -45,9 +45,14 @@ long the chat gets:
 and a chat's memories, with what's needed to undo them (memory.py):
 
     data/conversations/memories/<conversation id>.json
+
+A chat can be forked at one of the AI's replies (ConversationStore.fork): copied up to and including that
+reply, as a chat of its own titled "<title> (fork)", with the files of its messages, and its memories as
+they were right after that reply (memory.py). The messages keep their ids.
 """
 from __future__ import annotations
 
+import re
 import secrets
 import shutil
 from collections import Counter
@@ -61,7 +66,7 @@ from pydantic import BaseModel, Field
 from .macros import fill
 from .profiles import Profile
 from .settings import ConnectionRef, PromptChoice
-from .storage import JsonStore, StoredModel
+from .storage import JsonStore, StoredModel, new_id
 
 if TYPE_CHECKING:
     from .characters import Character
@@ -82,6 +87,7 @@ class ProfileRef(BaseModel):
 
 
 TITLE_MAX = 200  # characters
+_FORK = re.compile(r' \(fork(?: \d+)?\)$')  # the end of a fork's title: " (fork)", " (fork 2)"...
 
 
 def new_message_id() -> str:
@@ -239,6 +245,13 @@ class MessageFiles(Generic[S]):
         for message_id in message_ids:
             store.delete(message_id)
 
+    def copy(self, from_id: str, to_id: str, message_ids: list[str]) -> None:
+        """Copy some messages' files to another conversation."""
+        for message_id in message_ids:
+            item = self.get(from_id, message_id)
+            if item is not None:
+                self.save(to_id, message_id, item)
+
     def delete_conversation(self, conversation_id: str) -> None:
         folder = self.folder / conversation_id
         if folder.is_dir() and folder.resolve().parent == self.folder.resolve():
@@ -288,6 +301,48 @@ class ConversationStore(JsonStore[Conversation]):
         self.replies.delete_conversation(item_id)
         self.memories.delete(item_id)
         delete_vectors(self.folder.parent, 'memories', item_id)  # (vector search: vector_files.py)
+
+    def fork(self, conversation_id: str, message_id: str) -> Conversation:
+        """Copy the conversation up to and including one of the AI's replies (not the greeting) as a new one, saved
+        and returned: with its messages' files, and its memories as they were right after that reply (memory.py).
+        KeyError if the conversation or the message is gone; ValueError if the message isn't one of the AI's
+        replies."""
+        from .vector_files import copy_vectors
+        self.flush()
+        original = self.get(conversation_id)
+        message = original.message(message_id) if original is not None else None
+        if original is None or message is None:
+            raise KeyError(f'No message {message_id!r} in the conversation {conversation_id!r}')
+        if message.role != 'assistant' or message.greeting:
+            raise ValueError('A chat can only be forked at one of the AI\'s replies')
+        messages = original.messages[:original.messages.index(message) + 1]
+        title = self.fork_title(original.title)
+        started = now()
+        fork = original.model_copy(update={'id': new_id(title), 'title': title, 'created_at': started,
+                                           'updated_at': started, 'messages': []}, deep=True)
+        fork.messages = [m.model_copy(deep=True) for m in messages]
+        ids = [m.id for m in messages]
+        self.prompts.copy(original.id, fork.id, ids)
+        self.replies.copy(original.id, fork.id, ids)
+        if self.memories.exists(original.id):
+            self.memories.flush()
+            memories = self.memories.get(original.id).as_of(message_id, original.messages, new_id=fork.id)
+            copy_vectors(self.folder.parent, 'memories', original.id, fork.id)  # (not made again: vectors.py)
+            self.memories.save(memories)
+        self.save(fork)  # (last: until then, it isn't listed)
+        return fork
+
+    def fork_title(self, title: str) -> str:
+        """A fork's title: "<title> (fork)", or (fork 2), (fork 3)... when that's taken."""
+        base = _FORK.sub('', title)
+        taken = {c.title for c in self.list()}
+        number = 1
+        while True:
+            end = ' (fork)' if number == 1 else f' (fork {number})'
+            fork = base[:TITLE_MAX - len(end)].rstrip() + end
+            if fork not in taken:
+                return fork
+            number += 1
 
     def rename(self, conversation_id: str, title: str) -> Conversation:
         """Give the conversation another title, saved right away. It doesn't count as an update: the chat

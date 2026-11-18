@@ -6,7 +6,9 @@
 - Messages are shown with Markdown: *text in asterisks* is in italics (actions, in roleplay),
   and what's "in quotation marks" is in the accent's color (dialogue, see dialogue.py).
 - Each message has a ⋯ menu: Copy, Edit (in place), Delete (with every message after it;
-  not the first message); for your messages, See prompt; for the AI's, Details.
+  not the first message); for your messages, See prompt; for the AI's, Details, and Fork from
+  here (not the first message): a new chat, a copy of this one up to and including that reply,
+  with the memories as they were right after it (see conversations.py), opened right away.
 - While the character's first message is the only one, < and > under it switch between
   the character's first messages.
 - Under the AI's last reply (until you answer it), < and > switch between the versions of
@@ -447,10 +449,25 @@ class ChatPage:
                 ui.menu_item('See prompt', lambda: self._show_prompt(message.id)).mark('menu-prompt')
             elif message.role == 'assistant' and not message.greeting:
                 ui.menu_item('Details', lambda: self._show_details(message)).mark('menu-details')
+                ui.menu_item('Fork from here', lambda: self._fork(message.id)).mark('menu-fork')
             if not message.greeting:
                 ui.menu_item('Delete', lambda: self._delete(message.id)) \
                     .classes('text-negative').mark('menu-delete')
         menu.open()
+
+    def _fork(self, message_id: str) -> None:
+        """A new chat: this one up to and including this reply, with the memories as they were then. Opened."""
+        c = self.conversation
+        if self.busy or self.replies.running(c.id):  # (the memories could still change)
+            ui.notify(BUSY_TEXT)
+            return
+        try:
+            fork = self.store.fork(c.id, message_id)
+        except (KeyError, ValueError, OSError) as e:
+            ui.notify(f'The chat couldn\'t be forked: {e}', type='negative')
+            return
+        ui.notify(f'Forked as "{fork.title}"')
+        ui.navigate.to(f'/conversations/{fork.id}')
 
     def _greeting_picker(self, message: ChatMessage) -> None:
         def step(direction: int) -> None:
@@ -614,7 +631,10 @@ class ChatPage:
             ui.notify(BUSY_TEXT)
             return
         self._js(BLUR_JS)
-        self._wait_for(self.replies.start(self.conversation.id, continue_scene=True))
+        c = self.conversation
+        if c.messages and c.messages[-1].role == 'assistant':  # the chat goes on (for forks: memory.py)
+            self.store.memories.moving_on(c.id, c.messages[-1].id, posting=False)
+        self._wait_for(self.replies.start(c.id, continue_scene=True))
 
     @property
     def _send_tooltip(self) -> str:
@@ -632,7 +652,8 @@ class ChatPage:
             return
         c = self.conversation
         self.input.value = ''
-        self.store.memories.apply_pending(c.id)  # the memories written since your last message
+        # The memories written since your last message are applied (and where the chat was recorded, for forks)
+        self.store.memories.moving_on(c.id, c.messages[-1].id if c.messages else '', posting=True)
         self.memory_box.clear()
         self._link(False)
         self._show_marker()  # (same place, "Remembered up to here")
