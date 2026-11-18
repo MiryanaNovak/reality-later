@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -49,7 +50,7 @@ from pydantic import BaseModel, Field, model_validator
 from .chat_setup import ChatSetup, chat_setup, missing_connection
 from .connections import Connection, GenerationParams, ModelError, Reply, Usage
 from .conversations import ChatMessage, Conversation, ConversationStore
-from .lore import Meaning
+from .lore import Meaning, activate
 from .lorebooks import LoreBook
 from .memory import (
     DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, MemoryCallError, apply_changes, batches, memory_prompt, parse_changes,
@@ -57,11 +58,13 @@ from .memory import (
 )
 from .presets import PromptPreset, chat_preset
 from .profiles import ProfileStore
-from .prompts import ExtendMethod, Prompt, build_prompt, lore_books_for
+from .prompts import DEFAULT_CONTEXT, MARGIN, ExtendMethod, Prompt, build_prompt, lore_books_for
 from .settings import Settings, SettingsStore
 from .storage import JsonStore, StoredModel
 
 if TYPE_CHECKING:
+    from .characters import Character
+    from .personas import Persona
     from .vectors import Vectorizer
 
 log = logging.getLogger(__name__)
@@ -438,13 +441,17 @@ class Replies:
         last_read = memories.last_read
         working = memories.editable.model_copy(deep=True)
         groups = batches([(m, f'{names.get(m.role, "System")}: {m.content}') for m in to_read])
+        books, _ = lore_books_for(character, persona, self.lore_books)
         for number, group in enumerate(groups, start=1):
             if len(groups) > 1:
                 job._set_progress(f'{number} / {len(groups)}')
+            known = await self._known_lore(books, [m for m, _ in group], settings=settings, names=names,
+                                           character=character, persona=persona, connection=connection, params=params)
             messages = memory_prompt(
                 instructions=memory.instructions, char=char, user=user,
                 character=character.scenario if character else '',  # (the description isn't for the AI)
-                persona=persona.description if persona else '', book=working, lines=[line for _, line in group])
+                persona=persona.description if persona else '', book=working, lines=[line for _, line in group],
+                lore=known)
             reply = await connection.generate(messages, params)
             try:
                 changes = parse_changes(reply.text)
@@ -466,6 +473,30 @@ class Replies:
                 await self.vectors.refresh('memories', conversation.id)
             except Exception:
                 log.warning('Vectorizing the new memories failed: they will be, before the next reply', exc_info=True)
+
+    async def _known_lore(self, books: list[LoreBook], messages: list[ChatMessage], *, settings: Settings,
+                          names: dict[str, str], character: Character | None, persona: Persona | None,
+                          connection: Connection, params: GenerationParams) -> list[tuple[str, str]]:
+        """The lore book entries these messages bring in, as a chat reply would get them (see memory.py's notes),
+        all of them scanned: (title, text). In the same share of the memory connection's space as lore in a chat."""
+        if not books:
+            return []
+        char, user = names['assistant'], names['user']
+        chat = [(names.get(m.role, 'System'), m.content) for m in messages]
+        context = connection.context_window or DEFAULT_CONTEXT
+        available = max(0, context - (params.max_tokens or 0) - math.ceil(context * MARGIN))
+        closeness = None
+        if self.vectors is not None:
+            leave_out = {char, user} | {p.name for p in (character, persona) if p} | \
+                        {p.title for p in (character, persona) if p}
+            closeness = await self.vectors.lore_closeness(books, [m.content for m in messages], settings=settings,
+                                                          names=leave_out)
+        budget = available * settings.lore.budget_percent // 100
+        found = activate(books, chat=chat, settings=settings.lore, budget=budget, char=char, user=user,
+                         closeness=closeness, scan_all=True,
+                         texts={'scenario': character.scenario if character else '',
+                                'persona': persona.description if persona else ''})
+        return [(a.entry.title, a.content) for a in found.used]
 
     def details(self, conversation_id: str, message: ChatMessage) -> ReplyDetails | None:
         """The details of the version of this reply that's shown."""

@@ -29,7 +29,13 @@ The prompt of a memory call is made of:
 
     system  the memory instructions (Settings › Memory: editable, DEFAULT_INSTRUCTIONS
             until you change them), then ANSWER_FORMAT (fixed)
-    user    MATERIAL_FORMAT, filled in: the scenario, your persona, the memories so far, the messages
+    user    MATERIAL_FORMAT, filled in: the scenario, your persona, the lore book entries the
+            messages bring in, the memories so far, the messages
+
+The lore book entries are those a chat reply would get with these messages (the character's books and
+the persona's: keywords, entries always in, recursion, vector search when it's on for lore books, the
+same share of the prompt's space), all the messages scanned whatever the scan depth: so that the AI
+knows what's already written down, and doesn't remember it again.
 
 The answer format and the material are fixed so that editing the instructions
 can never break how the app reads the answer. Settings shows the answer format, read-only.
@@ -69,7 +75,7 @@ Record lasting facts, not a retelling of events:
 - facts about the world that came up in the story;
 - how {{char}} and {{user}} feel about each other, and how that has changed.
 
-Don't record what the scenario and {{user}}'s description already say.
+Don't record what the scenario, {{user}}'s description and the lore books already say.
 Update an entry rather than adding one that repeats it, and remove what is no longer true.
 Write each entry in a few sentences (60 words at most), in the third person, with names rather than \
 pronouns, in the language of the story.
@@ -93,6 +99,9 @@ MATERIAL_FORMAT = """\
 
 # {user}, played by the user
 {persona}
+
+# Already in the lore books (the entries these messages bring in)
+{lore}
 
 # Memory so far
 {memories}
@@ -301,10 +310,11 @@ def batches(lines: list[tuple[ChatMessage, str]], limit: int = BATCH_TOKENS) -> 
 
 
 def memory_prompt(*, instructions: str, char: str, user: str, character: str, persona: str, book: LoreBook,
-                  lines: list[str]) -> list[Message]:
+                  lines: list[str], lore: list[tuple[str, str]] = ()) -> list[Message]:
     """The messages of one memory call.
 
-    `character` is the character's scenario (all the AI is told about them); `persona`, your persona's description.
+    `character` is the character's scenario (all the AI is told about them); `persona`, your persona's description;
+    `lore`, the lore book entries the messages bring in, as (title, text), their macros filled in.
     """
     def filled(text: str) -> str:
         return fill(text, char=char, user=user).strip()
@@ -314,8 +324,10 @@ def memory_prompt(*, instructions: str, char: str, user: str, character: str, pe
         + (' [always]' if e.constant else '') + f'\n{e.content}'
         for e in book.sorted_entries()
     ) or '(none yet)'
+    known = '\n\n'.join(f'{title}\n{text}' if title.strip() else text for title, text in lore if text.strip())
     material = MATERIAL_FORMAT.format(char=char, user=user, character=filled(character) or '(no scenario)',
-                                      persona=filled(persona) or '(no description)', memories=listing,
+                                      persona=filled(persona) or '(no description)',
+                                      lore=known or '(none for these messages)', memories=listing,
                                       messages='\n\n'.join(lines))
     system = f'{filled(instructions or DEFAULT_INSTRUCTIONS)}\n\n{filled(ANSWER_FORMAT)}'
     return [Message(role='system', content=system), Message(role='user', content=material)]

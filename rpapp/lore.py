@@ -108,12 +108,14 @@ class LoreResult:
 
 def activate(books: list[LoreBook], *, chat: list[tuple[str, str]], settings: LoreSettings, budget: int,
              char: str, user: str, texts: dict[str, str] | None = None,
-             closeness: Closeness | None = None) -> LoreResult:
+             closeness: Closeness | None = None, scan_all: bool = False) -> LoreResult:
     """The entries to put in the prompt.
 
     `chat` is the conversation as (speaker name, text), oldest first. `texts` are the other texts
     some entries can scan too: 'scenario' (the character's), 'persona' (its description).
     `budget` is in tokens; entries set to ignore it don't count. `closeness`: from vector search.
+    `scan_all`: every message of `chat` is scanned, whatever the scan depth (a memory call's messages: all of
+    them are being remembered); entries that don't scan the chat (a depth of 0) still don't.
     """
     texts = texts or {}
     result = LoreResult(notes=_unsupported(books))
@@ -139,12 +141,11 @@ def activate(books: list[LoreBook], *, chat: list[tuple[str, str]], settings: Lo
             if entry.constant:
                 reason = 'always included'
             else:
-                sources = _sources(entry, chat, settings, texts) + (recursion if pass_no else [])
+                sources = _sources(entry, chat, settings, texts, scan_all) + (recursion if pass_no else [])
                 reason = '' if entry.onlyBy == 'meaning' else _match(entry, sources, settings, char=char, user=user)
                 if not reason:
                     if closeness and pass_no == 0 and entry.onlyBy != 'keywords':
-                        depth = entry.scanDepth if entry.scanDepth is not None else settings.scan_depth
-                        score = closeness.score(book.id, entry.uid, depth)
+                        score = closeness.score(book.id, entry.uid, _depth(entry, chat, settings, scan_all))
                         if score is not None and score >= closeness.threshold:
                             near.append((score, book, entry))
                     continue
@@ -196,9 +197,15 @@ def _may_trigger(entry: LoreEntry, pass_no: int) -> bool:
     return not entry.excludeRecursion and _delay_level(entry) <= pass_no
 
 
-def _sources(entry: LoreEntry, chat: list[tuple[str, str]], settings: LoreSettings,
-             texts: dict[str, str]) -> list[Source]:
+def _depth(entry: LoreEntry, chat: list[tuple[str, str]], settings: LoreSettings, scan_all: bool) -> int:
+    """How many of the last messages the entry scans."""
     depth = entry.scanDepth if entry.scanDepth is not None else settings.scan_depth
+    return len(chat) if scan_all and depth > 0 else depth
+
+
+def _sources(entry: LoreEntry, chat: list[tuple[str, str]], settings: LoreSettings,
+             texts: dict[str, str], scan_all: bool = False) -> list[Source]:
+    depth = _depth(entry, chat, settings, scan_all)
     sources = []
     if depth > 0 and chat:
         sources.append(Source('the chat', '\n'.join(f'{name}: {text}' for name, text in chat[-depth:])))

@@ -196,3 +196,17 @@ def test_eldoria():
     used, result = run(eldoria, 'Is this forest dangerous?', settings=LoreSettings(recursive=False))
     assert used == ['eldoria']  # "forest" is one of its keywords
     assert result.notes == []
+
+
+def test_scanning_every_message():
+    """A memory call's messages are all being remembered: all of them are scanned, whatever the scan depth (but
+    an entry that doesn't scan the chat still doesn't)."""
+    world = book(Ford={'key': ['ford'], 'content': 'South.'},
+                 Glade={'key': ['glade'], 'content': 'Sacred.', 'scanDepth': 1},
+                 Moon={'key': ['moon'], 'content': 'Two moons.', 'scanDepth': 0})
+    chat = [('Seraphina', 'The ford is south.'), ('Mira', 'And the moon?'), ('Seraphina', 'Rest in the glade.')]
+    settings = LoreSettings(scan_depth=1)
+    for scan_all, found in ((False, ['Glade']), (True, ['Ford', 'Glade'])):
+        result = activate([world], chat=chat, settings=settings, budget=10_000, char='Seraphina', user='Mira',
+                          scan_all=scan_all)
+        assert sorted(a.entry.title for a in result.used) == found

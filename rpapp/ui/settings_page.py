@@ -543,6 +543,9 @@ class SettingsSection:
         ui.label('Added after your instructions. It can\'t be changed, so the app can always read the answer:') \
             .classes('text-sm muted mt-2')
         ui.label(ANSWER_FORMAT).classes('prompt-text').mark('memory-format')
+        ui.label('With them, the AI is given the scenario, your persona\'s description, the lore book entries the '
+                 'messages bring in (as a chat reply would get them), the memories so far, and the messages to '
+                 'remember.').classes('text-sm muted').mark('memory-material')
 
     def _memory_instructions(self, memory: MemorySettings, form: Form) -> None:
         """The instructions, showing the default ones until you change them ('' is saved for the default)."""

@@ -202,6 +202,7 @@ async def test_memory_instructions_default_and_reset(setup):
     editor = user.find(marker='memory-instructions').elements.pop()
     assert editor.value == DEFAULT_INSTRUCTIONS  # shown until changed
     await user.should_see('The default instructions.')
+    await user.should_see('the lore book entries the messages bring in')  # (what the AI is given with them)
     await user.should_not_see(marker='memory-reset')
 
     editor.set_value(DEFAULT_INSTRUCTIONS + '\nAlso track the time of day.')

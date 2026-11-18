@@ -280,12 +280,7 @@ class Vectorizer:
             threshold = vs.threshold(model.key, model.threshold)
             asked = await self.queries(model, messages)
             if lore_on:
-                vectors: dict[tuple[str, int], np.ndarray] = {}
-                for book in books:
-                    texts = lore_texts(book)
-                    made = await self.ensure('lorebooks', book.id, model, texts.values())
-                    vectors |= {(book.id, uid): made[fingerprint(t)] for uid, t in texts.items()}
-                lore = Closeness(closeness(vectors, asked), threshold, vs.max_entries)
+                lore = await self._lore_closeness(model, books, asked, settings)
             if memory_on:
                 made = await self.ensure('memories', conversation.id, model, [*now.values(), *ahead], keep=kept)
                 book = memories.book
@@ -299,6 +294,34 @@ class Vectorizer:
         finally:
             if work and busy:
                 busy(False)
+
+    async def lore_closeness(self, books: list[LoreBook], messages: list[str], *, settings: Settings,
+                             names: Iterable[str] = ()) -> Closeness | None:
+        """How close in meaning the lore books' entries are to each of these messages (a memory call's: all of them
+        are scanned), for lore.activate. None if vector search isn't on for lore books, can't run, or fails (the
+        entries then come in by their keywords only)."""
+        if not (settings.vectors.lore and any(lore_texts(b) for b in books)) or self.problem(settings):
+            return None
+        names = list(names)
+        texts = [topic_text(m, names) for m in messages]
+        if not texts:
+            return None
+        try:
+            model = self.model(settings)
+            return await self._lore_closeness(model, books, await self.queries(model, texts), settings)
+        except Exception:
+            log.exception('Vector search failed for a memory call: its lore entries came in by their keywords only')
+            return None
+
+    async def _lore_closeness(self, model: EmbeddingModel, books: list[LoreBook], asked: list[np.ndarray],
+                              settings: Settings) -> Closeness:
+        vs = settings.vectors
+        vectors: dict[tuple[str, int], np.ndarray] = {}
+        for book in books:
+            texts = lore_texts(book)
+            made = await self.ensure('lorebooks', book.id, model, texts.values())
+            vectors |= {(book.id, uid): made[fingerprint(t)] for uid, t in texts.items()}
+        return Closeness(closeness(vectors, asked), vs.threshold(model.key, model.threshold), vs.max_entries)
 
     # -- in the background
 

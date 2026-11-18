@@ -347,6 +347,29 @@ async def test_new_memories_are_vectorized_before_you_post(tmp_path, fake_model,
         assert use.reason.startswith('close in meaning to the chat') or use.reason.startswith('keyword')
 
 
+async def test_memory_calls_get_lore_by_meaning_too(tmp_path, fake_model, topic_search):
+    """What the lore books already say, for a memory call: entries close in meaning to its messages too."""
+    conversations, conversation = make_chat(tmp_path, context=50_000)
+    books = lore_book_store(tmp_path)
+    book = river_book()
+    books.save(book)
+    characters = CharacterStore(tmp_path)
+    seraphina = characters.get(conversation.character.id)
+    seraphina.lorebooks = [LoreBookRef(id=book.id, name=book.name)]
+    characters.save(seraphina)
+    turn_on(tmp_path, memories=False)
+    fake_model.memory_answers = [ADD_BRANN]
+    async with user_simulation(build_root(tmp_path)) as user:
+        await user.open(f'/conversations/{conversation.id}')
+        await send(user, 'We need a boat to cross the water.')  # (no keyword of any entry)
+        user.find(marker='menu-generate-memories-now').click()
+        await settled(user)
+        await user.should_see('Memories generated from 2 messages: 1 new.')
+    known = fake_model.memory_calls[-1][1].content.split('# Already in the lore books')[1].split('# Memory so far')[0]
+    assert 'A gruff ferryman on the river.' in known and 'Velt is a river kingdom.' in known
+    assert 'warehouses' not in known
+
+
 async def test_without_the_model_the_chat_says_so_once(tmp_path, fake_model, topic_search):
     character, persona = save_cast(tmp_path, 'Welcome.')
     book = river_book()

@@ -57,6 +57,13 @@ def test_memory_prompt():
         in empty[0].content and 'Answer with a JSON array of changes' in empty[0].content
     assert '# Seraphina and the story\nGuardian of Mira.' in empty[1].content and '(none yet)' in empty[1].content
     assert empty[1].content.endswith('# Messages to remember\nMira: Hi.')
+    assert '# Already in the lore books (the entries these messages bring in)\n(none for these messages)' \
+        in empty[1].content
+    assert 'the lore books already say' in empty[0].content  # (the default instructions say not to repeat them)
+    known = memory_prompt(instructions='', char='S', user='M', character='', persona='', book=book, lines=['M: Hi.'],
+                          lore=[('The ford', 'South of the glade.'), ('', 'Velt is a river kingdom.'), ('Empty', ' ')])
+    assert '# Already in the lore books (the entries these messages bring in)\nThe ford\nSouth of the glade.\n\n' \
+           'Velt is a river kingdom.\n\n# Memory so far' in known[1].content
     book.add_entry(comment='Brann', key=['Brann'], content='A ferryman.', constant=True)
     listed = memory_prompt(instructions='Be brief.', char='S', user='M', character='', persona='', book=book,
                            lines=[])
@@ -238,6 +245,51 @@ async def test_memories_after_old_messages_leave_the_prompt(tmp_path, fake_model
         prompt = conversations.prompts.get(conversation.id, conversations.load(conversation.id).messages[-2].id)
         assert any(p.kind == 'memory' and 'set his wrist' in p.content for p in prompt.parts)
         assert prompt.report.memories[0].reason == 'keyword "Brann" in the chat'
+
+
+async def test_memory_calls_know_what_the_lore_books_say(tmp_path, fake_model):
+    """The entries the messages bring in, as a reply would get them: the character's books and the persona's,
+    those always in, all the messages scanned whatever the scan depth. Not the others, nor those switched off."""
+    from rpapp.lorebooks import lore_book_store
+    from rpapp.profiles import LoreBookRef
+    conversations, conversation = make_chat(tmp_path, context=50_000)
+    books = lore_book_store(tmp_path)
+    world = new_lore_book('Eldwood')
+    world.add_entry(comment='The ford', key=['river'], content='The ford crosses the river south of the glade.')
+    world.add_entry(comment='Kneeling', key=['kneels'], content='{{char}} kneels only to the wounded.')
+    world.add_entry(comment='The glade', key=[], content='The glade is sacred.', constant=True)
+    world.add_entry(comment='Dragons', key=['dragon'], content='No dragon has been seen for a century.')
+    world.add_entry(comment='Old river', key=['river'], content='Switched off.', disable=True)
+    family = new_lore_book('Mira\'s family')
+    family.add_entry(comment='Brann', key=['Brann'], content='Brann is {{user}}\'s cousin, a ferryman.')
+    books.save(world)
+    books.save(family)
+    characters, personas = CharacterStore(tmp_path), PersonaStore(tmp_path)
+    seraphina, mira = characters.get(conversation.character.id), personas.get(conversation.persona.id)
+    seraphina.lorebooks = [LoreBookRef(id=world.id, name=world.name)]
+    mira.lorebooks = [LoreBookRef(id=family.id, name=family.name)]
+    characters.save(seraphina)
+    personas.save(mira)
+    settings = SettingsStore(tmp_path)
+    s = settings.load()
+    s.lore.scan_depth = 1  # (a reply would only look in the last message: a memory call, in all it reads)
+    settings.save(s)
+    fake_model.memory_answers = [ADD_BRANN]
+    async with user_simulation(build_root(tmp_path)) as user:
+        await user.open(f'/conversations/{conversation.id}')
+        await send(user, 'Brann helped me cross the river.')
+        user.find(marker='menu-generate-memories-now').click()
+        await settled(user)
+        await user.should_see('Memories generated from 2 messages: 1 new.')
+    [call] = fake_model.memory_calls
+    known = call[1].content.split('# Already in the lore books (the entries these messages bring in)\n')[1] \
+        .split('# Memory so far')[0]
+    assert 'The glade\nThe glade is sacred.' in known                          # always in
+    assert 'The ford\nThe ford crosses the river south of the glade.' in known  # a keyword in the last message
+    assert 'Kneeling\nSeraphina kneels only to the wounded.' in known           # in the first one (the greeting)
+    assert 'Brann\nBrann is Mira\'s cousin, a ferryman.' in known              # the persona's book
+    assert 'dragon' not in known and 'Switched off' not in known
+    assert 'the lore books already say' in call[0].content
 
 
 async def test_generate_now_and_undo_by_deleting(tmp_path, fake_model):
