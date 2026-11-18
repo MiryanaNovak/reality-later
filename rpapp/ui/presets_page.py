@@ -18,7 +18,8 @@ from .form import Form
 from .list_view import Row
 from .widgets import not_found, panel
 
-MACROS_HINT = 'Write {{char}} for the character\'s name and {{user}} for yours.'
+MACROS_HINT = 'Write {{char}} for the character\'s name and {{user}} for yours; {{sub}}, {{obj}}, {{poss}}, ' \
+              '{{poss_p}} and {{ref}} for your persona\'s pronouns (she, her, her, hers, herself).'
 
 
 class PresetsSection:

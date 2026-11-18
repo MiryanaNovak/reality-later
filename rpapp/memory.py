@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -310,14 +311,16 @@ def batches(lines: list[tuple[ChatMessage, str]], limit: int = BATCH_TOKENS) -> 
 
 
 def memory_prompt(*, instructions: str, char: str, user: str, character: str, persona: str, book: LoreBook,
-                  lines: list[str], lore: list[tuple[str, str]] = ()) -> list[Message]:
+                  lines: list[str], lore: list[tuple[str, str]] = (),
+                  pronouns: Sequence[str] | None = None) -> list[Message]:
     """The messages of one memory call.
 
     `character` is the character's scenario (all the AI is told about them); `persona`, your persona's description;
-    `lore`, the lore book entries the messages bring in, as (title, text), their macros filled in.
+    `lore`, the lore book entries the messages bring in, as (title, text), their macros filled in; `pronouns`, your
+    persona's (macros.py).
     """
     def filled(text: str) -> str:
-        return fill(text, char=char, user=user).strip()
+        return fill(text, char=char, user=user, pronouns=pronouns).strip()
 
     listing = '\n\n'.join(
         f'[id {e.uid}] {e.comment or "Untitled"} (keys: {", ".join(e.key) or "none"})'

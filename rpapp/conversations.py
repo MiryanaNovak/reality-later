@@ -272,7 +272,8 @@ class ConversationStore(JsonStore[Conversation]):
             character=ProfileRef.to(character),
             persona=ProfileRef.to(persona),
         )
-        names = {'char': character.name or character.title, 'user': persona.name or persona.title}
+        names = {'char': character.name or character.title, 'user': persona.name or persona.title,
+                 'pronouns': getattr(persona, 'pronoun_forms', None)}  # (a persona's: macros.py)
         greetings = [fill(text, **names) for text in getattr(character, 'first_messages', []) if text.strip()]
         if greetings:
             conversation.messages = [ChatMessage(role='assistant', content=greetings[0], greeting=True,

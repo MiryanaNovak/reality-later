@@ -61,7 +61,8 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-MACROS_HINT = 'Write {{char}} for the character\'s name and {{user}} for yours.'
+MACROS_HINT = 'Write {{char}} for the character\'s name and {{user}} for yours; {{sub}}, {{obj}}, {{poss}}, ' \
+              '{{poss_p}} and {{ref}} for your persona\'s pronouns (she, her, her, hers, herself).'
 DESCRIPTION_MARKDOWN = ['break-on-newline', 'fenced-code-blocks', 'tables', 'strike']
 # Links in a description open in a new tab (the app stays where it is)
 NEW_TAB = ('(e) => { const a = e.target.closest("a[href]"); if (a) { e.preventDefault(); '

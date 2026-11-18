@@ -242,9 +242,10 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
     """
     char = (character.name or character.title) if character else conversation.character.title
     user = (persona.name or persona.title) if persona else conversation.persona.title
+    pronouns = persona.pronoun_forms if persona else None  # (for {{sub}}, {{obj}}...: macros.py)
 
     def filled(text: str) -> str:
-        return fill(text, char=char, user=user).strip()
+        return fill(text, char=char, user=user, pronouns=pronouns).strip()
 
     def speaker(message: ChatMessage) -> str:
         return {'user': user, 'assistant': char}.get(message.role, 'System')
@@ -290,7 +291,7 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
 
     # -- lore, and the chat's memories (a lore book of their own, with their own budget)
     scan = dict(chat=[(speaker(m), m.content) for m in conversation.messages], settings=settings.lore,
-                char=char, user=user,
+                char=char, user=user, pronouns=pronouns,
                 texts={'scenario': character.scenario if character else '',
                        'persona': persona.description if persona else ''})
     lore_budget = available * settings.lore.budget_percent // 100

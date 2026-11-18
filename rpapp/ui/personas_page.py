@@ -57,13 +57,15 @@ class PersonasSection(ProfileSection[Persona]):
                         set=lambda value: setattr(persona, 'gender', value or ''))
             form.choice('Pronouns', PRONOUN_LABELS, get=lambda: persona.pronouns,
                         set=lambda value: setattr(persona, 'pronouns', value or ''))
-        ui.label('Sent to the AI: so that it writes about you the right way.') \
-            .classes('text-xs muted -mt-2 px-3').mark('gender-pronouns-hint')
+        ui.label('Sent to the AI: so that it writes about you the right way. In texts, {{sub}}, {{obj}}, {{poss}}, '
+                 '{{poss_p}} and {{ref}} stand for your pronouns (she, her, her, hers, herself; they/them when none '
+                 'is chosen).').classes('text-xs muted -mt-2 px-3').mark('gender-pronouns-hint')
 
     def panels(self, persona: Persona, form: Form) -> None:
         with panel('Description', 'Who you are in the story: looks, background, personality, abilities. The AI reads '
                                   'it before every reply, so that it knows who it\'s talking to. Write {{user}} '
-                                  'for your name and {{char}} for the character\'s.', audience='ai'):
+                                  'for your name and {{char}} for the character\'s; {{sub}}, {{obj}}, {{poss}}, '
+                                  '{{poss_p}} and {{ref}} for your pronouns.', audience='ai'):
             form.long_text(persona, 'description', 'Description', min_height='12rem',
                            placeholder='e.g. {{user}} is a wandering healer in her thirties, calm and stubborn, '
                                        'with a satchel of herbs and a scar across one hand.')

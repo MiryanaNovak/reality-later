@@ -451,7 +451,7 @@ class Replies:
                 instructions=memory.instructions, char=char, user=user,
                 character=character.scenario if character else '',  # (the description isn't for the AI)
                 persona=persona.description if persona else '', book=working, lines=[line for _, line in group],
-                lore=known)
+                lore=known, pronouns=persona.pronoun_forms if persona else None)
             reply = await connection.generate(messages, params)
             try:
                 changes = parse_changes(reply.text)
@@ -493,7 +493,7 @@ class Replies:
                                                           names=leave_out)
         budget = available * settings.lore.budget_percent // 100
         found = activate(books, chat=chat, settings=settings.lore, budget=budget, char=char, user=user,
-                         closeness=closeness, scan_all=True,
+                         closeness=closeness, scan_all=True, pronouns=persona.pronoun_forms if persona else None,
                          texts={'scenario': character.scenario if character else '',
                                 'persona': persona.description if persona else ''})
         return [(a.entry.title, a.content) for a in found.used]

@@ -63,14 +63,15 @@ log = logging.getLogger(__name__)
 QUERY_CACHE = 512   # messages whose vectors are kept in memory (a reply needs the last few again)
 SOON = 2.0          # seconds after a save before vectorizing in the background (saves come in bursts)
 
-_MACROS = re.compile(r'\{\{char\}\}|<BOT>|\{\{user\}\}|<USER>', re.I)
+_MACROS = re.compile(r'\{\{(?:char|user|sub|obj|poss_p|poss|ref)\}\}|<BOT>|<USER>', re.I)
 
 
 # --- the texts ------------------------------------------------------------------------------------
 
 def entry_text(entry: LoreEntry) -> str:
-    """What's vectorized of an entry: its title, then its content, without {{char}} and {{user}} (names say
-    nothing of what it's about, see topic_text(); and the same lore book serves chats with other names)."""
+    """What's vectorized of an entry: its title, then its content, without its macros ({{char}}, {{user}}, {{sub}}...:
+    names and pronouns say nothing of what it's about, see topic_text(); and the same lore book serves chats with
+    other names)."""
     title, content = (entry.comment or '').strip(), (entry.content or '').strip()
     text = f'{title}\n{content}' if title and content and title not in content else content or title
     return _MACROS.sub('', text)

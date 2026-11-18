@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import functools
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from .lorebooks import AT_DEPTH, OUTLET, LoreBook, LoreEntry
@@ -108,14 +109,16 @@ class LoreResult:
 
 def activate(books: list[LoreBook], *, chat: list[tuple[str, str]], settings: LoreSettings, budget: int,
              char: str, user: str, texts: dict[str, str] | None = None,
-             closeness: Closeness | None = None, scan_all: bool = False) -> LoreResult:
+             closeness: Closeness | None = None, scan_all: bool = False,
+             pronouns: Sequence[str] | None = None) -> LoreResult:
     """The entries to put in the prompt.
 
     `chat` is the conversation as (speaker name, text), oldest first. `texts` are the other texts
     some entries can scan too: 'scenario' (the character's), 'persona' (its description).
     `budget` is in tokens; entries set to ignore it don't count. `closeness`: from vector search.
     `scan_all`: every message of `chat` is scanned, whatever the scan depth (a memory call's messages: all of
-    them are being remembered); entries that don't scan the chat (a depth of 0) still don't.
+    them are being remembered); entries that don't scan the chat (a depth of 0) still don't. `pronouns`: your
+    persona's, for the pronoun macros (see macros.py).
     """
     texts = texts or {}
     result = LoreResult(notes=_unsupported(books))
@@ -142,7 +145,8 @@ def activate(books: list[LoreBook], *, chat: list[tuple[str, str]], settings: Lo
                 reason = 'always included'
             else:
                 sources = _sources(entry, chat, settings, texts, scan_all) + (recursion if pass_no else [])
-                reason = '' if entry.onlyBy == 'meaning' else _match(entry, sources, settings, char=char, user=user)
+                reason = '' if entry.onlyBy == 'meaning' else _match(entry, sources, settings, char=char, user=user,
+                                                                     pronouns=pronouns)
                 if not reason:
                     if closeness and pass_no == 0 and entry.onlyBy != 'keywords':
                         score = closeness.score(book.id, entry.uid, _depth(entry, chat, settings, scan_all))
@@ -150,12 +154,14 @@ def activate(books: list[LoreBook], *, chat: list[tuple[str, str]], settings: Lo
                             near.append((score, book, entry))
                     continue
             done.add(key)
-            found.append(Activation(book, entry, fill(entry.content, char=char, user=user).strip(), reason))
+            found.append(Activation(book, entry, fill(entry.content, char=char, user=user, pronouns=pronouns).strip(),
+                                    reason))
         if closeness and near:  # after the keyword matches: the closest first, so many at most
             near.sort(key=lambda n: -n[0])
             for score, book, entry in near[:closeness.limit]:
                 done.add((book.id, entry.uid))
-                found.append(Activation(book, entry, fill(entry.content, char=char, user=user).strip(),
+                found.append(Activation(book, entry, fill(entry.content, char=char, user=user,
+                                                          pronouns=pronouns).strip(),
                                         f'close in meaning to the chat ({score:.2f})'))
         if not found:
             break
@@ -222,7 +228,8 @@ def _sources(entry: LoreEntry, chat: list[tuple[str, str]], settings: LoreSettin
     return sources
 
 
-def _match(entry: LoreEntry, sources: list[Source], settings: LoreSettings, *, char: str, user: str) -> str:
+def _match(entry: LoreEntry, sources: list[Source], settings: LoreSettings, *, char: str, user: str,
+           pronouns: Sequence[str] | None = None) -> str:
     """Why the entry triggers ('keyword "x" in the chat'), or '' if it doesn't."""
     if not sources:
         return ''
@@ -233,12 +240,13 @@ def _match(entry: LoreEntry, sources: list[Source], settings: LoreSettings, *, c
     def found(key: str, text: str) -> bool:
         return key_matches(key, text, case_sensitive=case, whole_words=whole)
 
-    keys = [k for k in (fill(k, char=char, user=user).strip() for k in entry.key) if k]
+    keys = [k for k in (fill(k, char=char, user=user, pronouns=pronouns).strip() for k in entry.key) if k]
     primary = next((k for k in keys if found(k, everything)), None)
     if primary is None:
         return ''
 
-    secondary = [k for k in (fill(k, char=char, user=user).strip() for k in entry.keysecondary) if k]
+    secondary = [k for k in (fill(k, char=char, user=user, pronouns=pronouns).strip() for k in entry.keysecondary)
+                 if k]
     if entry.selective and secondary:
         hits = [found(k, everything) for k in secondary]
         logic = entry.selectiveLogic
