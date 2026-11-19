@@ -53,8 +53,8 @@ from .list_view import Link, Row, initials, plural
 from .chat_settings import ChatChoices, character_panel
 from .folders_page import folder_links
 from .profile_page import ProfileSection
-from .widgets import (Dialog, MenuItems, audience_legend, browser_languages, confirm, file_picker, not_found,
-                      page_bar, panel)
+from .widgets import (Dialog, MarkdownView, MenuItems, audience_legend, browser_languages, confirm, file_picker,
+                      not_found, page_bar, panel)
 
 if TYPE_CHECKING:
     from .sharing_page import SharingSection
@@ -299,11 +299,11 @@ class CharactersSection(ProfileSection[Character]):
                     character, fingerprint=self.card_fingerprint, export=lambda c: self.export_card(c)[0],
                     publish=lambda: self.publish(character)), once=True)
 
-    def _description_view(self, text: str) -> ui.markdown:
+    def _description_view(self, text: str) -> MarkdownView:
         """A description as it shows: its Markdown and basic HTML, its own pictures (see safe_html.py)."""
-        return ui.markdown(with_picture_urls(text, self._picture_url), extras=DESCRIPTION_MARKDOWN,
-                           sanitize=self._description_html) \
-            .props('sanitize').classes('description-view w-full').on('click', js_handler=NEW_TAB)
+        return MarkdownView(with_picture_urls(text, self._picture_url), extras=DESCRIPTION_MARKDOWN,
+                            clean=self._description_html) \
+            .classes('description-view w-full').on('click', js_handler=NEW_TAB)
 
     # -- its editor --------------------------------------------------------------------------------------
 

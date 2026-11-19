@@ -76,7 +76,7 @@ from .list_view import plural, thumbnail
 from .prompt_view import show_prompt
 from .reply_view import show_reply_details
 from .chat_settings import ChatChoices, chat_settings_dialog
-from .widgets import ask_name, confirm, copy_js, page_header
+from .widgets import MarkdownView, ask_name, confirm, copy_js, page_header
 
 MEMORY_ICON = 'psychology'
 
@@ -400,9 +400,8 @@ class ChatPage:
                 elif self.rewriting == message.id and not self.extending:
                     self._replying_text()
                 else:
-                    # Cleaned here (message_html), and again in the browser by DOMPurify ('sanitize')
-                    ui.markdown(message.content, extras=MARKDOWN, sanitize=message_html).props('sanitize') \
-                        .classes('chat-text')
+                    # Cleaned here (message_html), and again in the browser (DOMPurify)
+                    MarkdownView(message.content, extras=MARKDOWN, clean=message_html).classes('chat-text')
                     if self.rewriting == message.id:  # extending it
                         self._replying_text('Extending').classes('mt-1').mark('extending')
                 if editing or self.rewriting == message.id:

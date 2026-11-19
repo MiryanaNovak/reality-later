@@ -1,6 +1,7 @@
 """Small building blocks shared by all pages.
 
-Dialogs are made with Dialog(), not ui.dialog(): see there why.
+Dialogs are made with Dialog(), not ui.dialog(): see there why. Markdown is shown with MarkdownView, not
+ui.markdown: see there why.
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from nicegui import Client, events, ui
+from nicegui.elements.markdown import prepare_content
 
 from .. import APP_NAME
 
@@ -40,6 +42,24 @@ class Dialog(ui.dialog):
                 self.props(remove='no-backdrop-dismiss no-shake')
         except (RuntimeError, ValueError, KeyError):  # (its page closed meanwhile)
             pass
+
+
+class MarkdownView(ui.html):
+    """Markdown, shown: rendered here (with `extras`, as ui.markdown does), then cleaned by `clean`, and again in
+    the browser (DOMPurify). set_content takes Markdown too.
+
+    Not ui.markdown: in the browser, its text shows only once a stylesheet it loads has (the colors of code
+    blocks, which the cleaning here takes out anyway), and when a browser never finished loading it, every
+    one made after the page opened stayed empty until something else on the page was redrawn (new chat
+    messages showed only their name and time). Here the text shows at once."""
+
+    def __init__(self, text: str = '', *, extras: Sequence[str], clean: Callable[[str], str]) -> None:
+        self._extras, self._clean = ' '.join(extras), clean
+        super().__init__(text, sanitize=True)
+        self.classes('nicegui-markdown')
+
+    def _handle_content_change(self, content: str) -> None:
+        super()._handle_content_change(self._clean(prepare_content(content, self._extras)))
 
 
 Audience = Literal['ai', 'you']
