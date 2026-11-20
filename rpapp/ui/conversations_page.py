@@ -1,10 +1,16 @@
-"""The Conversations section: a tree of conversations grouped by character, and the chat page.
+"""The Conversations section: a tree of conversations grouped by character or by persona, and the chat page.
 
-    /conversations                     the tree; groups (characters) and their conversations,
-                                       most recently updated first
+    /conversations                     the tree; groups and their conversations, most recently updated first
     /conversations?character=<id>      the same, with that character's group open and in view
+        &persona=<id>                  (and that persona's, when they're grouped by persona)
     /conversations/<conversation id>   the chat (see chat_page.py)
     /conversations/<conversation id>/memories   what the AI remembers of it (memories_page.py)
+
+At the top, By character / By persona says how they're grouped (kept for the device, in a cookie: opened.py):
+by character, each character's group lists its conversations with your persona's picture, "As <persona>";
+by persona, each persona's lists them with the character's picture, "With <character>". Under it, the search
+(once there are 8 conversations, as on the Characters page) finds them by title, character or persona: only
+those found show, in their groups.
 
 Conversations are started from a character's card (New chat), titled with the date and time. Their
 ⋮ menu, here and in the chat, can rename them. A character's page lists its own the same way
@@ -24,9 +30,13 @@ from ..replies import Replies
 from .chat_page import ChatPage
 from .memories_page import MemoriesPage
 from .list_view import Action, ListView, Row, plural
+from .opened import Chosen
 from .profile_page import ProfileSection
 from .tree_view import TreeGroup, TreeView
 from .widgets import ask_name, confirm, not_found, page_bar, time_ago
+
+
+GROUPINGS = {'character': 'By character', 'persona': 'By persona'}
 
 
 class ConversationsSection:
@@ -38,25 +48,45 @@ class ConversationsSection:
         self.characters = characters
         self.personas = personas
         self.replies = replies
-        self._personas: dict[str, Persona] = {}  # filled while building the groups, used by the rows
+        # Filled while building the groups, used by the rows
+        self._characters: dict[str, Character] = {}
+        self._personas: dict[str, Persona] = {}
+        self.grouping = Chosen('rp_conversations_by', tuple(GROUPINGS))
 
     # -- the tree --------------------------------------------------------------------
 
-    def list_page(self, character: str = '') -> None:
-        """`character` (from ?character=...) is the group to open and bring into view."""
+    def list_page(self, character: str = '', persona: str = '') -> None:
+        """`character` and `persona` (from ?character=...&persona=...): the group to open and bring into view, the
+        one of the grouping chosen."""
         page_bar('Conversations')
+        wanted = {'character': character, 'persona': persona}
+
+        def regroup(by: str) -> None:
+            self.grouping.set(by)
+            tree.focus(wanted[by])
+            tree.refresh()
+
+        with ui.row().classes('w-full items-center gap-2'):
+            ui.toggle(GROUPINGS, value=self.grouping.get(), on_change=lambda e: regroup(e.value)) \
+                .props('dense no-caps unelevated toggle-color=primary').mark('conversations-by')
         tree = TreeView(
             groups=self._groups,
             key=lambda conversation: conversation.id,
-            row=self._row,
+            row=lambda conversation: self._row(conversation, by=self.grouping.get()),
             on_open=lambda conversation: ui.navigate.to(f'{self.path}/{conversation.id}'),
             actions=self._actions(lambda: tree.refresh()),
-            focus=character,
+            focus=wanted[self.grouping.get()],
             empty_title='No conversations yet',
             empty_text='Start one from a character: open Characters and press New chat on a card.',
+            search=self._search_text,
+            noun='conversation',
         )
         if character and not self.store.using('character', character):
             ui.notify('This character has no conversations yet.')
+
+    @staticmethod
+    def _search_text(conversation: Conversation) -> str:
+        return f'{conversation.title} {conversation.character.title} {conversation.persona.title}'
 
     def character_list(self, character: Character) -> ListView[Conversation]:
         """A character's conversations, most recently updated first, as the tree shows them (for its page)."""
@@ -73,7 +103,7 @@ class ConversationsSection:
             row=self._row,
             on_open=lambda conversation: ui.navigate.to(f'{self.path}/{conversation.id}'),
             actions=self._actions(lambda: view.refresh()),
-            search=lambda conversation: f'{conversation.title} {conversation.persona.title}',
+            search=self._search_text,
             empty_title='No conversations yet',
             empty_text='Start one with New chat.',
         )
@@ -100,25 +130,28 @@ class ConversationsSection:
         return [Action('Rename', rename), Action('Delete', delete, danger=True)]
 
     def _groups(self) -> list[TreeGroup[Conversation]]:
+        """The groups of the grouping chosen (characters or personas), the most recently updated first."""
+        by = self.grouping.get()
         characters = {c.id: c for c in self.characters.store.list()}
         personas = {p.id: p for p in self.personas.store.list()}
-        self._personas = personas
+        self._characters, self._personas = characters, personas
 
-        by_character: dict[str, list[Conversation]] = defaultdict(list)
+        grouped: dict[str, list[Conversation]] = defaultdict(list)
         for conversation in self.store.list():
             self._refresh_titles(conversation, characters, personas)
-            by_character[conversation.character.id].append(conversation)
+            grouped[getattr(conversation, by).id].append(conversation)
 
+        section = self.characters if by == 'character' else self.personas
+        profiles = characters if by == 'character' else personas
         groups = []
-        for character_id, conversations in by_character.items():
+        for key, conversations in grouped.items():
             conversations.sort(key=lambda c: c.updated_at, reverse=True)
-            character = characters.get(character_id)
-            latest = conversations[0]
-            groups.append(TreeGroup(key=character_id, items=conversations, row=Row(
-                title=character.title if character else latest.character.title,
-                image=self.characters.image_url(character.image) if character else '',
+            profile, latest = profiles.get(key), conversations[0]
+            groups.append(TreeGroup(key=key, items=conversations, row=Row(
+                title=profile.title if profile else getattr(latest, by).title,
+                image=section.image_url(profile.image) if profile else '',
                 subtitle=f'{plural(len(conversations), "conversation")}, last updated {time_ago(latest.updated_at)}',
-                warning='' if character else 'This character was deleted',
+                warning='' if profile else f'This {by} was deleted',
             )))
         groups.sort(key=lambda g: g.items[0].updated_at, reverse=True)
         return groups
@@ -133,15 +166,22 @@ class ConversationsSection:
         if changed:
             self.store.save(conversation)
 
-    def _row(self, conversation: Conversation) -> Row:
-        persona = self._personas.get(conversation.persona.id)
+    def _row(self, conversation: Conversation, *, by: str = 'character') -> Row:
+        """A conversation in a group of characters (`by`): with your persona's picture, "As <persona>"; in a group
+        of personas, with the character's, "With <character>"."""
+        if by == 'persona':
+            ref, profile, section, words = (conversation.character, self._characters.get(conversation.character.id),
+                                            self.characters, ('With', 'Character'))
+        else:
+            ref, profile, section, words = (conversation.persona, self._personas.get(conversation.persona.id),
+                                            self.personas, ('As', 'Persona'))
         return Row(
             title=conversation.title,
-            subtitle=f'As {conversation.persona.title}. Updated {time_ago(conversation.updated_at)}.',
+            subtitle=f'{words[0]} {ref.title}. Updated {time_ago(conversation.updated_at)}.',
             thumb=True,
-            thumb_label=conversation.persona.title,  # the persona's initials when it has no picture
-            image=self.personas.image_url(persona.image) if persona else '',
-            warning='' if persona else f'Persona "{conversation.persona.title}" is missing',
+            thumb_label=ref.title,  # their initials when there's no picture
+            image=section.image_url(profile.image) if profile else '',
+            warning='' if profile else f'{words[1]} "{ref.title}" is missing',
         )
 
     # -- the chat ----------------------------------------------------------------------
@@ -166,4 +206,5 @@ class ConversationsSection:
         if conversation is None:
             return
         ChatPage(conversation, store=self.store, characters=self.characters, personas=self.personas,
-                 replies=self.replies, back=f'{self.path}?character={conversation.character.id}').build()
+                 replies=self.replies,
+                 back=f'{self.path}?character={conversation.character.id}&persona={conversation.persona.id}').build()
