@@ -1,10 +1,11 @@
 """Which connection and prompt chats use, chosen for a character (on its page: character_panel) or for one
 chat (its ⋮ menu › Settings: chat_settings_dialog), instead of what they would use otherwise (chat_setup.py).
 
-Each dropdown's first choice is that default, and says what it is ("Same as in Settings: DeepSeek", "Same as
-for Seraphina: Claude"): choosing it goes back to it. The prompt can also be none at all ("None: no
-instructions"), as in Settings › Chat. The chat's dialog says why each one is used: chosen for the chat,
-for its character, or Settings'.
+Each dropdown's first choice is that default, and says what it is, on two lines: its name, and where it comes
+from ("DeepSeek" / "Same as in Settings", "Claude" / "Same as for Seraphina"), so that a long name isn't cut
+off on a phone. Choosing it goes back to it. The prompt can also be none at all ("None: no instructions"),
+as in Settings › Chat. The chat's dialog says why each one is used: chosen for the chat, for its character,
+or Settings'.
 """
 from __future__ import annotations
 
@@ -27,6 +28,34 @@ if TYPE_CHECKING:
 
 DEFAULT = NOT_SET      # the dropdowns' first choice: what would be used anyway
 NO_PROMPT = '-none-'   # the prompt's: none at all
+
+# A choice shown on two lines: its name, then (smaller) where it comes from. In its label: "name\nwhere".
+_NAME = "props.opt.label.split('\\n')[0]"
+_WHERE = "props.opt.label.split('\\n')[1]"
+SELECTED_TWO_LINES = f'''
+<div class="choice-lines">
+  <div class="choice-name">{{{{ {_NAME} }}}}</div>
+  <div v-if="props.opt.label.includes('\\n')" class="choice-where">{{{{ {_WHERE} }}}}</div>
+</div>'''
+OPTION_TWO_LINES = f'''
+<q-item v-bind="props.itemProps">
+  <q-item-section>
+    <q-item-label class="choice-name">{{{{ {_NAME} }}}}</q-item-label>
+    <q-item-label v-if="props.opt.label.includes('\\n')" caption>{{{{ {_WHERE} }}}}</q-item-label>
+  </q-item-section>
+</q-item>'''
+
+
+def default_choice(name: str, where: str) -> str:
+    """The first choice's label: the name of what's used by default, and where that comes from ("in Settings")."""
+    return f'{name[:1].upper()}{name[1:]}\nSame as {where}'
+
+
+def two_lines(select: ui.select) -> ui.select:
+    """Show the dropdown's choices, and the one chosen, on two lines when they have two (default_choice)."""
+    select.add_slot('selected-item', SELECTED_TWO_LINES)
+    select.add_slot('option', OPTION_TWO_LINES)
+    return select.classes('two-line-choice')
 
 
 class ChatChoices:
@@ -81,8 +110,8 @@ def _connection_choice(form: Form, *, current: Callable[[], ConnectionRef | None
             put(ConnectionRef(id=value, name=found[value].name))
         # (the missing one, chosen again: kept as it is)
 
-    return form.choice('Connection', options, get=lambda: current().id if current() else DEFAULT, set=choose,
-                       hint=hint).mark(marker)
+    return two_lines(form.choice('Connection', options, get=lambda: current().id if current() else DEFAULT,
+                                 set=choose, hint=hint).mark(marker))
 
 
 def _prompt_choice(form: Form, *, current: Callable[[], PromptChoice | None],
@@ -107,7 +136,7 @@ def _prompt_choice(form: Form, *, current: Callable[[], PromptChoice | None],
         elif picked in found:
             put(PromptChoice(preset=PresetRef(id=picked, name=found[picked].name)))
 
-    return form.choice('Prompt', options, get=value, set=choose, hint=hint).mark(marker)
+    return two_lines(form.choice('Prompt', options, get=value, set=choose, hint=hint).mark(marker))
 
 
 def _connection_details(ref: ConnectionRef | None, found: dict[str, Connection], *, missing: str) -> None:
@@ -169,12 +198,12 @@ def character_panel(character: Character, form: Form, choices: ChatChoices) -> N
 
     with ui.column().classes('w-full gap-1'):
         _connection_choice(form, current=lambda: character.connection, put=put_connection, found=connections,
-                           default=f'Same as in Settings: {connection_name(default.connection, connections)}',
+                           default=default_choice(connection_name(default.connection, connections), 'in Settings'),
                            hint='The AI model that writes this character\'s replies', marker='character-connection')
         connection_details()
     with ui.column().classes('w-full gap-1'):
         _prompt_choice(form, current=lambda: character.prompt, put=put_prompt, found=presets,
-                       default=f'Same as in Settings: {prompt_name(default.preset, presets)}',
+                       default=default_choice(prompt_name(default.preset, presets), 'in Settings'),
                        hint='The instructions sent with every reply', marker='character-prompt')
         prompt_details()
 
@@ -240,14 +269,14 @@ def chat_settings_dialog(conversation: Conversation, *, store: ConversationStore
         with ui.column().classes('w-full gap-1'):
             _connection_choice(form, current=lambda: conversation.connection,
                                put=lambda ref: setattr(conversation, 'connection', ref), found=connections,
-                               default=f'Same as {where(default.connection_from)}: '
-                                       f'{connection_name(default.connection, connections)}',
+                               default=default_choice(connection_name(default.connection, connections),
+                                                      where(default.connection_from)),
                                hint='', marker='chat-connection')
             connection_why()
         with ui.column().classes('w-full gap-1'):
             _prompt_choice(form, current=lambda: conversation.prompt,
                            put=lambda choice: setattr(conversation, 'prompt', choice), found=presets,
-                           default=f'Same as {where(default.preset_from)}: {prompt_name(default.preset, presets)}',
+                           default=default_choice(prompt_name(default.preset, presets), where(default.preset_from)),
                            hint='', marker='chat-prompt')
             prompt_why()
         with ui.row().classes('w-full justify-end'):

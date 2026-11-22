@@ -121,6 +121,11 @@ HEAD = f'''
     padding: 18px; width: 100%;
   }}
   .panel-title {{ font-weight: 600; font-size: 1.05rem; }}
+  /* A dropdown choice on two lines: its name, then where it comes from (chat_settings.py) */
+  .two-line-choice .q-field__native {{ min-width: 0; }}
+  .choice-lines {{ min-width: 0; max-width: 100%; padding: 2px 0; }}
+  .choice-name {{ white-space: normal; overflow-wrap: anywhere; line-height: 1.3; }}
+  .choice-where {{ font-size: .8rem; line-height: 1.3; color: var(--muted); }}
   .module-box {{ border: 1px solid var(--line); border-radius: 12px; padding: 14px; }}  /* a prompt's module */
   .section-title {{ font-family: 'Literata', Georgia, serif; font-weight: 600; font-size: 1.35rem; }}
   .panel.fold {{ padding: 0; }}

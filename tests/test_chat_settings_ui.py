@@ -55,7 +55,7 @@ async def test_on_the_characters_page(app):
     await user.open(f'/characters/{app.seraphina.id}/edit')
     await user.should_see('Model and prompt')
     connection = select(user, 'character-connection')
-    assert connection.value == '' and connection.options[''] == 'Same as in Settings: Fake'
+    assert connection.value == '' and connection.options[''] == 'Fake\nSame as in Settings'  # (two lines: chat_settings.py)
     assert list(connection.options.values())[1:] == ['Fake', 'Other']
     await user.should_see('Fake model, model fake/model.')  # (the one used: Settings')
     connection.set_value(app.other.id)
@@ -63,7 +63,7 @@ async def test_on_the_characters_page(app):
     assert c.load(app.seraphina.id).connection == ref(app.other)
 
     prompt = select(user, 'character-prompt')
-    assert prompt.value == '' and prompt.options[''] == 'Same as in Settings: no instructions'
+    assert prompt.value == '' and prompt.options[''] == 'No instructions\nSame as in Settings'
     prompt.set_value(app.noir.id)
     await user.should_see('Edit this prompt')
     assert c.load(app.seraphina.id).prompt == PromptChoice(preset=PresetRef(id=app.noir.id, name='Noir'))
@@ -93,12 +93,12 @@ async def test_in_a_chat(app, fake_model):
     await user.should_see(marker='chat-settings-dialog')
     await user.should_see('For this chat only: other chats, with Seraphina too, keep theirs.')
     connection = select(user, 'chat-connection')
-    assert connection.value == '' and connection.options[''] == 'Same as for Seraphina: Other'
+    assert connection.value == '' and connection.options[''] == 'Other\nSame as for Seraphina'
     await user.should_see('Chosen for Seraphina: their chats use it, unless one has its own.')
     [their_page] = user.find(kind=ui.link, content='Their page').elements  # (where it's chosen: their editor)
     assert their_page.props['href'] == f'/characters/{app.seraphina.id}/edit'
     prompt = select(user, 'chat-prompt')
-    assert prompt.options[''] == 'Same as in Settings: no instructions'
+    assert prompt.options[''] == 'No instructions\nSame as in Settings'
     await user.should_see('From Settings › Chat: what chats use, unless their character or the chat has its own.')
 
     connection.set_value(app.fake.id)  # (this chat only)
