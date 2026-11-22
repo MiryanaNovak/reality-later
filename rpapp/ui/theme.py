@@ -121,6 +121,7 @@ HEAD = f'''
     padding: 18px; width: 100%;
   }}
   .panel-title {{ font-weight: 600; font-size: 1.05rem; }}
+  .module-box {{ border: 1px solid var(--line); border-radius: 12px; padding: 14px; }}  /* a prompt's module */
   .section-title {{ font-family: 'Literata', Georgia, serif; font-weight: 600; font-size: 1.35rem; }}
   .panel.fold {{ padding: 0; }}
   .panel.fold > .q-expansion-item__container > .q-item {{ padding: 14px 18px; border-radius: 14px; }}

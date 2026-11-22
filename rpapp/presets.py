@@ -4,10 +4,14 @@
     {
       "id": "slow-burn-romance-3f9a2c",
       "name": "Slow-burn romance",
+      "description": "For long chats ...",              <- only for you: what it's for (shown in the list)
       "instructions": "You are {{char}} ...",            <- at the start of the prompt
       "final_instructions": "Write {{char}}'s next reply ...", <- at the very end, after the chat
       "extend_instruction": "",                        <- hidden, to extend the last reply ('' = the default)
-      "continue_instruction": ""                       <- hidden, to continue the scene ('' = the default)
+      "continue_instruction": "",                      <- hidden, to continue the scene ('' = the default)
+      "modules": [                                     <- parts of instructions of their own (not used yet)
+        {"id": "a1b2c3d4", "name": "Combat", "instructions": "...", "final_instructions": "..."}
+      ]
     }
 
 Settings › Chat says which one chats use (settings.chat.preset). In the code they're
@@ -20,7 +24,10 @@ to live in Settings into a prompt of their own, or makes a starter one.
 from __future__ import annotations
 
 import logging
+import secrets
 from pathlib import Path
+
+from pydantic import BaseModel, Field
 
 from .settings import PresetRef, SettingsStore
 from .storage import JsonStore, StoredModel
@@ -47,12 +54,34 @@ CONTINUE_INSTRUCTION = (
 )
 
 
+def new_module_id() -> str:
+    return secrets.token_hex(4)
+
+
+class PromptModule(BaseModel):
+    """A part of a prompt with instructions of its own, under a name. Saved with the prompt; not used yet."""
+    id: str = Field(default_factory=new_module_id)  # stable, whatever its name becomes
+    name: str = 'New module'
+    instructions: str = ''
+    final_instructions: str = ''
+
+
 class PromptPreset(StoredModel):
     name: str = 'New prompt'
+    description: str = ''         # only for you: what it's for (shown in the list)
     instructions: str = ''        # at the start of the prompt: the tone and the rules of the chat
     final_instructions: str = ''  # at the very end, right after the chat: what to write now
     extend_instruction: str = ''  # hidden, to extend the last reply ('' = EXTEND_INSTRUCTION)
     continue_instruction: str = ''  # hidden, to continue the scene ('' = CONTINUE_INSTRUCTION)
+    modules: list[PromptModule] = Field(default_factory=list)
+
+    def add_module(self, name: str = 'New module') -> PromptModule:
+        module = PromptModule(name=name)
+        self.modules = [*self.modules, module]
+        return module
+
+    def remove_module(self, module_id: str) -> None:
+        self.modules = [m for m in self.modules if m.id != module_id]
 
     @property
     def extend_text(self) -> str:

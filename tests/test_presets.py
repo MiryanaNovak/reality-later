@@ -114,3 +114,88 @@ async def test_the_prompts_page(tmp_path):
         await user.open('/settings')
         await user.should_see(marker='preset-missing')  # chosen, but gone
         assert by_label(user, ui.select)['Prompt'].value == mine.id
+
+
+def the(user, marker):
+    """The element with this marker, shown or not."""
+    [element] = [e for e in user.client.layout.descendants() if marker in e._markers]
+    return element
+
+
+def test_older_files_and_copies(tmp_path):
+    store = preset_store(tmp_path)
+    (tmp_path / 'presets').mkdir(exist_ok=True)
+    (tmp_path / 'presets' / 'old-1a2b3c.json').write_text(json.dumps(  # (saved before descriptions and modules)
+        {'id': 'old-1a2b3c', 'name': 'Old', 'instructions': 'Be kind.'}), encoding='utf-8')
+    old = store.load('old-1a2b3c')
+    assert (old.description, old.modules) == ('', [])
+
+    old.description = 'For gentle stories.'
+    combat = old.add_module('Combat')
+    combat.instructions = 'Fights are quick.'
+    store.save(old)
+    copy = store.duplicate(store.load(old.id))
+    assert copy.description == 'For gentle stories.' and [(m.id, m.name, m.instructions) for m in copy.modules] == \
+        [(combat.id, 'Combat', 'Fights are quick.')]
+    copy.modules[0].name = 'Duels'
+    assert store.load(old.id).modules[0].name == 'Combat'  # (the copy's are its own)
+    old.remove_module(combat.id)
+    assert old.modules == []
+
+
+async def test_description_sections_and_modules(tmp_path):
+    store = preset_store(tmp_path)
+    preset = new_preset('Slow burn')
+    preset.instructions = 'Take it slow, {{char}}.\nVery slow.'
+    store.save(preset)
+    async with user_simulation(build_root(tmp_path)) as user:
+        await user.open('/prompts')
+        with user.scope(marker=f'row-{preset.id}'):
+            await user.should_see('No description yet')
+            await user.should_not_see('Take it slow')  # (no longer the start of its instructions)
+
+        await user.open(f'/prompts/{preset.id}')
+        await user.should_see('Identity')
+        assert not any('part-identity' in e._markers for e in user.client.layout.descendants())  # (it doesn't fold)
+        assert the(user, 'part-instructions').value is True  # (open, until folded on this device)
+        assert the(user, 'part-hidden').value is False and the(user, 'part-modules').value is False
+        the(user, 'preset-description').set_value('For long, patient chats.')
+        store.flush()
+        assert store.load(preset.id).description == 'For long, patient chats.'
+
+        the(user, 'part-modules').set_value(True)
+        await user.should_see(marker='no-modules')
+        user.find(marker='module-add').click()
+        await user.should_see(marker='module-name')
+        [module] = store.load(preset.id).modules
+        assert module.name == 'New module'
+        the(user, 'module-name').set_value('Combat')
+        the(user, 'module-instructions').set_value('Keep fights short.')
+        the(user, 'module-final-instructions').set_value('End on a blow.')
+        user.find(marker='module-add').click()
+        await user.should_see(marker=f'module-{store.load(preset.id).modules[1].id}')
+        store.flush()
+        first, second = store.load(preset.id).modules
+        assert (first.name, first.instructions, first.final_instructions) == \
+            ('Combat', 'Keep fights short.', 'End on a blow.')
+        prompt = build_prompt(Conversation(title='t', character=ProfileRef.to(new_character('S')),
+                                           persona=ProfileRef.to(new_persona('M'))),
+                              character=new_character('S'), persona=new_persona('M'), settings=Settings(),
+                              preset=store.load(preset.id))
+        assert 'Keep fights short' not in ' '.join(p.content for p in prompt.parts)  # (not used yet)
+
+        with user.scope(marker=f'module-{second.id}'):  # (empty: deleted at once)
+            user.find(marker='module-delete').click()
+        await user.should_not_see(marker=f'module-{second.id}')
+        with user.scope(marker=f'module-{first.id}'):  # (with instructions: asked first)
+            user.find(marker='module-delete').click()
+        await user.should_see('Delete the module "Combat"?')
+        with user.scope(marker='confirm-dialog'):
+            user.find(kind=ui.button, content='Delete').click()
+        await user.should_see(marker='no-modules')
+        store.flush()
+        assert store.load(preset.id).modules == []
+
+        await user.open('/prompts')
+        with user.scope(marker=f'row-{preset.id}'):
+            await user.should_see('For long, patient chats.')
