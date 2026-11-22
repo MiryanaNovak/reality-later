@@ -41,8 +41,8 @@ def test_saved_file_and_lookups(tmp_path):
 
     data = json.loads(store.path_for(a.id).read_text(encoding='utf-8'))
     assert list(data) == ['id', 'title', 'format_version', 'character', 'persona', 'created_at', 'updated_at',
-                          'connection', 'prompt', 'messages']  # (its own connection and prompt: none, by default)
-    assert data['connection'] is None and data['prompt'] is None
+                          'connection', 'prompt', 'modules', 'messages']  # (its own: none, by default)
+    assert data['connection'] is None and data['prompt'] is None and data['modules'] == {}
     assert data['character'] == {'id': seraphina.id, 'title': 'Seraphina'} and data['title'].startswith('Chat of ')
 
     assert [c.id for c in store.using('character', seraphina.id)] == [b.id, a.id]  # most recent first
@@ -88,6 +88,8 @@ async def test_new_chat_from_a_character_card(setup):
     await user.should_see(marker='persona-picker')
     with user.scope(marker='persona-picker'):
         user.find(marker=f'link-{mira.id}').click()
+    await user.should_see(marker='chat-settings-dialog')  # (what it uses, before it starts)
+    user.find(marker='chat-settings-start').click()
     await user.should_see(marker='chat-input')
 
     [conversation] = conversations.list()

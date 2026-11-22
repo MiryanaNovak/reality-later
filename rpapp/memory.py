@@ -417,12 +417,13 @@ def batches(lines: list[tuple[ChatMessage, str]], limit: int = BATCH_TOKENS) -> 
 
 def memory_prompt(*, instructions: str, char: str, user: str, character: str, persona: str, book: LoreBook,
                   lines: list[str], lore: list[tuple[str, str]] = (),
-                  pronouns: Sequence[str] | None = None) -> list[Message]:
+                  pronouns: Sequence[str] | None = None, modules: Sequence[str] = ()) -> list[Message]:
     """The messages of one memory call.
 
     `character` is the character's scenario (all the AI is told about them); `persona`, your persona's description;
     `lore`, the lore book entries the messages bring in, as (title, text), their macros filled in; `pronouns`, your
-    persona's (macros.py).
+    persona's (macros.py); `modules`, the memory instructions of the chat's prompt modules on (presets.py): after
+    the instructions, before the answer's format (which stays last). Those empty are left out.
     """
     def filled(text: str) -> str:
         return fill(text, char=char, user=user, pronouns=pronouns).strip()
@@ -437,7 +438,8 @@ def memory_prompt(*, instructions: str, char: str, user: str, character: str, pe
                                       persona=filled(persona) or '(no description)',
                                       lore=known or '(none for these messages)', memories=listing,
                                       messages='\n\n'.join(lines))
-    system = f'{filled(instructions or DEFAULT_INSTRUCTIONS)}\n\n{filled(ANSWER_FORMAT)}'
+    added = [filled(text) for text in modules if text.strip()]
+    system = '\n\n'.join([filled(instructions or DEFAULT_INSTRUCTIONS), *added, filled(ANSWER_FORMAT)])
     return [Message(role='system', content=system), Message(role='user', content=material)]
 
 

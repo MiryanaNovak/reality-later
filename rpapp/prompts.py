@@ -3,6 +3,8 @@
 A prompt is a list of labelled parts, made by blocks in this order (LAYOUT):
 
     instructions  the instructions of the prompt chosen in Settings › Chat system
+                  (or the character's, or the chat's), then those of its
+                  modules on in the chat (presets.py), each a part of its own
     scenario      About {{char}} and the story: the character's         system
                   scenario, all the AI is told about them
     persona       About {{user}}: gender, pronouns, description          system
@@ -13,7 +15,7 @@ A prompt is a list of labelled parts, made by blocks in this order (LAYOUT):
     history       the chat; the oldest messages are left out when it    user / assistant
                   doesn't fit. Lore entries placed "at a depth" go in
                   among the messages, that many messages from the end.
-    final         the prompt's final instructions                        system
+    final         the prompt's final instructions, then its modules'     system
     hidden        a hidden instruction, sent as you, never in the chat:  user
                   to extend the last reply, or to continue the scene
                   (the prompt's, or presets.EXTEND/CONTINUE_INSTRUCTION)
@@ -164,6 +166,7 @@ class PromptReport(BaseModel):
     memories: list[LoreUse] = Field(default_factory=list)
     meaning_note: str = ''       # vector search was on, but couldn't be used: why
     preset: str = ''             # the name of the prompt (presets.py) the instructions come from
+    modules: list[str] = Field(default_factory=list)  # the names of its modules on in the chat
     missing_preset: str = ''     # the remembered name of the one chosen, if it was deleted
     examples_total: int = 0      # the character's example dialogues
     examples_sent: int = 0       # how many went in (the first ones)
@@ -260,7 +263,10 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
     chat = settings.chat
     chosen = chat.preset if preset_ref is SETTINGS_PRESET else preset_ref
     label = f' ({preset.name})' if preset is not None else ''
+    modules = preset.modules_on(conversation.modules) if preset is not None else []  # (presets.py)
     add('instructions', filled(preset.instructions) if preset else '', f'Instructions{label}')
+    for module in modules:  # (after the prompt's; those empty are left out by add())
+        add('instructions', filled(module.instructions), f'Instructions of the module "{module.name}"')
     if character and character.scenario.strip():  # (their description is only for you: never sent)
         add('scenario', f'About {char} and the story:\n{filled(character.scenario)}', 'Scenario')
     if persona:
@@ -272,6 +278,8 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
         if about:
             add('persona', f'About {user}, played by the user:\n' + '\n'.join(about), f'About {user}')
     add('final', filled(preset.final_instructions) if preset else '', f'Final instructions{label}')
+    for module in modules:
+        add('final', filled(module.final_instructions), f'Final instructions of the module "{module.name}"')
     if extend == 'instruction':
         text = preset.extend_text if preset else EXTEND_INSTRUCTION
         blocks['hidden'] = [PromptPart(role='user', content=filled(text), kind='extend',
@@ -366,7 +374,7 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
         memories=[_lore_use(a) for a in remembered.activations],
         meaning_note=meaning.note if meaning else '',
         examples_total=len(dialogues), examples_sent=sent, examples_tokens=examples.tokens if examples else 0,
-        preset=preset.name if preset else '',
+        preset=preset.name if preset else '', modules=[m.name for m in modules],
         missing_preset=chosen.name if chosen is not None and preset is None else '',
         extend=extend, continue_scene=continue_scene and not extend,
     )

@@ -50,7 +50,7 @@ from ..storage import JsonStore
 from .collection_page import safe_file_name
 from .form import Form, keep_typed, merged_values, text_stats
 from .list_view import Link, Row, initials, plural
-from .chat_settings import ChatChoices, character_panel
+from .chat_settings import ChatChoices, character_panel, new_chat_settings
 from .folders_page import folder_links
 from .profile_page import ProfileSection
 from .widgets import (Dialog, MarkdownView, MenuItems, audience_legend, browser_languages, confirm, file_picker,
@@ -209,7 +209,8 @@ class CharactersSection(ProfileSection[Character]):
         return row
 
     async def new_chat(self, character: Character) -> None:
-        """Ask which persona to play, then start the conversation and open it."""
+        """Ask which persona to play, then what the chat uses (connection, prompt, modules: chat_settings.py), then
+        start the conversation and open it."""
         personas = self.personas.store.list()
         with ui.context.client.layout, Dialog() as dialog, \
                 ui.card().classes('dialog-card').mark('persona-picker'):
@@ -231,7 +232,11 @@ class CharactersSection(ProfileSection[Character]):
         if choice == 'create':
             ui.navigate.to('/personas')
         elif isinstance(choice, Persona):
-            conversation = self.conversations.start(character, choice)
+            conversation = self.conversations.new(character, choice)
+            if self.chat_choices is not None and not await new_chat_settings(  # (its connection, prompt, modules)
+                    conversation, choices=self.chat_choices, character=character):
+                return
+            self.conversations.save(conversation)
             ui.navigate.to(f'/conversations/{conversation.id}')
 
     # -- the editor ----------------------------------------------------------------------

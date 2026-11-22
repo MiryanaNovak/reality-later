@@ -10,6 +10,7 @@
       "updated_at": "2026-10-30T21:50:12.345678Z",
       "connection": null,                        <- its own (⋮ › Settings), instead of its character's or
       "prompt": null,                               Settings' (see chat_setup.py; as on characters.py)
+      "modules": {"a1b2c3d4": false},            <- its prompt's modules it turned on or off (presets.py)
       "messages": [
         {"id": "a1b2c3d4e5f6", "role": "assistant", "greeting": true,
          "content": "*Seraphina kneels beside you...*",
@@ -47,8 +48,9 @@ and a chat's memories, with what's needed to undo them (memory.py):
     data/conversations/memories/<conversation id>.json
 
 A chat can be forked at one of the AI's replies (ConversationStore.fork): copied up to and including that
-reply, as a chat of its own titled "<title> (fork)", with the files of its messages, and its memories as
-they were right after that reply (memory.py). The messages keep their ids.
+reply, as a chat of its own titled "<title> (fork)", with the files of its messages, its own connection, prompt
+and modules (a copy: changing either chat's leaves the other's as it is), and its memories as they were right
+after that reply (memory.py). The messages keep their ids.
 """
 from __future__ import annotations
 
@@ -124,6 +126,8 @@ class Conversation(StoredModel):
     # Its own connection and prompt, instead of its character's or Settings' (None: those). See chat_setup.py.
     connection: ConnectionRef | None = None
     prompt: PromptChoice | None = None
+    # The prompt's modules it turned on (True) or off, by id; the others are as their prompt sets them (presets.py)
+    modules: dict[str, bool] = Field(default_factory=dict)
     messages: list[ChatMessage] = Field(default_factory=list)
 
     def touch(self) -> None:
@@ -279,6 +283,12 @@ class ConversationStore(JsonStore[Conversation]):
 
     def start(self, character: Character, persona: Profile) -> Conversation:
         """Create and save a new conversation, opening with the character's first message(s)."""
+        conversation = self.new(character, persona)
+        self.save(conversation)
+        return conversation
+
+    def new(self, character: Character, persona: Profile) -> Conversation:
+        """A new conversation, opening with the character's first message(s), not saved yet (start() saves it)."""
         started = now().astimezone()  # this computer's time zone, for the title
         conversation = Conversation(
             title=f'Chat of {started.day} {started:%b %Y, %H:%M}',
@@ -291,7 +301,6 @@ class ConversationStore(JsonStore[Conversation]):
         if greetings:
             conversation.messages = [ChatMessage(role='assistant', content=greetings[0], greeting=True,
                                                  alternatives=greetings if len(greetings) > 1 else [])]
-        self.save(conversation)
         return conversation
 
     def delete(self, item_id: str) -> None:
@@ -358,13 +367,16 @@ class ConversationStore(JsonStore[Conversation]):
         return conversation
 
     def choose(self, conversation_id: str, *, connection: ConnectionRef | None,
-               prompt: PromptChoice | None) -> Conversation:
-        """Give the conversation its own connection and prompt (None: its character's, or Settings'), saved
-        right away. Like a new title, it doesn't count as an update. KeyError if it's gone."""
+               prompt: PromptChoice | None, modules: dict[str, bool] | None = None) -> Conversation:
+        """Give the conversation its own connection and prompt (None: its character's, or Settings'), and the
+        modules it turned on or off (None: as they were), saved right away. Like a new title, it doesn't count as
+        an update. KeyError if it's gone."""
         conversation = self.get(conversation_id)
         if conversation is None:
             raise KeyError(f'No conversation {conversation_id!r}')
         conversation.connection, conversation.prompt = connection, prompt
+        if modules is not None:
+            conversation.modules = dict(modules)
         self.save(conversation)
         return conversation
 

@@ -85,6 +85,9 @@ def _summary(prompt: Prompt, message: ChatMessage | None, time: Callable[[dateti
         elif not r.preset and not any(part.kind in ('instructions', 'final') for part in prompt.parts):
             ui.label('No prompt is chosen in Settings › Chat: no instructions were sent.').classes('text-sm') \
                 .mark('no-preset')
+        if r.modules:
+            ui.label(f'With the {"module" if len(r.modules) == 1 else "modules"} of the prompt on in this chat: '
+                     + ', '.join(f'"{name}"' for name in r.modules) + '.').classes('text-sm').mark('prompt-modules')
         if r.messages_left_out:
             ui.label(f'{plural(r.messages_left_out, "older message")} of {r.messages_total} left out to fit.') \
                 .classes('text-sm').mark('left-out')

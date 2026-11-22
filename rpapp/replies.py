@@ -436,6 +436,8 @@ class Replies:
         char = (character.name or character.title) if character else conversation.character.title
         user = (persona.name or persona.title) if persona else conversation.persona.title
         names = {'user': user, 'assistant': char}
+        preset = chat_preset(setup.preset, self.presets) if self.presets else None  # (its modules on: presets.py)
+        modules = [m.memory_instructions for m in preset.modules_on(conversation.modules)] if preset else []
 
         memories = self.conversations.memories.get(conversation.id)
         last_read = memories.last_read
@@ -451,7 +453,7 @@ class Replies:
                 instructions=memory.instructions, char=char, user=user,
                 character=character.scenario if character else '',  # (the description isn't for the AI)
                 persona=persona.description if persona else '', book=working, lines=[line for _, line in group],
-                lore=known, pronouns=persona.pronoun_forms if persona else None)
+                lore=known, pronouns=persona.pronoun_forms if persona else None, modules=modules)
             reply = await connection.generate(messages, params)
             try:
                 changes = parse_changes(reply.text)

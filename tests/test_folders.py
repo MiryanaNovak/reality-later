@@ -231,6 +231,8 @@ async def test_the_new_chats_picker(page, tmp_path):
     assert inside(user, f'picker-folder-{fantasy.id}', f'link-{p["Ash"].id}')
     assert not inside(user, f'picker-folder-{fantasy.id}', f'link-{p["Nell"].id}')  # (in none: after them)
     user.find(marker=f'link-{p["Ash"].id}').click()
+    await user.should_see(marker='chat-settings-dialog')  # (what it uses, before it starts)
+    user.find(marker='chat-settings-start').click()
     await user.should_see(marker='chat-input')  # (the chat, started)
     [conversation] = ConversationStore(tmp_path).list()
     assert conversation.persona.id == p['Ash'].id
@@ -292,6 +294,8 @@ async def test_characters_in_folders(characters_page, tmp_path):
         user.find(marker='new-chat').click()
     await user.should_see(marker='persona-picker')
     user.find(marker='link-' + PersonaStore(tmp_path).list()[0].id).click()  # (Mira: in no folder)
+    await user.should_see(marker='chat-settings-dialog')  # (what it uses, before it starts)
+    user.find(marker='chat-settings-start').click()
     await user.should_see(marker='chat-input')
     assert ConversationStore(tmp_path).list()[0].character.id == c['Seraphina'].id
 

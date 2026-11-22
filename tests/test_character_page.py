@@ -145,6 +145,17 @@ async def test_new_chat(page):
     user.find(marker='new-chat').click()
     await user.should_see(marker='persona-picker')
     user.find(marker=f'link-{mira.id}').click()
+    await user.should_see(marker='chat-settings-dialog')  # (what it uses, before it starts)
+    await user.should_see(f'New chat with {sera.title}')
+    user.find(marker='chat-settings-cancel').click()  # (cancelled: no chat)
+    await user.should_not_see(marker='chat-settings-dialog')
+    assert conversations.list() == []
+
+    user.find(marker='new-chat').click()
+    await user.should_see(marker='persona-picker')
+    user.find(marker=f'link-{mira.id}').click()
+    await user.should_see(marker='chat-settings-dialog')  # (what it uses, before it starts)
+    user.find(marker='chat-settings-start').click()
     await user.should_see(marker='chat-input')
     [conversation] = conversations.list()
     assert (conversation.character.id, conversation.persona.id) == (sera.id, mira.id)

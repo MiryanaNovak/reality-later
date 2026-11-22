@@ -6,6 +6,11 @@ from ("DeepSeek" / "Same as in Settings", "Claude" / "Same as for Seraphina"), s
 off on a phone. Choosing it goes back to it. The prompt can also be none at all ("None: no instructions"),
 as in Settings › Chat. The chat's dialog says why each one is used: chosen for the chat, for its character,
 or Settings'.
+
+The chat's dialog also has a switch for each module of the prompt it uses (presets.py): on or off for this chat
+only (Conversation.modules; the modules it hasn't switched are as their prompt sets them). A fork keeps them, as
+its own. A new chat shows the same dialog before it starts (new_chat_settings), after its persona is chosen:
+Start the chat saves it with what was chosen there, Cancel leaves no chat behind.
 """
 from __future__ import annotations
 
@@ -24,7 +29,7 @@ from .widgets import Dialog
 if TYPE_CHECKING:
     from ..characters import Character
     from ..conversations import Conversation, ConversationStore
-    from ..presets import PromptPreset
+    from ..presets import PromptModule, PromptPreset
 
 DEFAULT = NOT_SET      # the dropdowns' first choice: what would be used anyway
 NO_PROMPT = '-none-'   # the prompt's: none at all
@@ -225,8 +230,33 @@ def because(source: Source, *, character: str, character_id: str, marker: str) -
 
 def chat_settings_dialog(conversation: Conversation, *, store: ConversationStore, choices: ChatChoices,
                          character: Character | None) -> None:
-    """The chat's own connection and prompt, in a dialog: what's used, why, and the choice of another one for
+    """The chat's own connection, prompt and modules, in a dialog: what's used, why, and the choice of others for
     this chat only. Saved as soon as chosen (`conversation`, the page's, follows)."""
+    def save() -> None:
+        try:
+            store.choose(conversation.id, connection=conversation.connection, prompt=conversation.prompt,
+                         modules=conversation.modules)
+        except KeyError:
+            ui.notify('This conversation was deleted.', type='warning')
+
+    dialog = _settings_dialog(conversation, choices=choices, character=character, on_change=save, new=False)
+    dialog.on_value_change(lambda e: _delete(dialog) if not e.value else None)
+    dialog.open()
+
+
+async def new_chat_settings(conversation: Conversation, *, choices: ChatChoices, character: Character) -> bool:
+    """Before a new chat starts (`conversation`, not saved yet): its connection, prompt and modules, in the same
+    dialog. True: start it, with what was chosen (in `conversation`); False: cancelled."""
+    dialog = _settings_dialog(conversation, choices=choices, character=character, on_change=lambda: None, new=True)
+    started = await dialog
+    _delete(dialog)
+    return started is True
+
+
+def _settings_dialog(conversation: Conversation, *, choices: ChatChoices, character: Character | None,
+                     on_change: Callable[[], None], new: bool) -> Dialog:
+    """The dialog of chat_settings_dialog, or (`new`) of new_chat_settings. `on_change`: after each choice, made in
+    `conversation`."""
     connections, presets = choices.connection_list(), choices.preset_list()
     settings = choices.settings()
     title = character.title if character is not None else conversation.character.title
@@ -239,20 +269,27 @@ def chat_settings_dialog(conversation: Conversation, *, store: ConversationStore
     def setup() -> ChatSetup:
         return chat_setup(settings, character, conversation)
 
-    def save() -> None:
-        try:
-            store.choose(conversation.id, connection=conversation.connection, prompt=conversation.prompt)
-        except KeyError:
-            ui.notify('This conversation was deleted.', type='warning')
+    def chosen() -> None:  # (a connection or a prompt)
+        on_change()
         connection_why.refresh()
         prompt_why.refresh()
+        modules.refresh()
 
-    form = Form(on_change=save)
+    def switched(module: PromptModule, on: bool) -> None:
+        conversation.modules = {**conversation.modules, module.id: on}
+        on_change()
+
+    form = Form(on_change=chosen)
     with ui.context.client.layout, Dialog() as dialog, \
             ui.card().classes('dialog-card chat-settings').mark('chat-settings-dialog'):
-        ui.label('Chat settings').classes('panel-title')
-        ui.label(f'For this chat only: other chats, with {title} too, keep theirs. Changes apply from the next '
-                 'reply.').classes('muted text-sm')
+        if new:
+            ui.label(f'New chat with {title}').classes('panel-title')
+            ui.label('What this chat uses. You can change it later, from its ⋮ menu › Settings.') \
+                .classes('muted text-sm')
+        else:
+            ui.label('Chat settings').classes('panel-title')
+            ui.label(f'For this chat only: other chats, with {title} too, keep theirs. Changes apply from the next '
+                     'reply.').classes('muted text-sm')
 
         @ui.refreshable
         def connection_why() -> None:
@@ -265,6 +302,21 @@ def chat_settings_dialog(conversation: Conversation, *, store: ConversationStore
             used = setup()
             because(used.preset_from, character=title, character_id=character_id, marker='chat-prompt-why')
             _prompt_details(used.preset, presets, missing='Choose another one.')
+
+        @ui.refreshable
+        def modules() -> None:
+            """A switch for each module of the prompt used."""
+            used = setup().preset
+            preset = presets.get(used.id) if used is not None else None
+            if preset is None or not preset.modules:
+                return
+            with ui.column().classes('w-full gap-0').mark('chat-modules'):
+                ui.label('Modules').classes('text-weight-medium')
+                ui.label(f'Of the prompt "{preset.name}": those on add their instructions. For this chat only.') \
+                    .classes('text-sm muted')
+                for module in preset.modules:
+                    ui.switch(module.name or 'Untitled', value=module.is_on(conversation.modules),
+                              on_change=lambda e, m=module: switched(m, bool(e.value))).mark(f'chat-module-{module.id}')
 
         with ui.column().classes('w-full gap-1'):
             _connection_choice(form, current=lambda: conversation.connection,
@@ -279,14 +331,19 @@ def chat_settings_dialog(conversation: Conversation, *, store: ConversationStore
                            default=default_choice(prompt_name(default.preset, presets), where(default.preset_from)),
                            hint='', marker='chat-prompt')
             prompt_why()
-        with ui.row().classes('w-full justify-end'):
-            ui.button('Done', on_click=dialog.close).props('unelevated').mark('chat-settings-done')
-    dialog.on_value_change(lambda e: _delete(dialog) if not e.value else None)
-    dialog.open()
+        modules()
+        with ui.row().classes('w-full justify-end gap-2'):
+            if new:
+                ui.button('Cancel', on_click=lambda: dialog.submit(False)).props('flat').mark('chat-settings-cancel')
+                ui.button('Start the chat', icon='add_comment', on_click=lambda: dialog.submit(True)) \
+                    .props('unelevated').mark('chat-settings-start')
+            else:
+                ui.button('Done', on_click=dialog.close).props('unelevated').mark('chat-settings-done')
+    return dialog
 
 
 def _delete(dialog: ui.dialog) -> None:
     try:
         dialog.delete()
-    except ValueError:  # (the page is already gone)
+    except (ValueError, KeyError):  # (the page is already gone)
         pass

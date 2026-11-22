@@ -5,8 +5,9 @@
 
 The editor: Identity (its name and description, only for you), always open; then, folding away (open or not as
 last left on this device, Instructions open until then): Instructions (and final instructions), Hidden
-instructions, and Modules, each with a name, instructions and final instructions, added and deleted there.
-Modules are saved with the prompt, but chats don't use them yet.
+instructions, and Modules, added and deleted there: each with a name, whether it's on by default, instructions,
+final instructions and memory instructions, added to the prompt's in the chats where it's on (presets.py). Each
+chat turns them on or off in its settings (chat_settings.py).
 
 Settings › Chat chooses the one chats use; the list and the editor say which one it is, and
 the editor can make it the one. (In the code they're presets: see presets.py.)
@@ -114,7 +115,7 @@ class PresetsSection:
             status.refresh()
 
         status()
-        audience_legend('Instructions, final instructions, hidden instructions', 'Name, description')
+        audience_legend('Instructions, final instructions, hidden instructions, modules', 'Name, description')
         form = Form(on_change=changed)
         with panel('Identity', audience='you'):
             form.text(preset, 'name', 'Name', hint='How it\'s listed').mark('preset-name')
@@ -146,9 +147,12 @@ class PresetsSection:
             ui.label('When you ask the AI to continue the scene: it stands in for your message, so the AI writes '
                      'its next one. Leave it empty for the one shown greyed.').classes('text-sm muted -mt-2')
 
-        with self._part('modules', 'Modules', 'Instructions of their own, under a name',
-                        about='Each module has a name, instructions and final instructions. They\'re saved with the '
-                              'prompt, but chats don\'t use them yet.'):
+        with self._part('modules', 'Modules', 'Instructions to add, that each chat turns on or off', audience='ai',
+                        about='In the chats where a module is on, its instructions come after the prompt\'s '
+                              'instructions, its final instructions after the final ones, and its memory instructions '
+                              'after the memory instructions (Settings › Memory) when memories are written. Those '
+                              'left empty are left out. Each chat turns modules on or off in its settings (its ⋮ '
+                              'menu › Settings); until it does, they\'re as set here.'):
             self._modules(preset, form, changed)
 
     @contextmanager
@@ -191,10 +195,15 @@ class PresetsSection:
                         ui.button(icon='delete_outline', on_click=lambda m=module: delete(m)) \
                             .props('flat round dense aria-label="Delete this module"').tooltip('Delete this module') \
                             .mark('module-delete')
+                    form.switch(module, 'on_by_default', 'On by default').mark('module-on-by-default')
+                    ui.label('In the chats that haven\'t turned it on or off in their settings.') \
+                        .classes('text-sm muted -mt-3')
                     form.long_text(module, 'instructions', 'Instructions', min_height='6rem') \
                         .props('stack-label').mark('module-instructions')
                     form.long_text(module, 'final_instructions', 'Final instructions', min_height='4rem') \
                         .props('stack-label').mark('module-final-instructions')
+                    form.long_text(module, 'memory_instructions', 'Memory instructions', min_height='4rem') \
+                        .props('stack-label').mark('module-memory-instructions')
             new.clear()
             ui.button('Add a module', icon='add', on_click=add).props('outline').mark('module-add')
 

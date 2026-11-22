@@ -182,7 +182,7 @@ async def test_description_sections_and_modules(tmp_path):
                                            persona=ProfileRef.to(new_persona('M'))),
                               character=new_character('S'), persona=new_persona('M'), settings=Settings(),
                               preset=store.load(preset.id))
-        assert 'Keep fights short' not in ' '.join(p.content for p in prompt.parts)  # (not used yet)
+        assert 'Keep fights short.' in ' '.join(p.content for p in prompt.parts)  # (on by default: in the prompt)
 
         with user.scope(marker=f'module-{second.id}'):  # (empty: deleted at once)
             user.find(marker='module-delete').click()

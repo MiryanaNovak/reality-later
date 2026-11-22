@@ -9,10 +9,16 @@
       "final_instructions": "Write {{char}}'s next reply ...", <- at the very end, after the chat
       "extend_instruction": "",                        <- hidden, to extend the last reply ('' = the default)
       "continue_instruction": "",                      <- hidden, to continue the scene ('' = the default)
-      "modules": [                                     <- parts of instructions of their own (not used yet)
-        {"id": "a1b2c3d4", "name": "Combat", "instructions": "...", "final_instructions": "..."}
+      "modules": [                                     <- instructions to add, that each chat turns on or off
+        {"id": "a1b2c3d4", "name": "Combat", "on_by_default": true,
+         "instructions": "...", "final_instructions": "...", "memory_instructions": "..."}
       ]
     }
+
+Modules: a module that's on for a chat (Conversation.modules says, for those the chat turned on or off; the others
+are as `on_by_default` says) adds its instructions after the prompt's instructions, its final instructions after
+the final ones (prompts.py), and its memory instructions after the memory instructions, when memories are written
+(memory.py). Those empty, or only spaces, are left out.
 
 Settings › Chat says which one chats use (settings.chat.preset). In the code they're
 "presets": "Prompt" is already the prompt as built for one reply (see prompts.py), from
@@ -59,11 +65,17 @@ def new_module_id() -> str:
 
 
 class PromptModule(BaseModel):
-    """A part of a prompt with instructions of its own, under a name. Saved with the prompt; not used yet."""
-    id: str = Field(default_factory=new_module_id)  # stable, whatever its name becomes
+    """Instructions to add to a prompt's, under a name, that each chat turns on or off (see the notes at the top)."""
+    id: str = Field(default_factory=new_module_id)  # stable, whatever its name becomes (chats choose by it)
     name: str = 'New module'
-    instructions: str = ''
-    final_instructions: str = ''
+    on_by_default: bool = True    # in chats that haven't turned it on or off
+    instructions: str = ''        # after the prompt's instructions
+    final_instructions: str = ''  # after its final instructions
+    memory_instructions: str = ''  # after the memory instructions, when memories are written
+
+    def is_on(self, chosen: dict[str, bool]) -> bool:
+        """Whether it's on in a chat (`chosen`: the modules it turned on or off, by id)."""
+        return chosen.get(self.id, self.on_by_default)
 
 
 class PromptPreset(StoredModel):
@@ -82,6 +94,10 @@ class PromptPreset(StoredModel):
 
     def remove_module(self, module_id: str) -> None:
         self.modules = [m for m in self.modules if m.id != module_id]
+
+    def modules_on(self, chosen: dict[str, bool]) -> list[PromptModule]:
+        """The modules on in a chat (`chosen`: those it turned on or off, by id; the others as by default)."""
+        return [m for m in self.modules if m.is_on(chosen)]
 
     @property
     def extend_text(self) -> str:
