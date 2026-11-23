@@ -27,8 +27,9 @@
 
 Sending saves your message and asks for the AI's reply (see replies.py). Until it
 arrives, the writing field is locked, "Replying…" shows under the messages and
-the Send button becomes Stop. On phones, the on-screen keyboard closes. If the
-reply fails or is stopped, the reason shows instead, with a Retry button.
+the Send button becomes Stop. On phones, the on-screen keyboard closes: once the
+button is pressed, not as it's touched (SEND_PRESS_JS). If the reply fails or is
+stopped, the reason shows instead, with a Retry button.
 
 Memories (see memory.py): when old messages have left the prompt, they're written
 right after the reply, with "Generating memories…" at the bottom and the field
@@ -101,6 +102,16 @@ RETURN_KEY_JS = '''(e) => {
 
 # Close the on-screen keyboard (phones), and give the focus back on computers only (it would reopen it).
 BLUR_JS = 'document.activeElement && document.activeElement.blur()'
+# The Send button doesn't take the focus when it's pressed: the writing field keeps it, and the on-screen keyboard
+# stays open until the press is a click. Otherwise, on phones, the keyboard started closing as the finger left the
+# button, the page moved under it, and the press was lost (most of the time, on a Pixel). Quasar's buttons move
+# the focus to themselves at the end of a press (QBtn's cleanup(): its "blur target"): by mouse, a mousedown
+# prevented skips that (SEND_PRESS_JS); by touch, the end of the touch is stopped before it reaches the button's
+# own listener (SEND_TOUCH_END_JS, in the capture phase: the click still comes). The click then closes the keyboard
+# (which also ends the word it was typing: it's in the field) before it goes to the server.
+SEND_PRESS_JS = '(e) => e.preventDefault()'
+SEND_TOUCH_END_JS = '(e) => e.stopPropagation()'
+SEND_CLICK_JS = '() => { document.activeElement && document.activeElement.blur(); emit() }'
 FOCUS_JS = 'if (window.matchMedia("(pointer: fine)").matches) runMethod({id}, "focus", [])'
 
 FIRST_MESSAGES = 30  # drawn when the chat opens: the last ones
@@ -269,7 +280,10 @@ class ChatPage:
                     self.input.on('keydown', self._return_key, js_handler=RETURN_KEY_JS
                                   .replace('MOBILE', json.dumps(phone_sends))
                                   .replace('DESKTOP', json.dumps(self.return_sends)))
-                    with ui.button(icon='send', on_click=self._send_or_stop) \
+                    with ui.button(icon='send') \
+                            .on('mousedown', js_handler=SEND_PRESS_JS) \
+                            .on('touchend.capture', js_handler=SEND_TOUCH_END_JS) \
+                            .on('click', self._send_or_stop, js_handler=SEND_CLICK_JS) \
                             .props('round unelevated aria-label="Send"').mark('send') as self.button:
                         self.tooltip = ui.tooltip(self._send_tooltip)
                         # Opened by _send_or_stop, with nothing written, not by every click on the button

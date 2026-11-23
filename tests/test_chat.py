@@ -629,3 +629,18 @@ async def test_nothing_to_extend_after_your_own_message(setup, fake_model):
     user.find(marker='send').click()
     assert not the(user, 'extend-reply').enabled
     await user.should_see('The last message is yours')
+
+
+async def test_send_keeps_the_keyboard_until_its_click(setup):
+    """On phones, the Send button doesn't take the focus as it's touched: the on-screen keyboard closes once it's
+    clicked, not before (the page moved under the finger, and the press was lost). See chat_page.SEND_PRESS_JS."""
+    from rpapp.ui.chat_page import SEND_CLICK_JS, SEND_PRESS_JS, SEND_TOUCH_END_JS
+    user, conversations, conversation = setup
+    button = the(user, 'send')
+    listeners = {(listener.type, listener.js_handler) for listener in button._event_listeners.values()}
+    assert {('mousedown', SEND_PRESS_JS), ('touchend.capture', SEND_TOUCH_END_JS), ('click', SEND_CLICK_JS)} \
+        <= listeners
+    assert 'preventDefault' in SEND_PRESS_JS and 'stopPropagation' in SEND_TOUCH_END_JS
+    assert SEND_CLICK_JS.index('blur()') < SEND_CLICK_JS.index('emit()')  # (the word being typed, in first)
+    await send(user, 'Still sent.')  # (the click still goes to the server)
+    assert conversations.load(conversation.id).messages[-2].content == 'Still sent.'
