@@ -36,7 +36,8 @@ from typing import TYPE_CHECKING, Any
 
 from nicegui import events, ui
 
-from ..cards import card_data, card_png, card_png_size, megabytes, read_card, save_card
+from ..cards import (IMPORT_MAX_BYTES, Card, card_data, card_png, card_png_size, megabytes, read_card, save_card,
+                     store_pictures)
 from ..characters import Character, CharacterStore, new_character
 from ..conversations import ConversationStore
 from ..descriptions import (MAX_SUMMARY_BYTES, inlining_growth, pictures_in, utf8_size, with_inlined_pictures,
@@ -80,6 +81,7 @@ class CharactersSection(ProfileSection[Character]):
     lore_books_short = 'Background the AI gets when it matters'
     lore_books_audience = 'ai'
     foldable = True
+    import_max_size = IMPORT_MAX_BYTES  # (cards from other apps can be big: cards.py)
     fold_default = {'summary', 'description', 'scenario', 'first-messages'}
 
     def __init__(self, store: CharacterStore, lore_books: JsonStore[LoreBook],
@@ -91,7 +93,7 @@ class CharactersSection(ProfileSection[Character]):
             empty_text='A character is who you chat with: a name, a picture, a summary and a description for '
                        'you, a scenario telling the AI who they are and what the story is, and how the chat opens.',
             conversations=conversations, conversation_field='character',
-            import_file=self.import_card, import_accept='.png,.json,.charx,image/png,application/json',
+            import_file=self.import_upload, import_accept='.png,.json,.charx,image/png,application/json',
             export_file=self.export_card, edit_suffix='/edit',
         )
         self.conversations: ConversationStore = conversations
@@ -110,6 +112,22 @@ class CharactersSection(ProfileSection[Character]):
         """A SillyTavern-style character card (PNG, JSON or CharX; V1 to V3), saved as a new character.
         `languages`: the user's, best first (the browser's if not given)."""
         card = read_card(file_name, content, languages=browser_languages() if languages is None else list(languages))
+        return self._imported(card)
+
+    async def import_upload(self, file_name: str, content: bytes) -> tuple[Character, str]:
+        """Import (the button): a card of up to IMPORT_MAX_BYTES (cards from other apps can carry a lot), read and
+        its pictures stored in a worker thread, so that the app goes on meanwhile; then saved, as import_card."""
+        languages = browser_languages()
+
+        def prepare() -> Card:
+            card = read_card(file_name, content, languages=languages, limit=IMPORT_MAX_BYTES)
+            store_pictures(card, self.store)
+            return card
+
+        return self._imported(await asyncio.to_thread(prepare))
+
+    def _imported(self, card: Card) -> tuple[Character, str]:
+        """The card saved (save_card), and what to say about it."""
         imported = save_card(card, self.store, self.lore_books)
         said = f'Imported "{imported.character.title}" ({card.version} card)'
         if imported.book is not None:

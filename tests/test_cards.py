@@ -107,7 +107,9 @@ def test_v3_png_with_both_versions_inside():
     card = read_card('card.png', picture)
     assert card.version == 'V3' and card.character.title == 'Seraphina'  # ccv3 wins over chara
     assert card.character.name == 'Sera'  # V3: the nickname is what {{char}} stands for
-    assert card.picture == picture  # the card's picture is the PNG itself
+    from rpapp.cards import png_text_chunks, without_text
+    assert card.picture == without_text(picture)  # the card's picture: the PNG itself, without the card's data
+    assert png_text_chunks(card.picture) == {} and card.picture.startswith(picture[:33])  # (its header, as it was)
     assert read_card('old.png', png_card(('chara', v2()))).version == 'V2'
 
 
@@ -354,3 +356,73 @@ def test_cards_that_unpack_to_too_much_are_refused():
     assert len(picture.getvalue()) < 200_000
     with pytest.raises(CardError, match='too big'):
         read_card('bomb.png', picture.getvalue())
+
+
+# --- big cards, imported here ---------------------------------------------------------------------
+
+def test_a_card_bigger_than_pillow_reads_keeps_its_picture(tmp_path, monkeypatch):
+    """Pillow refuses a picture with more than 64 MB of text chunks (a big card's data): the picture is stored
+    without them. (Its limit lowered here, to test it with a small card.)"""
+    from PIL import PngImagePlugin as png_plugin
+
+    from rpapp.cards import png_text_chunks, without_text
+    monkeypatch.setattr(png_plugin, 'MAX_TEXT_MEMORY', 1000)
+    content = png_card(('chara', v2(description='A long one. ' * 500)), color='red')
+    picture = without_text(content)
+    assert png_text_chunks(picture) == {} and png_text_chunks(content)['chara']
+    with Image.open(io.BytesIO(picture)) as image:
+        assert image.size == (40, 60) and image.getpixel((0, 0)) == (255, 0, 0)
+    with pytest.raises(ValueError, match='text chunks'):
+        Image.open(io.BytesIO(content)).load()  # (as it was, it would have come without one)
+    card = read_card('big.png', content)
+    assert card.picture == picture
+    assert save_card(card, CharacterStore(tmp_path), lore_book_store(tmp_path)).character.image
+
+
+def test_what_an_imported_card_may_unpack_to():
+    from rpapp.cards import IMPORT_MAX_BYTES, MAX_CARD_BYTES
+    info = PngImagePlugin.PngInfo()
+    data = json.dumps(v2(description='x' * 1000)).encode()
+    info.add_text('chara', base64.b64encode(data).decode(), zip=True)
+    picture = io.BytesIO()
+    Image.new('RGB', (4, 4)).save(picture, 'PNG', pnginfo=info)
+    with pytest.raises(CardError, match='too big'):
+        read_card('x.png', picture.getvalue(), limit=1000)  # (a shared card's limit, made small here)
+    assert read_card('x.png', picture.getvalue(), limit=10_000).character.scenario.startswith('xxx')
+    assert IMPORT_MAX_BYTES == 1024 ** 3 > MAX_CARD_BYTES  # (imported here: far more than a shared card)
+
+
+def test_storing_the_pictures_first(tmp_path):
+    """Import stores a card's pictures in a worker thread (store_pictures), then saves it (save_card): once."""
+    from rpapp.cards import store_pictures
+    characters = CharacterStore(tmp_path)
+    card = read_card('x.png', png_card(('chara', v2(creator_notes=f'Look: {picture_data()}')), color='blue'))
+    store_pictures(card, characters)
+    image, description = card.character.image, card.character.description
+    assert image and 'picture:' in description and card.pictures_stored
+    imported = save_card(card, characters, lore_book_store(tmp_path))
+    assert (imported.character.image, imported.character.description) == (image, description)
+    assert len(list(characters.images.folder.iterdir())) == 3  # (whole, framed, the description's: no more)
+
+
+def picture_data() -> str:
+    out = io.BytesIO()
+    Image.new('RGB', (8, 8), 'yellow').save(out, 'PNG')
+    return f'<img src="data:image/png;base64,{base64.b64encode(out.getvalue()).decode()}">'
+
+
+async def test_the_import_button_takes_big_cards(tmp_path):
+    from rpapp.cards import IMPORT_MAX_BYTES
+    async with user_simulation(build_root(tmp_path)) as user:
+        await user.open('/characters')
+        picker = user.find(ui.upload).elements.pop()
+        assert picker.props['max-file-size'] == IMPORT_MAX_BYTES  # (1 GB: a shared card's is 100 MB)
+        await picker.handle_uploads([SmallFileUpload(name='nyla.png', content_type='image/png',
+                                                     _data=png_card(('chara', v2(name='Nyla'))))])
+        await user.should_see('Imported "Nyla" (V2 card).')  # (read in the background)
+        assert [c.title for c in CharacterStore(tmp_path).list()] == ['Nyla']
+
+
+def test_sizes_said():
+    from rpapp.ui.widgets import size_text
+    assert [size_text(n) for n in (1024 ** 3, 100_000_000, 512 * 1024, 10)] == ['1 GB', '95.4 MB', '512 KB', '10 bytes']

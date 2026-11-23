@@ -37,7 +37,12 @@ What goes where in this app:
 Everything else (system_prompt, post_history_instructions, creator, extensions, other
 pictures, group greetings...) has no place in this app, and is ignored. So are pictures the
 card's texts load from other websites (see without_outside_pictures), and anything that
-unpacks to more than MAX_CARD_BYTES.
+unpacks to more than MAX_CARD_BYTES (IMPORT_MAX_BYTES for a card you import: Characters › Import).
+
+A card imported (Characters › Import) may be as big as IMPORT_MAX_BYTES: cards from other apps can carry a
+lot (pictures written into their notes, which this app keeps; or other assets, which it doesn't). Its
+picture is stored without the card's data (the PNG's text chunks: Pillow refuses pictures with more than
+64 MB of them), and reading it and storing its pictures (store_pictures) can run in a worker thread.
 
 Exporting writes a V2 card in a PNG (card_png): V2 holds every field this app has, and more
 apps read it than V3, whose additions (nickname, notes in several languages, more pictures,
@@ -91,6 +96,8 @@ SHARED_UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 # MAX_FILE_BYTES, 100 MiB), so that any card within the format is one this app reads.
 MAX_CARD_BYTES = 100 * 1024 * 1024     # a card's JSON (the biggest real ones, with large lore books, are a few MB)
 MAX_PICTURE_BYTES = 100 * 1024 * 1024  # a picture inside a CharX file
+IMPORT_MAX_BYTES = 1024 ** 3           # a card file you import (Characters › Import), and what it may unpack to
+TEXT_CHUNKS = (b'tEXt', b'zTXt', b'iTXt')  # a PNG's: where a card keeps its data
 TOO_BIG = 'This card is too big to be a real one: it unpacks to more than {}.'
 # Shared cards (publishing/): what a card file from someone else may be, for this computer to add it without
 # harm, and so what one published from here must be, for everyone to add it (check_shared_card). Its file's
@@ -139,15 +146,17 @@ class Card:
     version: str                       # 'V1', 'V2' or 'V3'
     picture: bytes | None = None       # image file contents
     book: LoreBook | None = None       # the card's own lore book, converted
+    pictures_stored: bool = False      # its pictures already stored as files (store_pictures)
 
 
-def read_card(file_name: str, content: bytes, *, languages: list[str] = ()) -> Card:
-    """Read a card from a .png, .json or .charx file. `languages`: the user's, best first ('fr', 'en')."""
+def read_card(file_name: str, content: bytes, *, languages: list[str] = (), limit: int = MAX_CARD_BYTES) -> Card:
+    """Read a card from a .png, .json or .charx file. `languages`: the user's, best first ('fr', 'en'); `limit`:
+    what its data and its picture may unpack to (CardError beyond)."""
     picture: bytes | None = None
     if content.startswith(PNG_SIGNATURE):
-        data, picture = _from_png(content), content
+        data, picture = _from_png(content, limit), without_text(content)
     elif content.startswith(b'PK\x03\x04'):
-        data, picture = _from_charx(content)
+        data, picture = _from_charx(content, limit)
     else:
         data = _json(content, 'This file isn\'t a character card: it\'s not a PNG picture, a JSON file or a '
                               'CharX file.')
@@ -212,13 +221,7 @@ def save_card(card: Card, characters: CharacterStore, lore_books: JsonStore[Lore
     is linked to yours. One with the same name but other entries is added under another name.
     """
     character = card.character
-    if card.picture:
-        try:
-            characters.set_picture(character, card.picture)  # kept whole, framed from the top (see profiles.py)
-        except ValueError:  # not a picture this app can read: the character comes without one
-            pass
-    # The description's pictures, as files (one this app can't read goes)
-    character.description = with_stored_pictures(character.description, characters.images.add)
+    store_pictures(card, characters)
     imported = Imported(character)
     if card.book is not None:
         book = card.book
@@ -238,10 +241,26 @@ def save_card(card: Card, characters: CharacterStore, lore_books: JsonStore[Lore
     return imported
 
 
+def store_pictures(card: Card, characters: CharacterStore) -> None:
+    """Store the card's pictures as files: its own (the character's picture, kept whole and framed from the top:
+    see profiles.py) and its description's. Only files: it can run in a worker thread, before save_card (which
+    does it, when it wasn't done). A picture this app can't read goes: the character comes without it."""
+    if card.pictures_stored:
+        return
+    character = card.character
+    if card.picture:
+        try:
+            characters.set_picture(character, card.picture)
+        except ValueError:  # not a picture this app can read
+            pass
+    character.description = with_stored_pictures(character.description, characters.images.add)
+    card.pictures_stored = True
+
+
 # -- the files ---------------------------------------------------------------------------------
 
-def _from_png(content: bytes) -> dict:
-    chunks = png_text_chunks(content)
+def _from_png(content: bytes, limit: int = MAX_CARD_BYTES) -> dict:
+    chunks = png_text_chunks(content, limit=limit)
     for key in ('ccv3', 'chara'):
         if key in chunks:
             try:
@@ -252,41 +271,59 @@ def _from_png(content: bytes) -> dict:
     raise CardError('This picture has no character card in it.')
 
 
-def png_text_chunks(content: bytes) -> dict[str, str]:
-    """The text chunks of a PNG file (tEXt, zTXt, iTXt), by keyword. Read by hand: cards can be large."""
+def png_text_chunks(content: bytes, *, limit: int = MAX_CARD_BYTES) -> dict[str, str]:
+    """The text chunks of a PNG file (tEXt, zTXt, iTXt), by keyword. Read by hand: cards can be large (and only
+    the text chunks are copied: not the picture's data). `limit`: what a compressed one may unpack to."""
     chunks: dict[str, str] = {}
     pos = len(PNG_SIGNATURE)
     while pos + 8 <= len(content):
         length, kind = struct.unpack('>I4s', content[pos:pos + 8])
-        data = content[pos + 8:pos + 8 + length]
-        pos += 12 + length  # length, type, data, CRC
+        start, pos = pos + 8, pos + 12 + length  # length, type, data, CRC
+        if kind == b'IEND':
+            break
+        if kind not in TEXT_CHUNKS:
+            continue
+        data = content[start:start + length]
         try:
             if kind == b'tEXt':
                 key, _, value = data.partition(b'\0')
                 chunks.setdefault(key.decode('latin-1'), value.decode('latin-1'))
             elif kind == b'zTXt':
                 key, _, rest = data.partition(b'\0')
-                chunks.setdefault(key.decode('latin-1'), _inflate(rest[1:]).decode('latin-1'))
-            elif kind == b'iTXt':
+                chunks.setdefault(key.decode('latin-1'), _inflate(rest[1:], limit).decode('latin-1'))
+            else:  # iTXt
                 key, _, rest = data.partition(b'\0')
                 compressed, rest = rest[0], rest[2:]
                 _language, _, rest = rest.partition(b'\0')
                 _translated, _, value = rest.partition(b'\0')
                 chunks.setdefault(key.decode('latin-1'),
-                                  (_inflate(value) if compressed else value).decode('utf-8'))
-            elif kind == b'IEND':
-                break
+                                  (_inflate(value, limit) if compressed else value).decode('utf-8'))
         except (zlib.error, UnicodeDecodeError, IndexError):
             continue  # a damaged chunk: skip it
     return chunks
 
 
-def _inflate(data: bytes) -> bytes:
-    """zlib data, unpacked up to MAX_CARD_BYTES (CardError beyond)."""
+def without_text(content: bytes) -> bytes:
+    """A PNG without its text chunks: a card's picture, without the card's data (Pillow refuses a picture with more
+    than 64 MB of text chunks, and they're of no use once the card is read)."""
+    view, parts, pos = memoryview(content), [content[:len(PNG_SIGNATURE)]], len(PNG_SIGNATURE)
+    while pos + 8 <= len(content):
+        length, kind = struct.unpack('>I4s', content[pos:pos + 8])
+        end = pos + 12 + length
+        if kind not in TEXT_CHUNKS:
+            parts.append(view[pos:end])
+        pos = end
+        if kind == b'IEND':
+            break
+    return b''.join(parts)
+
+
+def _inflate(data: bytes, limit: int = MAX_CARD_BYTES) -> bytes:
+    """zlib data, unpacked up to `limit` bytes (CardError beyond)."""
     inflater = zlib.decompressobj()
-    out = inflater.decompress(data, MAX_CARD_BYTES)
+    out = inflater.decompress(data, limit)
     if inflater.unconsumed_tail:
-        raise CardError(TOO_BIG.format(megabytes(MAX_CARD_BYTES)))
+        raise CardError(TOO_BIG.format(megabytes(limit)))
     return out
 
 
@@ -299,22 +336,22 @@ def _read_member(archive: zipfile.ZipFile, name: str, limit: int) -> bytes:
     return data
 
 
-def _from_charx(content: bytes) -> tuple[dict, bytes | None]:
+def _from_charx(content: bytes, limit: int = MAX_CARD_BYTES) -> tuple[dict, bytes | None]:
     try:
         archive = zipfile.ZipFile(io.BytesIO(content))
         names = set(archive.namelist())
         if 'card.json' not in names:
             raise CardError('This zip file has no card.json: it isn\'t a CharX character card.')
-        data = _json(_read_member(archive, 'card.json', MAX_CARD_BYTES),
+        data = _json(_read_member(archive, 'card.json', limit),
                      'The card.json in this CharX file isn\'t valid JSON.')
         picture = None
         fields = data.get('data') if isinstance(data.get('data'), dict) else {}
         uri = _main_icon(fields)
         if uri and uri.startswith('embeded://') and uri[len('embeded://'):] in names:
-            picture = _read_member(archive, uri[len('embeded://'):], MAX_PICTURE_BYTES)
+            picture = _read_member(archive, uri[len('embeded://'):], max(limit, MAX_PICTURE_BYTES))
         if picture is None:  # no assets list: the first picture in the icon folder, if any
             icons = sorted(n for n in names if n.startswith('assets/icon/') and not n.endswith('/'))
-            picture = _read_member(archive, icons[0], MAX_PICTURE_BYTES) if icons else None
+            picture = _read_member(archive, icons[0], max(limit, MAX_PICTURE_BYTES)) if icons else None
         return data, picture
     except (zipfile.BadZipFile, KeyError, RuntimeError, OSError):
         raise CardError('This CharX file is damaged, or protected by a password.') from None

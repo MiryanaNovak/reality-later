@@ -300,6 +300,14 @@ def not_found(what: str, back: str) -> None:
     ui.button('Back', icon='arrow_back', on_click=lambda: ui.navigate.to(back)).props('outline')
 
 
+def size_text(size: int) -> str:
+    """A size in bytes, for people: '1 GB', '95.4 MB', '512 KB' (counted in 1024s, as cards.megabytes)."""
+    for unit, scale in (('GB', 1024 ** 3), ('MB', 1024 ** 2), ('KB', 1024)):
+        if size >= scale:
+            return f'{size / scale:.3g} {unit}'
+    return f'{size} bytes'
+
+
 class FilePicker(ui.upload):
     """An invisible uploader. Open its file picker from any button:
 
@@ -324,6 +332,7 @@ def file_picker(on_file: Callable[[events.UploadEventArguments], Awaitable[Any] 
             await result
 
     picker = FilePicker(on_upload=handle, auto_upload=True, max_file_size=max_size,
-                        on_rejected=lambda: ui.notify('That file is too big.', type='negative'))
+                        on_rejected=lambda: ui.notify(f'That file is too big: {size_text(max_size)} at most.',
+                                                      type='negative'))
     picker.props(f'accept="{accept}"').classes('offscreen')
     return picker

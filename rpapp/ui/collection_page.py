@@ -15,9 +15,10 @@ Import and Export can be switched off per collection.
 """
 from __future__ import annotations
 
+import inspect
 import json
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Generic, Literal, TypeVar
 
@@ -27,6 +28,8 @@ from ..storage import JsonStore, StoredModel
 from .form import error_text
 from .list_view import Action, ListView, Row
 from .widgets import Dialog, MenuItems, confirm, file_picker, page_bar, page_header
+
+BIG_IMPORT = 10 * 1024 * 1024  # bytes: an imported file this big says it's being imported (it takes a moment)
 
 T = TypeVar('T', bound=StoredModel)
 
@@ -45,7 +48,8 @@ class Collection(Generic[T]):
     importable: bool = True
     # A custom import, instead of reading the store's own JSON: (file name, contents) -> (the saved
     # item, what to say about it). Raises ValueError with a message when the file can't be used.
-    import_file: Callable[[str, bytes], tuple[T, str]] | None = None
+    # Reads an imported file, saves what it holds: (the item, what to say). May be async (done in the background).
+    import_file: Callable[[str, bytes], tuple[T, str] | Awaitable[tuple[T, str]]] | None = None
     import_accept: str = '.json,application/json'
     import_max_size: int = 20_000_000
     exportable: bool = True
@@ -100,7 +104,13 @@ class CollectionPage(Generic[T]):
         async def handle_upload(e: events.UploadEventArguments) -> None:
             try:
                 if c.import_file is not None:
-                    _, said = c.import_file(e.file.name, await e.file.read())
+                    content = await e.file.read()
+                    result = c.import_file(e.file.name, content)
+                    if inspect.isawaitable(result):  # (done in the background: a big file can take a while)
+                        if len(content) > BIG_IMPORT:
+                            ui.notify(f'Importing {e.file.name}…')
+                        result = await result
+                    _, said = result
                 else:
                     item = c.store.import_data(await e.file.json(), file_name=e.file.name)
                     said = f'Imported "{item.label}".'
