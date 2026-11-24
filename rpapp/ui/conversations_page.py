@@ -8,9 +8,10 @@
 
 At the top, By character / By persona says how they're grouped (kept for the device, in a cookie: opened.py):
 by character, each character's group lists its conversations with your persona's picture, "As <persona>";
-by persona, each persona's lists them with the character's picture, "With <character>". A character's picture
-opens their page (to look at); a persona's, theirs (its editor): their back arrow comes back here, the same group
-open. Under it, the search
+by persona, each persona's lists them with the character's picture, "With <character>". The groups open are kept
+for the browser tab and the device (opened.py), as the Characters page's folders. A character's picture opens
+their page (to look at); a persona's, theirs (its editor): their back arrow comes back here, as it was. Under it,
+the search
 (once there are 8 conversations, as on the Characters page) finds them by title, character or persona: only
 those found show, in their groups.
 
@@ -33,7 +34,7 @@ from ..replies import Replies
 from .chat_page import ChatPage
 from .memories_page import MemoriesPage
 from .list_view import Action, ListView, Row, plural
-from .opened import Chosen
+from .opened import Chosen, Opened
 from .profile_page import ProfileSection
 from .tree_view import TreeGroup, TreeView
 from .widgets import ask_name, confirm, not_found, page_bar, time_ago
@@ -55,6 +56,7 @@ class ConversationsSection:
         self._characters: dict[str, Character] = {}
         self._personas: dict[str, Persona] = {}
         self.grouping = Chosen('rp_conversations_by', tuple(GROUPINGS))
+        self.opened = Opened('rp_conversation_groups')  # (characters' and personas' ids: never the same)
 
     # -- the tree --------------------------------------------------------------------
 
@@ -83,6 +85,7 @@ class ConversationsSection:
             empty_text='Start one from a character: open Characters and press New chat on a card.',
             search=self._search_text,
             noun='conversation',
+            opened=self.opened,
         )
         if character and not self.store.using('character', character):
             ui.notify('This character has no conversations yet.')
@@ -156,8 +159,8 @@ class ConversationsSection:
                 subtitle=f'{plural(len(conversations), "conversation")}, last updated {time_ago(latest.updated_at)}',
                 warning='' if profile else f'This {by} was deleted',
             )
-            if profile is not None:  # (its picture: its page, back here with the group open)
-                self._link_picture(row, by, profile.id, back_to=key)
+            if profile is not None:  # (its picture: its page, then back here)
+                self._link_picture(row, by, profile.id)
             groups.append(TreeGroup(key=key, items=conversations, row=row))
         groups.sort(key=lambda g: g.items[0].updated_at, reverse=True)
         return groups
@@ -172,13 +175,11 @@ class ConversationsSection:
         if changed:
             self.store.save(conversation)
 
-    def _link_picture(self, row: Row, whose: str, profile_id: str, *, back_to: str) -> None:
+    def _link_picture(self, row: Row, whose: str, profile_id: str) -> None:
         """The row's picture, a character's (`whose`) or a persona's: their page (a character's, to look at; a
-        persona's, its editor), whose back arrow comes back to this page with the group `back_to` open."""
-        grouping = self.grouping.get()
-        back = quote(f'{self.path}?{grouping}={back_to}', safe='')
+        persona's, its editor), whose back arrow comes back to this page, as it was (the groups open: opened)."""
         page = f'/characters/{profile_id}' if whose == 'character' else f'/personas/{profile_id}'
-        row.thumb_link = lambda: ui.navigate.to(f'{page}?back={back}')
+        row.thumb_link = lambda: ui.navigate.to(f'{page}?back={quote(self.path, safe="")}')
         row.thumb_link_label = 'Character description' if whose == 'character' else 'Persona'
 
     def _row(self, conversation: Conversation, *, by: str = 'character', linked: bool = False) -> Row:
@@ -200,8 +201,7 @@ class ConversationsSection:
             warning='' if profile else f'{words[1]} "{ref.title}" is missing',
         )
         if linked and profile is not None:
-            self._link_picture(row, 'character' if by == 'persona' else 'persona', profile.id,
-                               back_to=getattr(conversation, by).id)
+            self._link_picture(row, 'character' if by == 'persona' else 'persona', profile.id)
         return row
 
     # -- the chat ----------------------------------------------------------------------

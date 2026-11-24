@@ -6,6 +6,7 @@ from test_conversations import in_order, png, setup, started  # noqa: F401  (the
 
 from rpapp.characters import new_character
 from rpapp.personas import new_persona
+from rpapp.ui.list_view import NO_BUBBLE
 
 
 def one(user, marker):
@@ -172,27 +173,37 @@ def pictures(user, marker) -> list:
     return [e for e in one(user, marker).descendants() if 'thumb-link' in e._markers]
 
 
-async def test_pictures_open_their_pages(setup):  # noqa: F811
+async def test_pictures_open_their_pages(setup, monkeypatch):  # noqa: F811
+    """A picture opens its owner's page, and only that: its group doesn't fold open (its own click stops at it,
+    in the browser: list_view.thumb_link). Their back arrow comes back here as it was: the groups open, still
+    open (kept for the tab, and the device: opened.py); the others, still folded."""
+    import rpapp.ui.opened as opened
+    scripts = []
+    monkeypatch.setattr(opened.ui, 'run_javascript', lambda code, **_: scripts.append(code))
     user, conversations, characters, personas = setup
     (seraphina, kestrel), (mira, wren), chats = cast(conversations, characters, personas)
     await user.open('/conversations')
     await user.should_see(marker=f'group-{kestrel.id}')
+    picture = [e for e in one(user, f'group-{kestrel.id}').descendants() if 'group-picture' in e._markers][0]
+    assert ('click.stop', NO_BUBBLE) in {(lis.type, lis.js_handler) for lis in picture._event_listeners.values()}
 
     with user.scope(marker=f'group-{kestrel.id}'):
         user.find(marker='group-picture').click()  # (a group's: the character's)
     await user.should_see(marker='character-identity')
     assert one(user, 'character-title').text == 'Kestrel'
-    user.find(marker='bar-back').click()  # (back: here, their group open)
+    user.find(marker='bar-back').click()  # (back: here, as it was)
     await user.should_see(marker=f'group-{kestrel.id}')
-    assert one(user, f'group-{kestrel.id}').value is True and one(user, f'group-{seraphina.id}').value is False
+    assert one(user, f'group-{kestrel.id}').value is False and one(user, f'group-{seraphina.id}').value is False
 
+    one(user, f'group-{seraphina.id}').set_value(True)  # (opened: kept, going to a page and back)
+    assert any(f'rp_conversation_groups={seraphina.id}' in code for code in scripts)  # (and for the device)
     with user.scope(marker=f'row-{chats["s-wren"].id}'):
         user.find(marker='thumb-link').click()  # (a conversation's: its persona's)
     await user.should_see('Persona. Changes save automatically.')
     assert one(user, 'page-title').text == 'Wren'
     user.find(marker='bar-back').click()
     await user.should_see(marker=f'group-{seraphina.id}')
-    assert one(user, f'group-{seraphina.id}').value is True
+    assert one(user, f'group-{seraphina.id}').value is True and one(user, f'group-{kestrel.id}').value is False
 
     one(user, 'conversations-by').set_value('persona')  # (grouped by persona: the other way round)
     await user.should_see(marker=f'group-{mira.id}')
@@ -202,7 +213,7 @@ async def test_pictures_open_their_pages(setup):  # noqa: F811
     assert one(user, 'page-title').text == 'Mira'
     user.find(marker='bar-back').click()
     await user.should_see(marker=f'group-{mira.id}')
-    assert one(user, f'group-{mira.id}').value is True
+    assert one(user, f'group-{mira.id}').value is False
 
     with user.scope(marker=f'row-{chats["k-mira"].id}'):
         user.find(marker='thumb-link').click()
@@ -213,7 +224,16 @@ async def test_pictures_open_their_pages(setup):  # noqa: F811
     await user.should_see(marker='character-identity')
     user.find(marker='bar-back').click()
     await user.should_see(marker=f'group-{mira.id}')
-    assert one(user, f'group-{mira.id}').value is True
+    assert one(user, f'group-{mira.id}').value is False
+
+
+async def test_the_device_keeps_the_groups_open(setup):  # noqa: F811
+    user, conversations, characters, personas = setup
+    (seraphina, kestrel), _, _ = cast(conversations, characters, personas)
+    user.http_client.cookies.set('rp_conversation_groups', kestrel.id)
+    await user.open('/conversations')
+    await user.should_see(marker=f'group-{kestrel.id}')
+    assert one(user, f'group-{kestrel.id}').value is True and one(user, f'group-{seraphina.id}').value is False
 
 
 async def test_only_here(setup):  # noqa: F811

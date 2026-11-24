@@ -12,7 +12,10 @@
     )
 
 Groups and items are drawn with the same Row description as ListView (see list_view.py).
-Groups show in the order given; which ones are open is kept when the tree is refreshed.
+Groups show in the order given; which ones are open is kept when the tree is refreshed, and, with `opened`
+(opened.py), while you go to another page and back (for the browser tab) and in a cookie (for the device).
+A row's or a group's picture can open a page of its own (Row.thumb_link): a click on it doesn't open the row,
+or fold the group.
 
 With `search`, a search box shows above, as on ListView: once there are `search_from` items. While something's
 written in it, only the items whose text has it show, in their groups, open ("1 of 3 conversations"); the
@@ -27,6 +30,7 @@ from typing import Any, Generic, TypeVar
 from nicegui import ui
 
 from .list_view import Action, Row, plural, render_row, thumb_link, thumbnail
+from .opened import Opened
 
 T = TypeVar('T')
 
@@ -50,11 +54,15 @@ class TreeView(Generic[T]):
                  empty_text: str = '',
                  search: Callable[[T], str] | None = None,
                  search_from: int = 8,
-                 noun: str = 'item') -> None:
+                 noun: str = 'item',
+                 opened: Opened | None = None) -> None:
         self._groups, self._key, self._row, self._on_open = groups, key, row, on_open
         self._actions = list(actions)
         self._focus = focus
-        self._open: set[str] = {focus} if focus else set()
+        self._opened = opened
+        self._open: set[str] = opened.keys() if opened is not None else set()  # (opened's own: kept as it changes)
+        if focus:
+            self._set_open(focus, True)
         self._empty_title, self._empty_text = empty_title, empty_text
         self._search, self._search_from, self._noun = search, search_from, noun
         with ui.column().classes('w-full gap-3'):
@@ -69,13 +77,15 @@ class TreeView(Generic[T]):
         """Open, highlight and bring into view this group from the next refresh on ('': none)."""
         self._focus = key
         if key:
-            self._open.add(key)
+            self._set_open(key, True)
 
     def refresh(self) -> None:
         self._render.refresh()
 
     def _set_open(self, key: str, is_open: bool) -> None:
-        if is_open:
+        if self._opened is not None:
+            self._opened.set(key, is_open)  # (the same set as self._open, and the cookie)
+        elif is_open:
             self._open.add(key)
         else:
             self._open.discard(key)
