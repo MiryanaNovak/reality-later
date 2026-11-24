@@ -8,7 +8,9 @@
 
 At the top, By character / By persona says how they're grouped (kept for the device, in a cookie: opened.py):
 by character, each character's group lists its conversations with your persona's picture, "As <persona>";
-by persona, each persona's lists them with the character's picture, "With <character>". Under it, the search
+by persona, each persona's lists them with the character's picture, "With <character>". A character's picture
+opens their page (to look at); a persona's, theirs (its editor): their back arrow comes back here, the same group
+open. Under it, the search
 (once there are 8 conversations, as on the Characters page) finds them by title, character or persona: only
 those found show, in their groups.
 
@@ -20,6 +22,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable
+from urllib.parse import quote
 
 from nicegui import ui
 
@@ -72,7 +75,7 @@ class ConversationsSection:
         tree = TreeView(
             groups=self._groups,
             key=lambda conversation: conversation.id,
-            row=lambda conversation: self._row(conversation, by=self.grouping.get()),
+            row=lambda conversation: self._row(conversation, by=self.grouping.get(), linked=True),
             on_open=lambda conversation: ui.navigate.to(f'{self.path}/{conversation.id}'),
             actions=self._actions(lambda: tree.refresh()),
             focus=wanted[self.grouping.get()],
@@ -147,12 +150,15 @@ class ConversationsSection:
         for key, conversations in grouped.items():
             conversations.sort(key=lambda c: c.updated_at, reverse=True)
             profile, latest = profiles.get(key), conversations[0]
-            groups.append(TreeGroup(key=key, items=conversations, row=Row(
+            row = Row(
                 title=profile.title if profile else getattr(latest, by).title,
                 image=section.image_url(profile.image) if profile else '',
                 subtitle=f'{plural(len(conversations), "conversation")}, last updated {time_ago(latest.updated_at)}',
                 warning='' if profile else f'This {by} was deleted',
-            )))
+            )
+            if profile is not None:  # (its picture: its page, back here with the group open)
+                self._link_picture(row, by, profile.id, back_to=key)
+            groups.append(TreeGroup(key=key, items=conversations, row=row))
         groups.sort(key=lambda g: g.items[0].updated_at, reverse=True)
         return groups
 
@@ -166,16 +172,26 @@ class ConversationsSection:
         if changed:
             self.store.save(conversation)
 
-    def _row(self, conversation: Conversation, *, by: str = 'character') -> Row:
+    def _link_picture(self, row: Row, whose: str, profile_id: str, *, back_to: str) -> None:
+        """The row's picture, a character's (`whose`) or a persona's: their page (a character's, to look at; a
+        persona's, its editor), whose back arrow comes back to this page with the group `back_to` open."""
+        grouping = self.grouping.get()
+        back = quote(f'{self.path}?{grouping}={back_to}', safe='')
+        page = f'/characters/{profile_id}' if whose == 'character' else f'/personas/{profile_id}'
+        row.thumb_link = lambda: ui.navigate.to(f'{page}?back={back}')
+        row.thumb_link_label = 'Character description' if whose == 'character' else 'Persona'
+
+    def _row(self, conversation: Conversation, *, by: str = 'character', linked: bool = False) -> Row:
         """A conversation in a group of characters (`by`): with your persona's picture, "As <persona>"; in a group
-        of personas, with the character's, "With <character>"."""
+        of personas, with the character's, "With <character>". `linked`: the picture opens its owner's page (see
+        _link_picture)."""
         if by == 'persona':
             ref, profile, section, words = (conversation.character, self._characters.get(conversation.character.id),
                                             self.characters, ('With', 'Character'))
         else:
             ref, profile, section, words = (conversation.persona, self._personas.get(conversation.persona.id),
                                             self.personas, ('As', 'Persona'))
-        return Row(
+        row = Row(
             title=conversation.title,
             subtitle=f'{words[0]} {ref.title}. Updated {time_ago(conversation.updated_at)}.',
             thumb=True,
@@ -183,6 +199,10 @@ class ConversationsSection:
             image=section.image_url(profile.image) if profile else '',
             warning='' if profile else f'{words[1]} "{ref.title}" is missing',
         )
+        if linked and profile is not None:
+            self._link_picture(row, 'character' if by == 'persona' else 'persona', profile.id,
+                               back_to=getattr(conversation, by).id)
+        return row
 
     # -- the chat ----------------------------------------------------------------------
 

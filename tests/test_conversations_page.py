@@ -165,3 +165,67 @@ async def test_search(setup):  # noqa: F811
     await typed(search, '')  # (emptied: the groups as they were)
     await user.should_see(marker=f'group-{seraphina.id}')
     assert one(user, f'group-{kestrel.id}').value is True and one(user, f'group-{seraphina.id}').value is False
+
+
+def pictures(user, marker) -> list:
+    """The pictures that are links (thumb-link) inside the element with this marker, in page order."""
+    return [e for e in one(user, marker).descendants() if 'thumb-link' in e._markers]
+
+
+async def test_pictures_open_their_pages(setup):  # noqa: F811
+    user, conversations, characters, personas = setup
+    (seraphina, kestrel), (mira, wren), chats = cast(conversations, characters, personas)
+    await user.open('/conversations')
+    await user.should_see(marker=f'group-{kestrel.id}')
+
+    with user.scope(marker=f'group-{kestrel.id}'):
+        user.find(marker='group-picture').click()  # (a group's: the character's)
+    await user.should_see(marker='character-identity')
+    assert one(user, 'character-title').text == 'Kestrel'
+    user.find(marker='bar-back').click()  # (back: here, their group open)
+    await user.should_see(marker=f'group-{kestrel.id}')
+    assert one(user, f'group-{kestrel.id}').value is True and one(user, f'group-{seraphina.id}').value is False
+
+    with user.scope(marker=f'row-{chats["s-wren"].id}'):
+        user.find(marker='thumb-link').click()  # (a conversation's: its persona's)
+    await user.should_see('Persona. Changes save automatically.')
+    assert one(user, 'page-title').text == 'Wren'
+    user.find(marker='bar-back').click()
+    await user.should_see(marker=f'group-{seraphina.id}')
+    assert one(user, f'group-{seraphina.id}').value is True
+
+    one(user, 'conversations-by').set_value('persona')  # (grouped by persona: the other way round)
+    await user.should_see(marker=f'group-{mira.id}')
+    with user.scope(marker=f'group-{mira.id}'):
+        user.find(marker='group-picture').click()
+    await user.should_see('Persona. Changes save automatically.')
+    assert one(user, 'page-title').text == 'Mira'
+    user.find(marker='bar-back').click()
+    await user.should_see(marker=f'group-{mira.id}')
+    assert one(user, f'group-{mira.id}').value is True
+
+    with user.scope(marker=f'row-{chats["k-mira"].id}'):
+        user.find(marker='thumb-link').click()
+    await user.should_see(marker='character-identity')
+    user.find(marker='edit-character').click()  # (through their editor: still back here)
+    await user.should_see(marker='part-summary')
+    user.find(marker='bar-back').click()
+    await user.should_see(marker='character-identity')
+    user.find(marker='bar-back').click()
+    await user.should_see(marker=f'group-{mira.id}')
+    assert one(user, f'group-{mira.id}').value is True
+
+
+async def test_only_here(setup):  # noqa: F811
+    """A character's own page lists their conversations the same way, its pictures not linked; and ?back= only
+    takes the Conversations page."""
+    user, conversations, characters, personas = setup
+    (seraphina, _), (mira, _), chats = cast(conversations, characters, personas)
+    await user.open(f'/characters/{seraphina.id}')
+    await user.should_see(marker=f'row-{chats["s-mira"].id}')
+    assert pictures(user, f'row-{chats["s-mira"].id}') == []
+    for back in ('https://example.com', '//example.com', '/settings', '/conversations?character=x/../..'):
+        await user.open(f'/personas/{mira.id}?back={back}')
+        await user.should_see('Persona. Changes save automatically.')
+        user.find(marker='bar-back').click()
+        await user.should_see(marker=f'row-{mira.id}')  # (the personas, as without it)

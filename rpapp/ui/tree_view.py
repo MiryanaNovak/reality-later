@@ -26,7 +26,7 @@ from typing import Any, Generic, TypeVar
 
 from nicegui import ui
 
-from .list_view import Action, Row, plural, render_row, thumbnail
+from .list_view import Action, Row, plural, render_row, thumb_link, thumbnail
 
 T = TypeVar('T')
 
@@ -131,7 +131,9 @@ class TreeView(Generic[T]):
     @staticmethod
     def _group_header(row: Row) -> None:
         with ui.row().classes('w-full items-center no-wrap gap-3 min-w-0'):
-            thumbnail(row.title, row.image)  # (its full size, whatever the title: see theme.py's .profile-thumb)
+            picture = thumbnail(row.title, row.image)  # (its full size, whatever the title: theme.py's .profile-thumb)
+            if row.thumb_link:  # (a click on it: not the group folding)
+                thumb_link(picture, row.thumb_link, row.thumb_link_label).mark('thumb-link', 'group-picture')
             with ui.column().classes('gap-0 min-w-0 grow'):
                 title = ui.label(row.title).classes('tree-group-title truncate w-full')  # (one line, then …)
                 title.props['title'] = row.title  # (in full, on hover)

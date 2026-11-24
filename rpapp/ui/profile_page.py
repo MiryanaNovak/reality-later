@@ -25,9 +25,11 @@ Deleting a profile used by conversations warns about them in the confirm dialog.
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal
+from urllib.parse import quote
 
 from nicegui import events, ui
 
@@ -41,6 +43,9 @@ from .list_view import Row, initials, plural
 from .media import serve_images
 from .opened import Opened
 from .widgets import Audience, Dialog, MenuItems, file_picker, folding_panel, not_found, panel
+
+# ?back= a page accepts (came_from): the Conversations page only, with the group to open, if any
+BACK_TO_CONVERSATIONS = re.compile(r'/conversations(\?(character|persona)=[a-z0-9][a-z0-9-]{0,80})?')
 
 if TYPE_CHECKING:
     from ..conversations import ConversationStore
@@ -162,13 +167,19 @@ class ProfileSection(Generic[P]):
             warning=f'{plural(len(missing), "lore book")} missing' if missing else '',
         )
 
-    def from_chat(self, chat: str) -> str:
-        """`chat` (?chat=, the conversation a page was opened from: its back arrow goes back there), if it's one."""
-        return chat if chat and self.conversations is not None and self.conversations.exists(chat) else ''
+    def came_from(self, chat: str = '', back: str = '') -> tuple[str, str]:
+        """Where a page opened from elsewhere goes back to: a chat (?chat=<its id>), or the Conversations page
+        (?back=/conversations, with the group to open: ?character= or ?persona=). Anything else: nowhere ('').
+        Returns (where, the query that says it, for the pages opened from that page)."""
+        if chat and self.conversations is not None and self.conversations.exists(chat):
+            return f'/conversations/{chat}', f'?chat={chat}'
+        if back and BACK_TO_CONVERSATIONS.fullmatch(back):
+            return back, f'?back={quote(back, safe="")}'
+        return '', ''
 
-    def edit_page(self, item_id: str, chat: str = '') -> None:
-        """`chat`: opened from a chat (?chat=): back goes back to it; through the item's own page when its editor is
-        apart (a character's page, then Edit), else straight there (a persona's)."""
+    def edit_page(self, item_id: str, chat: str = '', back: str = '') -> None:
+        """`chat`, `back`: opened from a chat, or the Conversations page (came_from): back goes back there; through
+        the item's own page when its editor is apart (a character's page, then Edit), else straight there."""
         try:
             item = self.store.get(item_id)
         except ValueError:
@@ -176,11 +187,9 @@ class ProfileSection(Generic[P]):
         if item is None:
             not_found(self.noun.capitalize(), self.collection.path)
             return
-        chat = self.from_chat(chat)
-        back = None
-        if chat:
-            back = f'{self.collection.item_path(item)}?chat={chat}' if self.collection.edit_suffix else \
-                f'/conversations/{chat}'
+        where, query = self.came_from(chat, back)
+        back = (f'{self.collection.item_path(item)}{query}' if self.collection.edit_suffix else where) if where \
+            else None
 
         def changed() -> None:
             self.store.save_soon(item)

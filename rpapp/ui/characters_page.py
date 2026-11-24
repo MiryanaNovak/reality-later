@@ -266,9 +266,10 @@ class CharactersSection(ProfileSection[Character]):
 
     # -- its page: to look at it ------------------------------------------------------------------------------
 
-    def view_page(self, item_id: str, chat: str = '') -> None:
-        """The character as it is, nothing to edit: Edit, in the top bar, opens its editor. `chat` (?chat=): opened
-        from that conversation (its ⋮ menu, or the character's picture): the back arrow goes back to it."""
+    def view_page(self, item_id: str, chat: str = '', back: str = '') -> None:
+        """The character as it is, nothing to edit: Edit, in the top bar, opens its editor. `chat`, `back`: opened
+        from a conversation (its ⋮ menu, or the character's picture), or from the Conversations page (a picture
+        there): the back arrow goes back there (came_from)."""
         try:
             character = self.store.get(item_id)
         except ValueError:
@@ -277,16 +278,14 @@ class CharactersSection(ProfileSection[Character]):
             not_found('Character', self.collection.path)
             return
 
-        chat = self.from_chat(chat)
-        also = f'?chat={chat}' if chat else ''  # (the editor's back comes here, still from the chat)
+        where, also = self.came_from(chat, back)  # (`also`: the editor's back comes here, still from there)
 
         def edit_button() -> None:
             ui.button('Edit', icon='edit',
                       on_click=lambda: ui.navigate.to(self.collection.edit_path(character) + also)) \
                 .props('aria-label="Edit"').mark('edit-character')
 
-        page_bar(character.title or 'Untitled', back=f'/conversations/{chat}' if chat else self.collection.path,
-                 actions=edit_button)
+        page_bar(character.title or 'Untitled', back=where or self.collection.path, actions=edit_button)
         self._shared_note(character)
 
         with ui.element('div').classes('panel character-identity').mark('character-identity'):

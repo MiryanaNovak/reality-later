@@ -61,6 +61,8 @@ class Row:
     image: str = ''         # picture URL (grid cards; in lists only with `thumb`)
     thumb: bool = False     # lists: show the picture, or initials, as a small thumbnail
     thumb_label: str = ''   # whose initials the thumbnail shows without a picture; default: the title
+    thumb_link: Callable[[], Any] | None = None  # the thumbnail opens something else than the item (its owner's page)
+    thumb_link_label: str = ''  # what it opens, said to screen readers
     note: str = ''          # an extra small line, e.g. where the item is used
     warning: str = ''       # a problem to point out, shown in red
     link: Link | None = None    # a clickable line under the title
@@ -171,7 +173,9 @@ def render_row(item: T, row: Row, *, key: str, on_open: Callable[[T], Any] | Non
     with ui.item(on_click=open_item).mark(f'row-{key}').classes('opacity-60' if row.dimmed else '') as element:
         if row.thumb:
             with ui.item_section().props('avatar'):
-                thumbnail(row.thumb_label or row.title, row.image)
+                picture = thumbnail(row.thumb_label or row.title, row.image)
+                if row.thumb_link:
+                    thumb_link(picture, row.thumb_link, row.thumb_link_label)
         elif row.icon:
             with ui.item_section().props('avatar'):
                 icon = ui.icon(row.icon, color=row.icon_color)
@@ -269,6 +273,14 @@ def thumbnail(title: str, image: str = '') -> ui.element:
         else:
             ui.label(initials(title))
     return box
+
+
+def thumb_link(picture: ui.element, handler: Callable[[], Any], label: str) -> ui.element:
+    """A thumbnail that opens something of its own (`label`: what, for screen readers), inside a row or a header that
+    opens something else: a click on it stays its own."""
+    return picture.classes('thumb-link').props(f'role=link tabindex=0 aria-label="{label}"') \
+        .on('click', handler).on('click.stop', js_handler=NO_BUBBLE) \
+        .on('keydown.enter', handler).on('keydown.enter.stop', js_handler=NO_BUBBLE).mark('thumb-link')
 
 
 def _link(link: Link) -> None:
