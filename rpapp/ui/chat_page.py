@@ -37,7 +37,9 @@ locked the same way. Then a bubble says what's new, with a Review button (the
 Memories page); the update is applied when you post your next message. The ⋮
 menu at the top can generate memories now, and open the Memories page.
 
-The ⋮ menu in the top bar can also rename the conversation, or delete it.
+The ⋮ menu in the top bar can also rename the conversation, or delete it, and open the character's page
+(Character description: their picture, summary and description, nothing to edit; its back arrow comes back to
+the chat). So does a tap on the character's picture, beside their messages.
 
 A dashed line among the messages shows how far the memories have read:
 everything above it, nothing below. While the bubble is there, a line on the
@@ -218,6 +220,7 @@ class ChatPage:
         self.char_name = (character.name or character.title) if character else conversation.character.title
         self.user_name = (persona.name or persona.title) if persona else conversation.persona.title
         self.char_image = characters.image_url(character.image) if character else ''
+        self.character_found = character is not None
         self.user_image = personas.image_url(persona.image) if persona else ''
 
     # -- the page --------------------------------------------------------------------
@@ -232,14 +235,14 @@ class ChatPage:
                 ui.notify(f'Deleted "{c.title}"')
                 ui.navigate.to(self.back)
 
-        menu = [('Rename', self._rename, False), ('Settings', self._settings, False),
-                ('Delete conversation', delete_conversation, True)]
+        menu = [('Character description', self._view_character, False), ('Rename', self._rename, False),
+                ('Settings', self._settings, False), ('Delete conversation', delete_conversation, True)]
         settings = self.replies.current_settings()
         self.memory_on = settings.memory.enabled
         self.return_sends = settings.chat.return_key_desktop == 'send'  # on computers: for the tooltip
         if self.memory_on:
-            menu = [*menu[:2], ('Generate memories now', self._remember_now, False),
-                    ('Memories', lambda: ui.navigate.to(f'{self.path}/memories'), False), *menu[2:]]
+            menu = [*menu[:3], ('Generate memories now', self._remember_now, False),
+                    ('Memories', lambda: ui.navigate.to(f'{self.path}/memories'), False), *menu[3:]]
         with ui.column().classes('chat-page') as self.page_column:
             self.title_label = page_header(c.title, subtitle=f'{c.character.title}, with you as {c.persona.title}',
                                            back=self.back, menu=menu)
@@ -302,6 +305,13 @@ class ChatPage:
         if self.replies.vectors is not None:  # what isn't vectorized yet, in the background (vectors.py)
             books, _ = self.replies.books_for(c)
             self.replies.vectors.chat_opened(c.id, [b.id for b in books])
+
+    def _view_character(self) -> None:
+        """The character's page (nothing to edit there), its back arrow coming back to this chat."""
+        if not self.character_found:
+            ui.notify(f'{self.char_name} was deleted: there\'s no description to show.', type='warning')
+            return
+        ui.navigate.to(f'/characters/{self.conversation.character.id}?chat={self.conversation.id}')
 
     async def _rename(self) -> None:
         name = await ask_name('Rename the conversation', self.conversation.title, max_length=TITLE_MAX)
@@ -401,7 +411,10 @@ class ChatPage:
         name, image = (self.user_name, self.user_image) if mine else (self.char_name, self.char_image)
         editing = self.editing == message.id
         with box, ui.element('div').classes('chat-row ' + ('mine' if mine else 'theirs')):
-            thumbnail(name, image).classes('chat-avatar')
+            avatar = thumbnail(name, image).classes('chat-avatar')
+            if not mine and self.character_found:  # (a tap: their page, as ⋮ › Character description)
+                avatar.classes('chat-avatar-link').props('role=button tabindex=0 aria-label="Character description"') \
+                    .on('click', self._view_character).on('keydown.enter', self._view_character).mark('character-picture')
             with ui.element('div').classes('chat-bubble' + (' editing' if editing else '')):
                 with ui.row().classes('w-full items-center no-wrap gap-2 chat-head'):
                     ui.label(name).classes('chat-name')

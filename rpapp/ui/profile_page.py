@@ -161,7 +161,12 @@ class ProfileSection(Generic[P]):
             warning=f'{plural(len(missing), "lore book")} missing' if missing else '',
         )
 
-    def edit_page(self, item_id: str) -> None:
+    def from_chat(self, chat: str) -> str:
+        """`chat` (?chat=, the conversation a page was opened from: its back arrow goes back there), if it's one."""
+        return chat if chat and self.conversations is not None and self.conversations.exists(chat) else ''
+
+    def edit_page(self, item_id: str, chat: str = '') -> None:
+        """`chat`: opened from a chat (its character's page, then Edit): back goes to that page, still from it."""
         try:
             item = self.store.get(item_id)
         except ValueError:
@@ -169,6 +174,8 @@ class ProfileSection(Generic[P]):
         if item is None:
             not_found(self.noun.capitalize(), self.collection.path)
             return
+        chat = self.from_chat(chat)
+        back = f'{self.collection.item_path(item)}?chat={chat}' if chat and self.collection.edit_suffix else None
 
         def changed() -> None:
             self.store.save_soon(item)
@@ -177,7 +184,7 @@ class ProfileSection(Generic[P]):
                 picture.refresh()  # the initials follow the title while there's no picture
 
         title = self.pages.item_header(item, f'{self.noun.capitalize()}. Changes save automatically.',
-                                       menu=self.item_menu(item))
+                                       menu=self.item_menu(item), back=back)
         self.intro(item)
         form = Form(on_change=changed)
 

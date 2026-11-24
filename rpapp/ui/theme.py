@@ -220,6 +220,8 @@ HEAD = f'''
   .chat-row {{ display: flex; gap: 10px; align-items: flex-start; width: 100%; }}
   .chat-row.mine {{ flex-direction: row-reverse; }}
   .chat-avatar {{ flex-shrink: 0; margin-top: 2px; }}
+  .chat-avatar-link {{ cursor: pointer; }}  /* the character's: their page (chat_page.py) */
+  .chat-avatar-link:focus-visible {{ outline: 2px solid var(--q-primary); outline-offset: 2px; }}
   .chat-bubble {{
     max-width: min(85%, 620px); min-width: 0; padding: 8px 12px 12px 14px; border-radius: 16px;
     background: var(--surface); border: 1px solid var(--line);

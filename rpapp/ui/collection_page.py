@@ -216,15 +216,15 @@ class CollectionPage(Generic[T]):
 
     # -- editor page header ----------------------------------------------------------
 
-    def item_header(self, item: T, caption: str, *, menu: MenuItems = ()) -> ui.label:
+    def item_header(self, item: T, caption: str, *, menu: MenuItems = (), back: str | None = None) -> ui.label:
         """Back arrow, title and ⋮ menu for the top of an item's editor page (`menu`: more of it, before
-        Delete). Back goes to the list, or to the item's own page when its editor is apart."""
+        Delete). Back goes to `back`, else to the list, or to the item's own page when its editor is apart."""
         c = self.c
 
         async def delete() -> None:
             await self.delete(item, after=lambda: ui.navigate.to(c.path))
 
-        back = c.item_path(item) if c.edit_suffix else c.path
+        back = back or (c.item_path(item) if c.edit_suffix else c.path)
         return page_header(item.label or 'Untitled', caption, back=back, menu=[
             ('Duplicate', lambda: self.duplicate(item, after=lambda copy: ui.navigate.to(c.edit_path(copy))), False),
             *([('Export', lambda: self.export(item), False)] if c.exportable else []),

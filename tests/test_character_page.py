@@ -173,3 +173,50 @@ async def test_links_to_a_character(page, tmp_path):
     await user.should_see(marker=f'link-{sera.id}')
     user.find(marker=f'link-{sera.id}').click()
     await user.should_see('Character. Changes save automatically.')
+
+
+async def test_from_a_chat_and_back(page):
+    """A chat's ⋮ › Character description, or the character's picture beside their messages: their page, its back
+    arrow coming back to the chat (through the editor too)."""
+    user, characters, conversations, sera, hale, (mira, nell) = page
+    sera.first_messages = ['*She waits.*']
+    characters.save(sera)
+    chat = conversations.start(sera, mira)
+    await user.open(f'/conversations/{chat.id}')
+    await user.should_see('She waits.')
+
+    user.find(marker='menu-character-description').click()
+    await user.should_see(marker='character-identity')
+    assert one(user, 'character-title').text == 'Seraphina, guardian'
+    fields = [e for e in user.client.layout.descendants() if isinstance(e, (ui.input, ui.textarea)) and e.visible]
+    assert not fields  # (nothing to edit)
+    user.find(marker='bar-back').click()
+    await user.should_see(marker='chat-input')  # (the chat, again)
+    await user.should_see('She waits.')
+
+    user.find(marker='character-picture').click()  # (their picture, beside their message)
+    await user.should_see(marker='character-identity')
+    user.find(marker='edit-character').click()  # (its editor, then back: their page, still from the chat)
+    await user.should_see(marker='part-summary')
+    user.find(marker='bar-back').click()
+    await user.should_see(marker='character-identity')
+    user.find(marker='bar-back').click()
+    await user.should_see(marker='chat-input')
+
+    await user.open(f'/characters/{sera.id}?chat=no-such-chat-1a2b3c')  # (not a chat: back to the characters)
+    await user.should_see(marker='character-identity')
+    user.find(marker='bar-back').click()
+    await user.should_see(marker=f'row-{sera.id}')
+
+
+async def test_from_a_chat_whose_character_was_deleted(page):
+    user, characters, conversations, sera, hale, (mira, nell) = page
+    hale.first_messages = ['Ahoy.']
+    characters.save(hale)
+    chat = conversations.start(hale, mira)
+    characters.delete(hale.id)
+    await user.open(f'/conversations/{chat.id}')
+    await user.should_see('Ahoy.')
+    assert not any('character-picture' in e._markers for e in user.client.layout.descendants())
+    user.find(marker='menu-character-description').click()
+    await user.should_see('Hale was deleted: there\'s no description to show.')
