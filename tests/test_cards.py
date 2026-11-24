@@ -203,12 +203,17 @@ async def test_importing_from_the_characters_page(tmp_path):
                                                      _data=png_card(('ccv3', v3(character_book=BOOK))))])
         await user.should_see('Imported "Seraphina" (V3 card), with its lore book "Eldoria".')
         await user.should_not_see('was not changed')
-        await user.should_see('No conversations yet')  # its card in the grid
+        await user.should_see('Character. Changes save automatically.')  # (its editor, opened)
         [character] = CharacterStore(tmp_path).list()
         assert character.example_dialogues and [b.name for b in books.list()] == ['Eldoria']
+        await user.should_see(marker='part-summary')
+        assert user.find(marker='page-title').elements.pop().text == 'Seraphina'
 
+        await user.open('/characters')
+        picker = user.find(ui.upload).elements.pop()
         await picker.handle_uploads([SmallFileUpload(name='notes.txt', content_type='text/plain', _data=b'Hello')])
         await user.should_see('Could not import notes.txt: This file isn\'t a character card')
+        await user.should_see(marker='import')  # (not imported: the characters, still)
 
 
 # --- exporting ------------------------------------------------------------------------------------

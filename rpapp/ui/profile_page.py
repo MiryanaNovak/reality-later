@@ -56,6 +56,7 @@ class ProfileSection(Generic[P]):
     lore_books_audience: Audience | None = None  # tag the Lore books panel "Sent to the AI"
     foldable = False                        # its panels fold away (see part())
     import_max_size: ClassVar[int] = 100_000_000  # bytes: a file Import takes at most
+    open_imported: ClassVar[bool] = False  # once imported (Import), open its editor
     fold_default: ClassVar[set[str]] = set()  # those open until changed on a device
 
     def __init__(self, store: ProfileStore[P], lore_books: JsonStore[LoreBook], *,
@@ -93,7 +94,7 @@ class ProfileSection(Generic[P]):
             layout='grid', importable=import_file is not None, exportable=export_file is not None,
             export_file=export_file,
             import_file=import_file, import_accept=import_accept or '.json,application/json',
-            import_max_size=self.import_max_size,
+            import_max_size=self.import_max_size, open_imported=self.open_imported,
             label_name='Title', name_placeholder=title_placeholder,
             search=lambda item: self.search_text(item),
             empty_text=empty_text,

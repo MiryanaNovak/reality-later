@@ -47,9 +47,10 @@ class Collection(Generic[T]):
     layout: Literal['list', 'grid'] = 'list'
     importable: bool = True
     # A custom import, instead of reading the store's own JSON: (file name, contents) -> (the saved
-    # item, what to say about it). Raises ValueError with a message when the file can't be used.
-    # Reads an imported file, saves what it holds: (the item, what to say). May be async (done in the background).
+    # item, what to say about it). Raises ValueError with a message when the file can't be used. May be
+    # async (done in the background: a big file can take a while).
     import_file: Callable[[str, bytes], tuple[T, str] | Awaitable[tuple[T, str]]] | None = None
+    open_imported: bool = False                 # once imported, open its editor (else: shown in the list)
     import_accept: str = '.json,application/json'
     import_max_size: int = 20_000_000
     exportable: bool = True
@@ -110,15 +111,18 @@ class CollectionPage(Generic[T]):
                         if len(content) > BIG_IMPORT:
                             ui.notify(f'Importing {e.file.name}…')
                         result = await result
-                    _, said = result
+                    item, said = result
                 else:
                     item = c.store.import_data(await e.file.json(), file_name=e.file.name)
                     said = f'Imported "{item.label}".'
             except (ValueError, UnicodeDecodeError) as err:
                 ui.notify(f'Could not import {e.file.name}: {error_text(err)}', type='negative', multi_line=True)
                 return
-            refresh()
             ui.notify(said, type='positive', multi_line=True)
+            if c.open_imported:
+                ui.navigate.to(c.edit_path(item))
+            else:
+                refresh()
 
         if c.importable:
             upload = file_picker(handle_upload, accept=c.import_accept, max_size=c.import_max_size)

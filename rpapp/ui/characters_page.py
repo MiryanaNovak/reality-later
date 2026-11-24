@@ -5,8 +5,9 @@
                                 it holds (the golden ratio's: theme.py): its conversation count, its summary
                                 cut to fit, a New chat button at the bottom (whose persona picker shows the
                                 personas' folders);
-                                Import reads a character card (PNG, JSON or CharX, V1 to V3: see cards.py),
-                                Export (in each character's ⋮ menu) writes one as a PNG (V2)
+                                Import reads a character card (PNG, JSON or CharX, V1 to V3: see cards.py)
+                                and opens the new character's editor; Export (in each character's ⋮ menu)
+                                writes one as a PNG (V2)
     /characters/<character id>  one character, to look at: its picture, title, tags and summary, whether it's
                                 published or downloaded (sharing_page.py), its description as it shows,
                                 and its conversations (conversations_page.py), with New chat; Edit opens
@@ -82,6 +83,7 @@ class CharactersSection(ProfileSection[Character]):
     lore_books_audience = 'ai'
     foldable = True
     import_max_size = IMPORT_MAX_BYTES  # (cards from other apps can be big: cards.py)
+    open_imported = True  # (a card imported from a file, with Import: its editor opens. Not one downloaded.)
     fold_default = {'summary', 'description', 'scenario', 'first-messages'}
 
     def __init__(self, store: CharacterStore, lore_books: JsonStore[LoreBook],
