@@ -166,7 +166,8 @@ class ProfileSection(Generic[P]):
         return chat if chat and self.conversations is not None and self.conversations.exists(chat) else ''
 
     def edit_page(self, item_id: str, chat: str = '') -> None:
-        """`chat`: opened from a chat (its character's page, then Edit): back goes to that page, still from it."""
+        """`chat`: opened from a chat (?chat=): back goes back to it; through the item's own page when its editor is
+        apart (a character's page, then Edit), else straight there (a persona's)."""
         try:
             item = self.store.get(item_id)
         except ValueError:
@@ -175,7 +176,10 @@ class ProfileSection(Generic[P]):
             not_found(self.noun.capitalize(), self.collection.path)
             return
         chat = self.from_chat(chat)
-        back = f'{self.collection.item_path(item)}?chat={chat}' if chat and self.collection.edit_suffix else None
+        back = None
+        if chat:
+            back = f'{self.collection.item_path(item)}?chat={chat}' if self.collection.edit_suffix else \
+                f'/conversations/{chat}'
 
         def changed() -> None:
             self.store.save_soon(item)

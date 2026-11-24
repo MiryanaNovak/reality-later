@@ -220,3 +220,39 @@ async def test_from_a_chat_whose_character_was_deleted(page):
     assert not any('character-picture' in e._markers for e in user.client.layout.descendants())
     user.find(marker='menu-character-description').click()
     await user.should_see('Hale was deleted: there\'s no description to show.')
+
+
+async def test_your_persona_from_a_chat_and_back(page):
+    """A chat's ⋮ › Your persona, or your picture beside your messages: your persona's page (its editor), its back
+    arrow coming back to the chat."""
+    user, characters, conversations, sera, hale, (mira, nell) = page
+    chat = conversations.start(sera, mira)
+    chat.add('user', 'Hello there.')
+    conversations.save(chat)
+    await user.open(f'/conversations/{chat.id}')
+    await user.should_see('Hello there.')
+
+    user.find(marker='menu-your-persona').click()
+    await user.should_see('Persona. Changes save automatically.')
+    assert one(user, 'page-title').text == 'Mira'
+    user.find(marker='bar-back').click()
+    await user.should_see(marker='chat-input')  # (the chat, again)
+    await user.should_see('Hello there.')
+
+    user.find(marker='persona-picture').click()  # (your picture, beside your message)
+    await user.should_see('Persona. Changes save automatically.')
+    user.find(marker='bar-back').click()
+    await user.should_see(marker='chat-input')
+
+    await user.open(f'/personas/{mira.id}?chat=no-such-chat-1a2b3c')  # (not a chat: back to the personas)
+    await user.should_see('Persona. Changes save automatically.')
+    user.find(marker='bar-back').click()
+    await user.should_see(marker=f'row-{nell.id}')
+
+    personas_store = PersonaStore(conversations.folder.parent)
+    personas_store.delete(mira.id)
+    await user.open(f'/conversations/{chat.id}')
+    await user.should_see('Hello there.')
+    assert not any('persona-picture' in e._markers for e in user.client.layout.descendants())
+    user.find(marker='menu-your-persona').click()
+    await user.should_see('Your persona Mira was deleted: there\'s no page to show.')
