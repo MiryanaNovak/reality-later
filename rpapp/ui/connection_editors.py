@@ -68,7 +68,8 @@ SYSTEM_IN_CHAT = {
     'user': 'Send as user messages (for models that only read the first system message)',
 }
 
-QUANTIZATIONS = ['int4', 'int8', 'fp4', 'fp6', 'fp8', 'fp16', 'bf16', 'fp32', 'unknown']
+# OpenRouter's precisions (its provider routing's "quantizations"), in its order; unknown: providers that don't say
+QUANTIZATIONS = ['int4', 'int8', 'fp4', 'mxfp4', 'nvfp4', 'fp6', 'fp8', 'mxfp8', 'fp16', 'bf16', 'fp32', 'unknown']
 
 
 @editor_for(OpenRouterConnection)
@@ -100,7 +101,7 @@ def openrouter_editor(conn: OpenRouterConnection, form: Form) -> None:
         form.chips(p, 'only', 'Use only these providers', hint='Empty means any provider')
         form.chips(p, 'ignore', 'Never use these providers')
         form.multi_select(p, 'quantizations', 'Allowed precisions', QUANTIZATIONS,
-                          hint='Empty means any. int4 and fp4 can hurt quality')
+                          hint='Empty means any. The 4-bit ones (int4, fp4, mxfp4, nvfp4) can hurt quality')
 
     with folding_panel('Advanced'):
         form.text(conn, 'app_name', 'App name', placeholder=APP_NAME,

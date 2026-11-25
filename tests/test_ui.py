@@ -69,10 +69,14 @@ async def test_create_then_edit_saves_automatically(setup):
     selects = by_label(user, ui.select)
     selects['Data policy'].set_value('deny')
     selects['Reasoning effort'].set_value('low')
-    selects['Allowed precisions'].set_value(['fp8', 'bf16'])
+    assert list(selects['Allowed precisions'].options) == [  # (OpenRouter's, in its order)
+        'int4', 'int8', 'fp4', 'mxfp4', 'nvfp4', 'fp6', 'fp8', 'mxfp8', 'fp16', 'bf16', 'fp32', 'unknown']
+    selects['Allowed precisions'].set_value(['fp8', 'mxfp8', 'bf16'])
     saved = store.load(conn.id)
     assert saved.provider.data_collection == 'deny' and saved.reasoning_effort == 'low'
-    assert saved.provider.quantizations == ['fp8', 'bf16']
+    assert saved.provider.quantizations == ['fp8', 'mxfp8', 'bf16']
+    body = saved._body([], None)  # (sent with each request: OpenRouter's provider routing)
+    assert body['provider']['quantizations'] == ['fp8', 'mxfp8', 'bf16']
     selects['Reasoning effort'].set_value('')
     assert store.load(conn.id).reasoning_effort is None
     selects['Instructions inside the chat'].set_value('user')
