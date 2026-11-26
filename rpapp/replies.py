@@ -48,7 +48,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from .chat_setup import ChatSetup, chat_setup, missing_connection
-from .connections import Connection, GenerationParams, ModelError, Reply, Usage
+from .connections import SESSION, Connection, GenerationParams, ModelError, Reply, Usage, session_for
 from .conversations import ChatMessage, Conversation, ConversationStore
 from .lore import Meaning, activate
 from .lorebooks import LoreBook
@@ -265,6 +265,7 @@ class Replies:
     # -- the work ----------------------------------------------------------------------
 
     async def _run(self, job: Job) -> None:
+        SESSION.set(session_for(job.conversation_id, job.kind))  # (this task's own: see connections.py)
         try:
             await (self._remember(job) if job.kind == 'memory' else self._reply(job))
         except asyncio.CancelledError:

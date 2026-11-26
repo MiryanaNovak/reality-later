@@ -160,14 +160,14 @@ def test_example_dialogues_and_the_lore_around_them():
     prompt = build_prompt(chat('Welcome.', 'Hello.'), character=character, persona=persona, settings=Settings(),
                           books=[book])
     assert [(p.kind, p.source) for p in prompt.parts][:5] == [
-        ('scenario', 'Scenario'), ('lore', 'Lore: Eldoria › Rule'),
-        ('lore', 'Lore: Eldoria › Before'), ('examples', 'Example dialogues'), ('lore', 'Lore: Eldoria › After')]
-    examples = prompt.parts[3].content
+        ('scenario', 'Scenario'), ('lore', 'Lore: Eldoria › Before'), ('examples', 'Example dialogues'),
+        ('lore', 'Lore: Eldoria › After'), ('lore', 'Lore: Eldoria › Rule')]  # (the examples first: they stay put)
+    examples = prompt.parts[2].content
     assert examples == ('Examples of how Seraphina speaks and acts. They show the style only: they aren\'t part '
                         'of the story.\n\n[Example 1]\nMira: Who are you?\nSeraphina: The guardian.\n\n'
                         '[Example 2]\nSeraphina: Rest now.')  # the empty one is skipped
     r = prompt.report
-    assert (r.examples_total, r.examples_sent, r.examples_tokens) == (2, 2, prompt.parts[3].tokens)
+    assert (r.examples_total, r.examples_sent, r.examples_tokens) == (2, 2, prompt.parts[2].tokens)
     placements = {u.entry: u.placement for u in r.lore}
     assert placements['Before'] == 'before the example dialogues'
     assert placements['After'] == 'after the example dialogues'

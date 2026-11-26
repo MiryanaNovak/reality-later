@@ -89,7 +89,9 @@ def _summary(prompt: Prompt, message: ChatMessage | None, time: Callable[[dateti
             ui.label(f'With the {"module" if len(r.modules) == 1 else "modules"} of the prompt on in this chat: '
                      + ', '.join(f'"{name}"' for name in r.modules) + '.').classes('text-sm').mark('prompt-modules')
         if r.messages_left_out:
-            ui.label(f'{plural(r.messages_left_out, "older message")} of {r.messages_total} left out to fit.') \
+            kept = f' The room for lore and memories, {r.reserved:,} tokens, counts in full, used or not, so this ' \
+                   'changes only as the chat grows.' if r.reserved else ''
+            ui.label(f'{plural(r.messages_left_out, "older message")} of {r.messages_total} left out to fit.{kept}') \
                 .classes('text-sm').mark('left-out')
         if r.examples_sent < r.examples_total:
             ui.label((f'{r.examples_sent} of {r.examples_total} example dialogues sent: the others make'

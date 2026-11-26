@@ -30,13 +30,20 @@ Usage:
 
     async for text in conn.stream([Message(role='user', content='Hi!')]):  # or piece by piece
         print(text, end='')
+
+Which chat a call is for (SESSION): replies.py sets it for each reply and memory call, and OpenRouter
+gets it as `session_id`, so it keeps sending that chat to the provider that has its start cached
+("sticky routing", see https://openrouter.ai/docs/guides/best-practices/prompt-caching). Unless
+"Try these providers first" is set: then OpenRouter doesn't.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
@@ -50,6 +57,16 @@ from .storage import JsonStore, StoredModel
 # ---------------------------------------------------------------------------
 # Small shared types
 # ---------------------------------------------------------------------------
+
+# The chat the calls being made are for, as session_for() gives it ('' = none: a test of the connection, say).
+SESSION: ContextVar[str] = ContextVar('session', default='')
+
+
+def session_for(conversation_id: str, kind: str = 'reply') -> str:
+    """An id for a chat's calls of one kind ('reply', 'memory': their prompts start differently), that says
+    nothing of the chat: a hash of its id."""
+    return hashlib.sha256(f'{kind}:{conversation_id}'.encode()).hexdigest()[:32]
+
 
 class Message(BaseModel):
     """One message of a conversation, in the provider-neutral form the app uses."""
@@ -433,6 +450,8 @@ class OpenRouterConnection(OpenAIStyleConnection):
             body['provider'] = prefs
         if self.reasoning_effort:
             body['reasoning'] = {'effort': self.reasoning_effort}
+        if session := SESSION.get():  # (the same provider for the chat while it has it cached: see the top)
+            body['session_id'] = session
         return body
 
 

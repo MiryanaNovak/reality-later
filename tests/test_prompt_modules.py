@@ -18,7 +18,7 @@ from rpapp.memory import memory_prompt
 from rpapp.personas import PersonaStore, new_persona
 from rpapp.presets import PromptModule, PromptPreset, preset_store
 from rpapp.prompts import build_prompt
-from rpapp.settings import ConnectionRef, PresetRef, PromptChoice, Settings, SettingsStore
+from rpapp.settings import ConnectionRef, PresetRef, Settings, SettingsStore
 from rpapp.ui.app import build_root
 
 
@@ -97,7 +97,7 @@ def test_in_memory_calls():
 
 
 async def test_memory_calls_of_a_chat(tmp_path, fake_model):
-    conversations, conversation = make_chat(tmp_path, context=250)
+    conversations, conversation = make_chat(tmp_path, context=390)  # (half the room: kept for memories)
     presets = preset_store(tmp_path)
     preset = noir()
     presets.save(preset)

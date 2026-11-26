@@ -96,7 +96,8 @@ def openrouter_editor(conn: OpenRouterConnection, form: Form) -> None:
             'latency': 'Quickest first word',
         })
         form.chips(p, 'order', 'Try these providers first',
-                   hint='e.g. deepinfra, together. Press Enter after each')
+                   hint='e.g. deepinfra, together. Press Enter after each. With any, OpenRouter no longer keeps '
+                        'each chat on the provider that has its start cached')
         form.switch(p, 'allow_fallbacks', 'Use other providers when those are unavailable')
         form.chips(p, 'only', 'Use only these providers', hint='Empty means any provider')
         form.chips(p, 'ignore', 'Never use these providers')

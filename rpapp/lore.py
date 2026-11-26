@@ -185,6 +185,26 @@ def activate(books: list[LoreBook], *, chat: list[tuple[str, str]], settings: Lo
     return result
 
 
+def most_tokens(books: list[LoreBook], *, budget: int, char: str, user: str,
+                pronouns: Sequence[str] | None = None) -> int:
+    """The most the books' entries could ever take in a prompt, whichever come in: those that may come in, up to
+    the budget, and those that ignore it. (The prompt keeps that much room for lore: prompts.py.)"""
+    counted = ignoring = 0
+    for book in books:
+        for entry in book.entries.values():
+            if entry.disable or (entry.triggers and 'normal' not in entry.triggers) or entry.position == OUTLET:
+                continue
+            content = fill(entry.content, char=char, user=user, pronouns=pronouns).strip()
+            if not content:
+                continue
+            tokens = estimate(content) + (MESSAGE_OVERHEAD if entry.position == AT_DEPTH else 0)  # (as Activation)
+            if entry.ignoreBudget:
+                ignoring += tokens
+            else:
+                counted += tokens
+    return min(budget, counted) + ignoring
+
+
 # -- the rules ------------------------------------------------------------------------
 
 def _by_priority(entries) -> list[LoreEntry]:

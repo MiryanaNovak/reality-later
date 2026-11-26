@@ -196,7 +196,7 @@ def menu_items(user, message_id: str) -> set[str]:
 
 
 async def test_fork_from_the_chat(tmp_path, fake_model):
-    conversations, conversation = make_chat(tmp_path, context=250)
+    conversations, conversation = make_chat(tmp_path, context=390)  # (half the room: kept for memories)
     fake_model.memory_answers = [ADD_BRANN]
     async with user_simulation(build_root(tmp_path)) as user:
         await user.open(f'/conversations/{conversation.id}')

@@ -8,9 +8,9 @@ A prompt is a list of labelled parts, made by blocks in this order (LAYOUT):
     scenario      About {{char}} and the story: the character's         system
                   scenario, all the AI is told about them
     persona       About {{user}}: gender, pronouns, description          system
-    lore          lore entries placed before/after the character        system
     examples      the character's example dialogues, with the lore      system
                   entries placed before/after the example messages
+    lore          lore entries placed before/after the character        system
     memory        the chat's memories whose keywords appear (memory.py) system
     history       the chat; the oldest messages are left out when it    user / assistant
                   doesn't fit. Lore entries placed "at a depth" go in
@@ -26,18 +26,28 @@ it's never sent. Their scenario says who they are and what the story is.
 Background first, what to do now last: models pay the most attention to the
 end of a prompt. What never changes comes first too, so the providers that
 cache the start of a prompt (DeepSeek, among others) can reuse it from one
-reply to the next. That's why lore, which comes and goes with keywords, sits
-after the scenario rather than before the character as in SillyTavern.
+reply to the next: everything up to the first part that changed. That's why
+lore, which comes and goes with keywords, sits after the scenario and the
+example dialogues rather than before the character as in SillyTavern.
 
 Fitting in the context window (sizes are estimates, see tokens.py):
 
     space for the prompt = context size - reply length - 10% margin
     lore and memories get up to their share of that space (Settings),
-    the fixed parts, lore and memories come first, then the chat, newest messages first.
+    the chat gets what's left after the fixed parts and those shares, newest messages first.
+
+Lore and memories count with all they may take, used or not: lore its share (or
+what its books hold, if that's less) and its entries that ignore the budget;
+memories their share, once they're on (as the chat grows, so do they). Were the chat to get what they leave unused, the cut (and the example
+dialogues, below) would move back and forth as entries come and go, and the start
+of the chat in the prompt with it; and memories, written from the messages left
+out (replies.py), would come at an uneven pace. This way, the cut moves only as
+the chat grows.
 
 When messages have to be left out, they go in chunks of about a fifth of the
 chat's space rather than one per reply, so the start of the prompt stays the
-same (and cached) for several replies in a row.
+same (and cached) for several replies in a row, and memories come every fifth
+of it or so.
 
 Example dialogues show the character's voice, which matters most early on: by
 default (Settings › Chat), they're sent while the whole chat fits along with
@@ -76,7 +86,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from .connections import Message
-from .lore import Activation, LoreResult, Meaning, activate
+from .lore import Activation, LoreResult, Meaning, activate, most_tokens
 from .lorebooks import AT_DEPTH, LoreBook
 from .macros import fill
 from .personas import GENDERS, Persona
@@ -91,7 +101,7 @@ if TYPE_CHECKING:
     from .conversations import ChatMessage, Conversation
     from .presets import PromptPreset
 
-LAYOUT = ('instructions', 'scenario', 'persona', 'lore', 'examples', 'memory', 'history', 'final', 'hidden')
+LAYOUT = ('instructions', 'scenario', 'persona', 'examples', 'lore', 'memory', 'history', 'final', 'hidden')
 ExtendMethod = Literal['', 'instruction', 'prefill']  # '' = a reply, not an extension
 
 DEFAULT_CONTEXT = 16_384  # tokens, when the connection doesn't say
@@ -154,6 +164,7 @@ class PromptReport(BaseModel):
     tokens: int                  # the prompt's estimated size
     messages_total: int
     messages_left_out: int = 0
+    reserved: int = 0            # the room kept for lore and memories, used or not (see the notes at the top)
     lore_budget: int = 0
     lore_tokens: int = 0
     books: list[str] = Field(default_factory=list)          # names of the lore books in play
@@ -321,12 +332,16 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
     blocks['memory'] = [PromptPart(role='system', content=a.content, kind='memory',
                                    source=f'Memory: {a.entry.title}')
                         for a in sorted(remembered.used, key=lambda a: a.entry.uid)]
+    # what's kept for them: all they may take, used or not (see the notes at the top). Lore: its budget, or what
+    # its books hold if less; memories: their budget, as they're on (they grow as the chat does)
+    reserved = max(most_tokens(list(books), budget=lore_budget, char=char, user=user, pronouns=pronouns),
+                   lore.tokens) + max(memory_budget, remembered.tokens)
 
     # -- the example dialogues, and the chat
     dialogues = [filled(d) for d in character.example_dialogues if d.strip()] if character else []
     messages = conversation.messages
     costs = [estimate(m.content) + MESSAGE_OVERHEAD for m in messages]
-    room = available - fixed - lore.tokens - remembered.tokens - MESSAGE_OVERHEAD  # overhead: the placeholder
+    room = available - fixed - reserved - MESSAGE_OVERHEAD  # overhead: the placeholder
     if chat.example_dialogues == 'always':
         sent = len(dialogues)
     else:  # while the whole chat fits along with them; the last ones leave first
@@ -366,7 +381,7 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
         context_size=context, context_known=context_known, reply_tokens=reply, reply_known=reply_known,
         available=available, tokens=sum(p.tokens for p in parts),
         messages_total=len(messages), messages_left_out=start,
-        lore_budget=lore_budget, lore_tokens=lore.tokens,
+        reserved=reserved, lore_budget=lore_budget, lore_tokens=lore.tokens,
         books=[b.name for b in books], missing_books=list(missing_books),
         lore=[_lore_use(a, examples=bool(examples)) for a in lore.activations], lore_notes=lore.notes,
         memory_budget=memory_budget, memory_tokens=remembered.tokens,

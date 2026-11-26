@@ -190,7 +190,7 @@ def marker_state(user) -> tuple[str, str, bool, bool]:
 
 
 async def test_memories_after_old_messages_leave_the_prompt(tmp_path, fake_model):
-    conversations, conversation = make_chat(tmp_path, context=250)
+    conversations, conversation = make_chat(tmp_path, context=390)  # (half the room: kept for memories)
     fake_model.memory_answers = [ADD_BRANN]
     async with user_simulation(build_root(tmp_path)) as user:
         await user.open(f'/conversations/{conversation.id}')

@@ -77,6 +77,8 @@ async def test_create_then_edit_saves_automatically(setup):
     assert saved.provider.quantizations == ['fp8', 'mxfp8', 'bf16']
     body = saved._body([], None)  # (sent with each request: OpenRouter's provider routing)
     assert body['provider']['quantizations'] == ['fp8', 'mxfp8', 'bf16']
+    assert by_label(user, ui.input_chips)['Try these providers first'].props['hint'].endswith(
+        'With any, OpenRouter no longer keeps each chat on the provider that has its start cached')
     selects['Reasoning effort'].set_value('')
     assert store.load(conn.id).reasoning_effort is None
     selects['Instructions inside the chat'].set_value('user')

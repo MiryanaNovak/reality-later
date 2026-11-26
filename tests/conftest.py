@@ -7,7 +7,7 @@ from typing import ClassVar, Literal
 
 import pytest
 
-from rpapp.connections import Connection, Message, ModelError, ModelInfo, Reply, register
+from rpapp.connections import SESSION, Connection, Message, ModelError, ModelInfo, Reply, register
 
 
 class FakeModel:
@@ -22,8 +22,10 @@ class FakeModel:
         self.memory_answers: list[str] = []   # memory calls answer these in order, then '[]'
         self.memory_calls: list[list[Message]] = []
         self.memory_gate: asyncio.Event | None = None
+        self.sessions: list[str] = []         # connections.SESSION at each call, memory calls too
 
     async def generate(self, messages: Sequence[Message]) -> Reply:
+        self.sessions.append(SESSION.get())
         if 'Answer with a JSON array of changes' in messages[0].content:  # a memory call
             self.memory_calls.append(list(messages))
             if self.memory_gate is not None:

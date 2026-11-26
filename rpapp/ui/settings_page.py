@@ -100,7 +100,8 @@ class SettingsSection:
                 form.number(lore, 'scan_depth', 'Messages to scan', integer=True, min=0, max=1000, optional=False,
                             hint='How many of the last messages are searched for keywords')
                 form.number(lore, 'budget_percent', 'Lore budget (%)', integer=True, min=1, max=100, step=5,
-                            optional=False, hint='The most of the prompt\'s space lore entries may take')
+                            optional=False, hint='The most of the prompt\'s space lore entries may take. Kept for '
+                                                 'them, used or not (at most what the books hold)')
             form.switch(lore, 'recursive', 'Entries can trigger other entries')
             ui.label('The text of the entries that go in is searched for keywords too.') \
                 .classes('text-sm muted -mt-3 ml-12')
@@ -536,7 +537,7 @@ class SettingsSection:
                         placeholder=f'{DEFAULT_MAX_TOKENS} (default)',
                         hint='Instead of the connection\'s, which suits chat replies').props('stack-label')
             form.number(memory, 'budget_percent', 'Memory budget (%)', integer=True, min=1, max=100, step=5,
-                        optional=False, hint='Share of a chat prompt for memory entries')
+                        optional=False, hint='Share of a chat prompt for memory entries. Kept for them, used or not')
 
         self._memory_instructions(memory, form)
 
