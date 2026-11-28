@@ -34,6 +34,27 @@ PRIMARY, PRIMARY_DARK = ACCENTS[DEFAULT_ACCENT][1:]
 LIGHT_PAGE, LIGHT_SURFACE, LIGHT_TINT = '#F3F5F7', '#FFFFFF', .10
 DARK_PAGE, DARK_SURFACE, DARK_TINT = '#13161D', '#1B1F28', .16
 
+# The parts of a prompt in its dialog's chart (prompt_view.py): key -> (light, dark). Eight hues of a categorical
+# palette checked for colour-blind eyes, in an order where the parts that are next to each other in a prompt
+# stay apart; a module's instructions: the color of their kind, halfway to the surface; the hidden instruction
+# (and the parts of the first saved prompts): a gray.
+SHARE_COLORS = {
+    'instructions': ('#257DE0', '#338CED'),
+    'modules': ('#92BEF0', '#27568B'),
+    'character': ('#F2A600', '#D28E05'),
+    'persona': ('#EE7FAC', '#E24D8B'),
+    'examples': ('#008A17', '#0AAC23'),
+    'lore': ('#6A4CE2', '#9887EF'),
+    'memories': ('#F47230', '#E76624'),
+    'messages': ('#00B894', '#00A888'),
+    'final': ('#EC4647', '#EB6263'),
+    'final-modules': ('#F6A3A3', '#834146'),
+    'hidden': ('#8A90A0', '#969CAB'),
+    'other': ('#8A90A0', '#969CAB'),
+}
+SHARES_LIGHT = ' '.join(f'--share-{key}: {light};' for key, (light, _) in SHARE_COLORS.items())
+SHARES_DARK = ' '.join(f'--share-{key}: {dark};' for key, (_, dark) in SHARE_COLORS.items())
+
 # The browser's icons (rpapp/icons/web/): the tab's (NiceGUI also links favicon.ico, see main.py), the
 # iPhone's and iPad's home screen, and Android's (manifest.json)
 ICON_LINKS = (
@@ -50,10 +71,12 @@ HEAD = f'''
   :root {{
     --ink: #1D2233; --muted: #5B6376; --page: {LIGHT_PAGE}; --surface: {LIGHT_SURFACE};
     --line: #DDE2E8;
+    {SHARES_LIGHT}
   }}
   .body--dark {{
     --ink: #E7E9EE; --muted: #A2A9B7; --page: {DARK_PAGE}; --surface: {DARK_SURFACE};
     --line: #2C313D;
+    {SHARES_DARK}
   }}
   body {{
     font-family: 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -494,6 +517,19 @@ HEAD = f'''
   .browser-steps {{ margin: 0; padding-left: 1.2em; }}
   .browser-steps li {{ margin: 3px 0; }}
   .prompt-card {{ width: min(760px, calc(100vw - 24px)); max-height: 88vh; }}
+  /* The prompt's chart: a pie of its parts (2px of the surface between them), and its key under it */
+  .prompt-pie {{ width: 176px; height: 176px; display: block; margin: 4px auto 0; overflow: visible; }}
+  .prompt-pie .slice {{ stroke: var(--surface); stroke-width: 2px; stroke-linejoin: round; cursor: pointer; }}
+  .prompt-pie .slice:hover {{ opacity: .8; }}
+  .prompt-legend {{ width: 100%; max-width: 440px; margin: 0 auto; }}
+  .legend-row {{
+    display: grid; grid-template-columns: 12px minmax(0, 1fr) auto 3.4em; gap: 10px; align-items: center;
+    padding: 5px 8px; border-radius: 8px; cursor: pointer; font-size: .875rem;
+  }}
+  .legend-row:hover, .legend-row:focus-visible {{ background: var(--tint); outline: none; }}
+  .legend-row .figure {{ font-variant-numeric: tabular-nums; text-align: right; }}
+  .legend-row .legend-name {{ overflow-wrap: anywhere; line-height: 1.3; }}
+  .share-swatch {{ width: 12px; height: 12px; border-radius: 3px; flex: none; }}
   .prompt-parts {{ overflow-y: auto; }}
   .prompt-role {{ font-size: .75rem; font-weight: 600; color: var(--q-primary); }}
   .prompt-text {{

@@ -177,6 +177,7 @@ async def test_extension_details_and_prompt(chat, fake_model):
     with user.scope(marker='prompt-dialog'):
         await user.should_see('Prompt for this extension')
         await user.should_see(marker='prompt-extend')
+        user.find(marker='legend-hidden').click()
         await user.should_see('Hidden instruction: extend the reply (Test) · user')
 
 

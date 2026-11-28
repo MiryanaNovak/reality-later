@@ -119,6 +119,7 @@ async def test_continue_after_a_reply(tmp_path, fake_model):
             user.find(marker='reply-prompt').click()
         with user.scope(marker='prompt-dialog'):
             await user.should_see(marker='prompt-continue')
+            user.find(marker='legend-hidden').click()
             await user.should_see('Hidden instruction: continue the scene (Test) · user')
         assert store.prompts.get(conversation.id, reply.id) is None
 

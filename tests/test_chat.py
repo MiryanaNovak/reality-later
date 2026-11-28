@@ -250,8 +250,9 @@ async def test_send_gets_a_reply(setup, fake_model):
         choose(user, 'menu-prompt')
     await user.should_see(marker='prompt-dialog')
     with user.scope(marker='prompt-dialog'):
-        await user.should_see('Instructions (Test) · system')
         await user.should_see('for Fake (fake/model)')
+        user.find(marker='legend-instructions').click()  # (the chart's key opens the section)
+        await user.should_see('Instructions (Test) · system')
 
     await send(user, '   ', wait=False)  # blank: nothing is sent
     assert len(store.load(conversation.id).messages) == 3
@@ -451,18 +452,22 @@ async def test_prompt_view_shows_lore_and_what_is_sent(tmp_path, fake_model):
         with user.scope(marker=f'message-{mine.id}'):
             choose(user, 'menu-prompt')
         await user.should_see(marker='prompt-dialog')
+        await user.should_see('Lore book "Old" is missing')
+        await user.should_not_see('Eldoria › The forest')  # (folded: drawn as it's opened)
+        user.find(marker='section-lore').elements.pop().set_value(True)
         with user.scope(marker='prompt-lore'):
             await user.should_see('Eldoria › The forest')
             await user.should_see('Keyword "forest" in the chat. Placed with the background')
+            await user.should_see('Shadowfangs roam the old forest.')  # (its text, with it)
             await user.should_see('Keyword "shadowfang" in entry "The forest". Placed in the chat, after the last '
                                   'message, as system')
-        await user.should_see('Lore book "Old" is missing')
-        await user.should_see('Lore: Eldoria › The forest · system')
+        user.find(marker='section-messages').elements.pop().set_value(True)
+        with user.scope(marker='section-messages'):
+            await user.should_see('Here: the lore entry "Shadowfangs", as system (see Lore).')
         await user.should_not_see(marker='prompt-message-0')
 
-        user.find(marker='prompt-view').elements.pop().set_value('sent')
+        user.find(marker='section-sent').elements.pop().set_value(True)
         await user.should_see(marker='prompt-message-0')
-        await user.should_not_see(marker='prompt-part-0')
         prompt = conversations.prompts.get(conversation.id, mine.id)
         assert [m.role for m in prompt.messages()] == ['system', 'user', 'assistant', 'user', 'system']
         assert prompt.messages()[-1].content == 'Beasts of the dark.'

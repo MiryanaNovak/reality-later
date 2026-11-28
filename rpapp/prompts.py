@@ -110,6 +110,10 @@ MARGIN = 0.10             # of the context size, for the estimates' errors
 SETTINGS_PRESET = object()  # build_prompt's preset_ref when not given: Settings › Chat's
 TRIM_STEP = 0.20          # of the chat's space: how much is left out at a time
 
+MODULE_INSTRUCTIONS = 'Instructions of the module "{}"'  # their parts' source (PromptPart.of_module)
+MODULE_FINAL = 'Final instructions of the module "{}"'
+MODULE_SOURCES = (MODULE_INSTRUCTIONS.split('{')[0], MODULE_FINAL.split('{')[0])
+
 START_TEXT = '[Start of the chat]'
 TRIMMED_TEXT = '[Earlier messages are left out]'
 
@@ -140,6 +144,11 @@ class PromptPart(BaseModel):
     @property
     def tokens(self) -> int:
         return estimate(self.content) + MESSAGE_OVERHEAD
+
+    @property
+    def of_module(self) -> bool:
+        """Instructions (or final instructions) of one of the prompt's modules, not of the prompt itself."""
+        return self.source.startswith(MODULE_SOURCES)
 
 
 class LoreUse(BaseModel):
@@ -277,7 +286,7 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
     modules = preset.modules_on(conversation.modules) if preset is not None else []  # (presets.py)
     add('instructions', filled(preset.instructions) if preset else '', f'Instructions{label}')
     for module in modules:  # (after the prompt's; those empty are left out by add())
-        add('instructions', filled(module.instructions), f'Instructions of the module "{module.name}"')
+        add('instructions', filled(module.instructions), MODULE_INSTRUCTIONS.format(module.name))
     if character and character.scenario.strip():  # (their description is only for you: never sent)
         add('scenario', f'About {char} and the story:\n{filled(character.scenario)}', 'Scenario')
     if persona:
@@ -290,7 +299,7 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
             add('persona', f'About {user}, played by the user:\n' + '\n'.join(about), f'About {user}')
     add('final', filled(preset.final_instructions) if preset else '', f'Final instructions{label}')
     for module in modules:
-        add('final', filled(module.final_instructions), f'Final instructions of the module "{module.name}"')
+        add('final', filled(module.final_instructions), MODULE_FINAL.format(module.name))
     if extend == 'instruction':
         text = preset.extend_text if preset else EXTEND_INSTRUCTION
         blocks['hidden'] = [PromptPart(role='user', content=filled(text), kind='extend',

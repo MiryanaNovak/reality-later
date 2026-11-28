@@ -1,25 +1,90 @@
 """The dialog showing the prompt sent after one of your messages (read-only).
 
+- a pie chart of what the prompt is made of, in tokens, its key under it in the order the parts are sent
+  (a click on either opens that part's section);
 - what it was built for, its size against the space there is, and what was left out;
-- the lore entries that triggered, why, and where they went (or why they didn't);
-- the prompt itself, part by part with where each part comes from, or as sent
-  (same-role parts joined into messages).
+- a folding section for each kind of part (SHARES), in the order they're sent, with their text and how many
+  tokens they take: for lore and memories, the entries that triggered, why, and where they went (or why they
+  didn't); then the prompt as sent (same-role parts joined into messages).
+
+A section is drawn when it's first opened (a long chat's messages: only if you look at them). Those you leave
+open are open for the next prompt you look at too (opened.py).
 """
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime
+from html import escape
 
 from nicegui import ui
 
 from ..conversations import ChatMessage
-from ..prompts import MARGIN, Prompt, PromptReport
+from ..prompts import MARGIN, Prompt, PromptPart, PromptReport
 from ..tokens import MESSAGE_OVERHEAD, estimate
 from .list_view import plural
-from .widgets import Dialog, folding_panel
+from .opened import Opened
+from .widgets import Dialog
 
 ROLE_LABELS = {'system': 'Instructions (system)', 'user': 'You (user)', 'assistant': 'Character (assistant)'}
 LORE_STATUS = {'over_budget': 'Left out: over the lore budget', 'skipped': 'Left out'}
+
+# The kinds of parts a prompt is made of, by the order they come in (prompts.LAYOUT); each has its color in the
+# chart (theme.SHARE_COLORS)
+SHARES: dict[str, str] = {
+    'instructions': 'Instructions',
+    'modules': 'Instructions of modules',
+    'character': 'Character',
+    'persona': 'Persona',
+    'examples': 'Example dialogues',
+    'lore': 'Lore',
+    'memories': 'Memories',
+    'messages': 'Messages',
+    'final': 'Final instructions',
+    'final-modules': 'Final instructions of modules',
+    'hidden': 'Hidden instruction',
+    'other': 'Other parts',  # (the first saved prompts didn't say what their parts were)
+}
+BY_KIND = {'instructions': 'instructions', 'scenario': 'character', 'persona': 'persona', 'examples': 'examples',
+           'lore': 'lore', 'memory': 'memories', 'message': 'messages', 'start': 'messages', 'final': 'final',
+           'extend': 'hidden', 'continue': 'hidden'}
+OF_MODULES = {'instructions': 'modules', 'final': 'final-modules'}
+
+
+def share_of(part: PromptPart) -> str:
+    """Which kind of part this is, in SHARES."""
+    share = BY_KIND.get(part.kind) or ('messages' if not part.kind and part.role != 'system' else 'other')
+    return OF_MODULES.get(share, share) if part.of_module else share
+
+
+@dataclass
+class Share:
+    """The parts of one kind in a prompt."""
+    key: str
+    parts: list[tuple[int, PromptPart]] = field(default_factory=list)  # (where in the prompt, the part)
+
+    @property
+    def name(self) -> str:
+        return SHARES[self.key]
+
+    @property
+    def tokens(self) -> int:
+        return sum(part.tokens for _, part in self.parts)
+
+
+def shares_of(prompt: Prompt) -> list[Share]:
+    """The parts of the prompt by kind, in the order they're sent: by where each kind's first part is."""
+    found: dict[str, Share] = {}
+    for index, part in enumerate(prompt.parts):
+        key = share_of(part)
+        found.setdefault(key, Share(key)).parts.append((index, part))
+    return list(found.values())
+
+
+def percent(tokens: int, total: int) -> str:
+    share = tokens * 100 / total if total else 0
+    return '<1%' if 0 < share < 1 else f'{round(share)}%'
 
 
 def show_prompt(prompt: Prompt | None, message: ChatMessage | None, *, time: Callable[[datetime], str],
@@ -34,13 +99,13 @@ def show_prompt(prompt: Prompt | None, message: ChatMessage | None, *, time: Cal
         if prompt is None:
             ui.label('No prompt was saved for this message.').classes('muted')
         else:
+            shares = shares_of(prompt)
+            sections: dict[str, _Section] = {}  # (filled below the chart, which opens them)
             with ui.column().classes('w-full gap-3 prompt-parts'):
-                _summary(prompt, message, time)
-                if prompt.report:
-                    _lore(prompt.report)
-                    if prompt.report.memory_budget:
-                        _memories(prompt.report)
-                _parts(prompt)
+                _chart(shares, lambda key: sections[key].show() if key in sections else None)
+                with ui.column().classes('w-full gap-1'):
+                    _summary(prompt, message, time)
+                _sections(prompt, shares, sections)
             sent = '\n\n'.join(f'[{m.role}]\n{m.content}' for m in prompt.messages())
             with ui.row().classes('w-full justify-end'):
                 ui.button('Copy prompt', icon='content_copy', on_click=lambda: ui.notify('Copied')) \
@@ -109,50 +174,254 @@ def _summary(prompt: Prompt, message: ChatMessage | None, time: Callable[[dateti
             .classes('text-sm text-negative')
 
 
-def _lore(r: PromptReport) -> None:
-    used = [u for u in r.lore if u.status == 'used']
-    if not r.books:
-        title, caption = 'Lore', 'No lore books in this chat'
+# --- the chart ------------------------------------------------------------------------------
+
+def _chart(shares: list[Share], open_section: Callable[[str], None]) -> None:
+    """A pie of the parts by kind, clockwise from the top in the order they're sent, and its key."""
+    shown = [share for share in shares if share.tokens]
+    total = sum(share.tokens for share in shown)
+    with ui.column().classes('panel gap-2').mark('prompt-chart'):
+        with ui.column().classes('gap-0'):
+            ui.label(f'About {total:,} tokens').classes('panel-title')
+            ui.label('By kind of part, in the order they\'re sent. Click one to see it.').classes('text-sm muted')
+        if not shown:
+            ui.label('The prompt is empty.').classes('text-sm muted')
+            return
+        ui.html(pie_svg(shown, total), sanitize=False).classes('w-full') \
+            .on('click', lambda e: open_section(e.args),
+                js_handler='(e) => { const key = e.target.dataset && e.target.dataset.share; if (key) emit(key); }')
+        with ui.column().classes('prompt-legend gap-0').mark('prompt-legend'):
+            for share in shown:
+                with ui.element('div').classes('legend-row w-full').props('tabindex=0 role=button') \
+                        .mark(f'legend-{share.key}') as row:
+                    ui.element('span').classes('share-swatch').style(f'background: var(--share-{share.key})')
+                    ui.label(share.name).classes('legend-name')
+                    ui.label(f'{share.tokens:,}').classes('figure')
+                    ui.label(percent(share.tokens, total)).classes('figure muted')
+                for event in ('click', 'keydown.enter'):
+                    row.on(event, lambda _, key=share.key: open_section(key))
+
+
+def pie_svg(shares: list[Share], total: int) -> str:
+    """The pie, as SVG: a slice per kind of part (none for those without tokens), each saying what it is when
+    pointed at, and the whole described for screen readers."""
+    center, radius = 100, 98
+    slices, angle = [], 0.0
+    for share in shares:
+        tip = f'<title>{escape(share.name)}: {share.tokens:,} tokens, {percent(share.tokens, total)}</title>'
+        look = f'class="slice" data-share="{share.key}" style="fill: var(--share-{share.key})"'
+        if share.tokens >= total:  # (all of it: an arc can't go the whole way round)
+            slices.append(f'<circle {look} cx="{center}" cy="{center}" r="{radius}">{tip}</circle>')
+            continue
+        sweep = 2 * math.pi * share.tokens / total
+        x0, y0 = center + radius * math.sin(angle), center - radius * math.cos(angle)
+        angle += sweep
+        x1, y1 = center + radius * math.sin(angle), center - radius * math.cos(angle)
+        path = (f'M{center},{center} L{x0:.2f},{y0:.2f} '
+                f'A{radius},{radius} 0 {1 if sweep > math.pi else 0} 1 {x1:.2f},{y1:.2f} Z')
+        slices.append(f'<path {look} d="{path}">{tip}</path>')
+    described = '; '.join(f'{share.name} {percent(share.tokens, total)}' for share in shares)
+    return (f'<svg class="prompt-pie" viewBox="0 0 200 200" role="img" '
+            f'aria-label="{escape(f"What the prompt is made of: {described}")}">{"".join(slices)}</svg>')
+
+
+# --- the sections -----------------------------------------------------------------------------
+
+class _Section:
+    """A folding section, drawn when first opened."""
+
+    def __init__(self, key: str, title: str, caption: str, draw: Callable[[], None], *, opened: Opened,
+                 colored: bool = True) -> None:
+        self.key, self._draw, self._drawn, self._opened = key, draw, False, opened
+        self.expansion = ui.expansion(value=opened.is_open(key)).classes('panel fold prompt-section') \
+            .mark(f'section-{key}', *(['prompt-lore'] if key == 'lore' else ['prompt-memories'] if key == 'memories'
+                                      else []))
+        with self.expansion.add_slot('header'), ui.item_section().classes('min-w-0'):
+            with ui.row().classes('items-center no-wrap gap-2 min-w-0'):
+                if colored:
+                    ui.element('span').classes('share-swatch').style(f'background: var(--share-{key})')
+                ui.label(title).classes('fold-title')
+            ui.label(caption).classes('fold-caption')
+        self.expansion.on_value_change(self._changed)
+        if self.expansion.value:
+            self._fill()
+
+    def show(self) -> None:
+        """Open it, and bring it into view."""
+        self.expansion.set_value(True)
+        self._fill()
+        ui.run_javascript(f'getHtmlElement({self.expansion.id})?.scrollIntoView({{block: "start", '
+                          f'behavior: "smooth"}})')
+
+    def _changed(self, e) -> None:
+        self._opened.set(self.key, e.value)
+        if e.value:
+            self._fill()
+
+    def _fill(self) -> None:
+        if self._drawn:
+            return
+        self._drawn = True
+        with self.expansion, ui.column().classes('w-full gap-3'):
+            self._draw()
+
+
+def _sections(prompt: Prompt, shares: list[Share], sections: dict[str, _Section]) -> None:
+    r = prompt.report
+    total = sum(share.tokens for share in shares)
+    listed = list(shares)
+    if r is not None:  # lore and memories have a section even with nothing in: to say why
+        rank = list(SHARES)
+        for key, shown in (('lore', True), ('memories', bool(r.memory_budget))):
+            if shown and all(share.key != key for share in listed):
+                later = [i for i, share in enumerate(listed) if rank.index(share.key) > rank.index(key)]
+                listed.insert(later[0] if later else len(listed), Share(key))
+    opened = Opened('rp_prompt_view')
+
+    def amount(share: Share) -> str:
+        return f'about {share.tokens:,} tokens, {percent(share.tokens, total)}'
+
+    for share in listed:
+        title, caption, draw = SHARES[share.key], amount(share).capitalize(), lambda s=share: _blocks(s)
+        if share.key == 'instructions' and r is not None and r.preset:
+            caption += f' · from "{r.preset}"'
+        elif share.key in ('modules', 'final-modules'):
+            caption += f' · {plural(len(share.parts), "module")}'
+        elif share.key == 'character':
+            draw = lambda s=share: _character(s)  # noqa: E731
+        elif share.key == 'examples' and r is not None:
+            caption += f' · {r.examples_sent} of {r.examples_total} sent'
+            draw = lambda s=share: _examples(s, r)  # noqa: E731
+        elif share.key == 'lore' and r is not None:
+            used = [u for u in r.lore if u.status == 'used']
+            caption = 'No lore books in this chat' if not r.books else \
+                f'{plural(len(used), "entry")}, {amount(share)}' if used else 'No entry came in'
+            draw = lambda s=share: _lore(r, s)  # noqa: E731
+        elif share.key == 'memories' and r is not None:
+            used = [u for u in r.memories if u.status == 'used']
+            caption = f'{len(used)} used, {amount(share)}' if used else \
+                'None came in' if r.memory_count else 'No memories yet'
+            draw = lambda s=share: _memories(r, s)  # noqa: E731
+        elif share.key == 'messages':
+            count = sum(part.kind == 'message' for _, part in share.parts)
+            caption = f'{plural(count, "message")}, {amount(share)}'
+            if r is not None and r.messages_left_out:
+                caption += f' · {r.messages_left_out} older left out'
+            draw = lambda s=share: _messages(prompt, s)  # noqa: E731
+        elif share.key == 'hidden':
+            draw = lambda s=share: _hidden(s)  # noqa: E731
+        sections[share.key] = _Section(share.key, title, caption, draw, opened=opened)
+
+    sent = prompt.messages()
+    _Section('sent', 'As sent', f'{plural(len(sent), "message")}: the parts of one role in a row make one',
+             lambda: _sent(prompt, sent), opened=opened, colored=False)
+
+
+def _blocks(share: Share) -> None:
+    for index, part in share.parts:
+        _part(index, part)
+
+
+def _part(index: int, part: PromptPart) -> None:
+    label = f'{part.source} · {part.role}' if part.source else ROLE_LABELS.get(part.role, part.role)
+    _block(label, part.tokens, part.content, f'prompt-part-{index}')
+
+
+def _character(share: Share) -> None:
+    ui.label('What the AI is told about the character is their scenario. Their description is only for you: '
+             'it\'s never sent.').classes('text-sm muted')
+    _blocks(share)
+
+
+def _examples(share: Share, r: PromptReport) -> None:
+    for use in r.lore:  # (their text is in the lore's section)
+        if use.status == 'used' and use.placement.endswith('the example dialogues'):
+            ui.label(f'The lore entry "{use.entry}" goes {use.placement.split(" the ")[0]} them (see Lore).') \
+                .classes('text-sm muted')
+    _blocks(share)
+
+
+def _texts(share: Share) -> dict[str, list[tuple[int, PromptPart]]]:
+    """The parts by source, in order (two entries can have the same name)."""
+    texts: dict[str, list[tuple[int, PromptPart]]] = {}
+    for index, part in share.parts:
+        texts.setdefault(part.source, []).append((index, part))
+    return texts
+
+
+def _entry(texts: dict[str, list[tuple[int, PromptPart]]], source: str, reason: str, tokens: int) -> None:
+    """Why an entry came in, about how many tokens it takes in the prompt (as the chart counts them), and its
+    text."""
+    found = texts[source].pop(0) if texts.get(source) else None
+    ui.label(f'{reason}, about {found[1].tokens if found else tokens:,} tokens.').classes('text-sm muted')
+    if found:
+        ui.label(found[1].content).classes('prompt-text').mark(f'prompt-part-{found[0]}')
+
+
+def _lore(r: PromptReport, share: Share) -> None:
+    texts = _texts(share)
+    if r.books:
+        ui.label(f'From {", ".join(r.books)}. Budget {r.lore_budget:,} tokens.').classes('text-sm muted')
     else:
-        title = f'Lore: {plural(len(used), "entry")}' + (f', about {r.lore_tokens:,} tokens' if used else '')
-        caption = f'From {", ".join(r.books)}. Budget {r.lore_budget:,} tokens.'
-    with ui.column().classes('w-full').mark('prompt-lore'), folding_panel(title, caption, opened=bool(r.lore)):
-        if not r.books:
-            ui.label('Neither the character nor the persona has lore books.').classes('text-sm muted')
-        elif not r.lore:
-            ui.label('No entry triggered: none of their keywords is in the last messages.').classes('text-sm muted')
-        for use in r.lore:
-            with ui.column().classes('w-full gap-0').mark('lore-use'):
-                ui.label(f'{use.book} › {use.entry}').classes('text-sm text-weight-medium')
-                if use.status == 'used':
-                    ui.label(f'{_sentence(use.reason)}. Placed {use.placement}, about {use.tokens:,} tokens.') \
-                        .classes('text-sm muted')
-                else:
-                    reason = LORE_STATUS[use.status] + (f': {use.note}' if use.note else '')
-                    ui.label(f'{_sentence(use.reason)}. {reason}.').classes('text-sm text-negative')
-        for note in r.lore_notes:
-            ui.label(note).classes('text-sm muted mt-1')
-        _meaning_note(r)
+        ui.label('Neither the character nor the persona has lore books.').classes('text-sm muted')
+    if r.books and not r.lore:
+        ui.label('No entry triggered: none of their keywords is in the last messages.').classes('text-sm muted')
+    for use in r.lore:
+        with ui.column().classes('w-full gap-1').mark('lore-use'):
+            ui.label(f'{use.book} › {use.entry}').classes('text-sm text-weight-medium')
+            if use.status == 'used':
+                _entry(texts, f'Lore: {use.book} › {use.entry}', f'{_sentence(use.reason)}. Placed {use.placement}',
+                       use.tokens)
+            else:
+                reason = LORE_STATUS[use.status] + (f': {use.note}' if use.note else '')
+                ui.label(f'{_sentence(use.reason)}. {reason}.').classes('text-sm text-negative')
+    for note in r.lore_notes:
+        ui.label(note).classes('text-sm muted mt-1')
+    _meaning_note(r)
 
 
-def _memories(r: PromptReport) -> None:
-    used = [u for u in r.memories if u.status == 'used']
-    title = f'Memories: {len(used)} used' + (f', about {r.memory_tokens:,} tokens' if used else '')
-    caption = f'{plural(r.memory_count, "memory")} in this chat. Budget {r.memory_budget:,} tokens.'
-    with ui.column().classes('w-full').mark('prompt-memories'), folding_panel(title, caption, opened=bool(used)):
-        if not r.memory_count:
-            ui.label('No memories yet in this chat.').classes('text-sm muted')
-        elif not r.memories:
-            ui.label('None came into play: none of their keywords is in the last messages.').classes('text-sm muted')
-        _meaning_note(r)
-        for use in r.memories:
-            with ui.column().classes('w-full gap-0').mark('memory-use'):
-                ui.label(use.entry).classes('text-sm text-weight-medium')
-                if use.status == 'used':
-                    ui.label(f'{_sentence(use.reason)}, about {use.tokens:,} tokens.').classes('text-sm muted')
-                else:
-                    reason = LORE_STATUS[use.status].replace('lore budget', 'memory budget')
-                    ui.label(f'{_sentence(use.reason)}. {reason}.').classes('text-sm text-negative')
+def _memories(r: PromptReport, share: Share) -> None:
+    texts = _texts(share)
+    ui.label(f'{plural(r.memory_count, "memory")} in this chat. Budget {r.memory_budget:,} tokens.') \
+        .classes('text-sm muted')
+    if not r.memory_count:
+        ui.label('No memories yet in this chat.').classes('text-sm muted')
+    elif not r.memories:
+        ui.label('None came into play: none of their keywords is in the last messages.').classes('text-sm muted')
+    _meaning_note(r)
+    for use in r.memories:
+        with ui.column().classes('w-full gap-1').mark('memory-use'):
+            ui.label(use.entry).classes('text-sm text-weight-medium')
+            if use.status == 'used':
+                _entry(texts, f'Memory: {use.entry}', _sentence(use.reason), use.tokens)
+            else:
+                reason = LORE_STATUS[use.status].replace('lore budget', 'memory budget')
+                ui.label(f'{_sentence(use.reason)}. {reason}.').classes('text-sm text-negative')
+
+
+def _messages(prompt: Prompt, share: Share) -> None:
+    """The chat, with where lore entries placed among the messages go (their text: in the lore's section)."""
+    first = share.parts[0][0] if share.parts else len(prompt.parts)
+    mine = {index for index, _ in share.parts}
+    for index, part in enumerate(prompt.parts):
+        if index in mine:
+            _part(index, part)
+        elif index > first and part.kind == 'lore':
+            ui.label(f'Here: the lore entry "{part.source.split(" › ")[-1]}", as {part.role} (see Lore).') \
+                .classes('text-sm muted').mark('lore-here')
+
+
+def _hidden(share: Share) -> None:
+    ui.label('Sent last, as you. The chat doesn\'t show it.').classes('text-sm muted')
+    _blocks(share)
+
+
+def _sent(prompt: Prompt, sent) -> None:
+    if prompt.system_in_chat == 'user':
+        ui.label('Instructions inside the chat are sent as user messages, as the connection asks.') \
+            .classes('text-sm muted')
+    for index, m in enumerate(sent):
+        _block(m.role, estimate(m.content) + MESSAGE_OVERHEAD, m.content, f'prompt-message-{index}')
 
 
 def _sentence(text: str) -> str:
@@ -160,34 +429,11 @@ def _sentence(text: str) -> str:
     return text[:1].upper() + text[1:]
 
 
-def _parts(prompt: Prompt) -> None:
-    @ui.refreshable
-    def body(view: str) -> None:
-        if view == 'parts':
-            for i, part in enumerate(prompt.parts):
-                label = f'{part.source} · {part.role}' if part.source else ROLE_LABELS.get(part.role, part.role)
-                _block(label, part.tokens, part.content, f'prompt-part-{i}')
-        else:
-            for i, m in enumerate(prompt.messages()):
-                _block(m.role, estimate(m.content) + MESSAGE_OVERHEAD, m.content, f'prompt-message-{i}')
-
-    with ui.row().classes('w-full items-center no-wrap mt-1'):
-        ui.label('The prompt').classes('panel-title')
-        ui.space()
-        ui.toggle({'parts': 'Parts', 'sent': 'As sent'}, value='parts', on_change=lambda e: body.refresh(e.value)) \
-            .props('dense no-caps unelevated toggle-color=primary').mark('prompt-view')
-    if prompt.system_in_chat == 'user':
-        ui.label('Instructions inside the chat are sent as user messages, as the connection asks.') \
-            .classes('text-sm muted')
-    with ui.column().classes('w-full gap-3'):
-        body('parts')
-
-
 def _block(label: str, tokens: int, text: str, marker: str) -> None:
     with ui.column().classes('w-full gap-1').mark(marker):
         with ui.row().classes('w-full items-baseline no-wrap gap-2'):
             ui.label(label).classes('prompt-role')
-            ui.label(f'{tokens:,} tokens').classes('text-xs muted')
+            ui.label(f'{tokens:,} tokens').classes('text-xs muted whitespace-nowrap')
         ui.label(text).classes('prompt-text')
 
 
