@@ -36,8 +36,8 @@ DARK_PAGE, DARK_SURFACE, DARK_TINT = '#13161D', '#1B1F28', .16
 
 # The parts of a prompt in its dialog's chart (prompt_view.py): key -> (light, dark). Eight hues of a categorical
 # palette checked for colour-blind eyes, in an order where the parts that are next to each other in a prompt
-# stay apart; a module's instructions: the color of their kind, halfway to the surface; the hidden instruction
-# (and the parts of the first saved prompts): a gray.
+# stay apart; a module's instructions, and lore and memories among the messages: the color of their kind, halfway
+# to the surface; the hidden instruction (and the parts of the first saved prompts): a gray.
 SHARE_COLORS = {
     'instructions': ('#257DE0', '#338CED'),
     'modules': ('#92BEF0', '#27568B'),
@@ -45,7 +45,9 @@ SHARE_COLORS = {
     'persona': ('#EE7FAC', '#E24D8B'),
     'examples': ('#008A17', '#0AAC23'),
     'lore': ('#6A4CE2', '#9887EF'),
+    'lore-chat': ('#B5A6F1', '#5A538C'),  # (lore too, among the messages: paler)
     'memories': ('#F47230', '#E76624'),
+    'memories-chat': ('#FAB998', '#814326'),  # (memories too, among the messages: paler)
     'messages': ('#00B894', '#00A888'),
     'final': ('#EC4647', '#EB6263'),
     'final-modules': ('#F6A3A3', '#834146'),

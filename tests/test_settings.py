@@ -33,7 +33,8 @@ def test_defaults_file_and_lookup(tmp_path):
                  'example_dialogues': 'make_room', 'return_key_desktop': 'send',
                  'return_key_mobile': 'new_line'},  # (the instructions now live in prompts: presets.py)
         'lore': {'scan_depth': 2, 'case_sensitive': False, 'whole_words': True, 'recursive': True,
-                 'recursion_levels': 1, 'chained_close': True, 'priority': 'relevance', 'budget_percent': 25},
+                 'recursion_levels': 1, 'chained_close': True, 'priority': 'relevance', 'placement': 'background',
+                 'budget_percent': 25},
         'memory': {'enabled': True, 'connection': None, 'instructions': '', 'budget_percent': 15,
                    'temperature': None, 'max_tokens': None},
         'vectors': {'memories': False, 'lore': False, 'model': 'all-minilm-l6-v2', 'source': 'huggingface',

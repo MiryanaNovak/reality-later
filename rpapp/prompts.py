@@ -15,6 +15,10 @@ A prompt is a list of labelled parts, made by blocks in this order (LAYOUT):
     history       the chat; the oldest messages are left out when it    user / assistant
                   doesn't fit. Lore entries placed "at a depth" go in
                   among the messages, that many messages from the end.
+                  With Settings › Lore books › "Lore and memories that
+                  come and go" set to "just before the last message",
+                  those (all but the ones always included, and those at
+                  a depth) leave the lore and memory blocks for there.
     final         the prompt's final instructions, then its modules'     system
     hidden        a hidden instruction, sent as you, never in the chat:  user
                   to extend the last reply, or to continue the scene
@@ -29,6 +33,13 @@ cache the start of a prompt (DeepSeek, among others) can reuse it from one
 reply to the next: everything up to the first part that changed. That's why
 lore, which comes and goes with keywords, sits after the scenario and the
 example dialogues rather than before the character as in SillyTavern.
+
+Within each block, entries go in an order that doesn't change from one reply to the next: those always
+included first (they're in every prompt), then by their position, their Order, their book and their place in
+it; memories, the oldest first. So an entry that's in again is where it was, after the same ones. But when one
+comes or goes, everything after it changes: by default, the whole chat. Placed just before the last message
+instead, what comes and goes leaves the chat as it was: providers reuse all of it. (Models pay more attention
+to the end, though: there, lore and memories weigh more on the reply.)
 
 Fitting in the context window (sizes are estimates, see tokens.py):
 
@@ -180,6 +191,7 @@ class PromptReport(BaseModel):
     lore_budget: int = 0
     lore_tokens: int = 0
     lore_priority: str = 'relevance'  # who went first when they didn't all fit (Settings › Lore books)
+    lore_placement: str = 'background'  # where lore and memories that come and go went (Settings › Lore books)
     books: list[str] = Field(default_factory=list)          # names of the lore books in play
     missing_books: list[str] = Field(default_factory=list)  # remembered names of deleted ones
     lore: list[LoreUse] = Field(default_factory=list)
@@ -329,22 +341,41 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
     lore_budget = available * settings.lore.budget_percent // 100
     lore = activate(list(books), budget=lore_budget, closeness=meaning.lore if meaning else None, **scan)
 
-    def lore_parts(position: int | None = None) -> list[PromptPart]:
-        """The lore with the background (position None), or at one position around the examples."""
-        chosen = [a for a in lore.used if a.entry.position == position] if position is not None else \
-            [a for a in lore.used if a.entry.position not in (AT_DEPTH, BEFORE_EXAMPLES, AFTER_EXAMPLES)]
-        return [PromptPart(role='system', content=a.content, kind='lore', source=_lore_label(a))
-                for a in sorted(chosen, key=lambda a: (BACKGROUND_ORDER.get(a.entry.position, 9), a.entry.order))]
+    late = settings.lore.placement == 'end'  # lore and memories that come and go: just before the last message
+    places = {book.id: i for i, book in enumerate(books)}
 
-    blocks['lore'] = lore_parts()
+    def placed(a: Activation) -> tuple:
+        """Where an entry goes among those of its block (see the notes at the top): never by how relevant it was
+        this time, which changes from one reply to the next."""
+        e = a.entry
+        return (not e.constant, BACKGROUND_ORDER.get(e.position, 9), e.order, places.get(a.book.id, 0),
+                e.displayIndex if e.displayIndex is not None else e.uid, e.uid)
+
+    def moves(a: Activation) -> bool:
+        """Placed just before the last message: with `late`, those that come and go (not at a depth: in the chat
+        already)."""
+        return late and not a.entry.constant and a.entry.position != AT_DEPTH
+
+    def lore_parts(chosen: list[Activation]) -> list[PromptPart]:
+        return [PromptPart(role='system', content=a.content, kind='lore', source=_lore_label(a))
+                for a in sorted(chosen, key=placed)]
+
+    def at(position: int | None) -> list[Activation]:
+        """The lore with the background (position None), or at one position around the examples."""
+        return [a for a in lore.used if not moves(a) and (a.entry.position == position if position is not None
+                else a.entry.position not in (AT_DEPTH, BEFORE_EXAMPLES, AFTER_EXAMPLES))]
+
+    blocks['lore'] = lore_parts(at(None))
 
     use_memory = settings.memory.enabled and memories is not None and memories.entries
     memory_budget = available * settings.memory.budget_percent // 100 if settings.memory.enabled else 0
     remembered = activate([memories], budget=memory_budget, closeness=meaning.memory if meaning else None,
                           **scan) if use_memory else LoreResult()
-    blocks['memory'] = [PromptPart(role='system', content=a.content, kind='memory',
-                                   source=f'Memory: {a.entry.title}')
-                        for a in sorted(remembered.used, key=lambda a: a.entry.uid)]
+    memory_parts = {id(a): PromptPart(role='system', content=a.content, kind='memory', source=f'Memory: {a.entry.title}')
+                    for a in remembered.used}
+    by_age = sorted(remembered.used, key=lambda a: (not a.entry.constant, a.entry.uid))  # (the oldest first)
+    blocks['memory'] = [memory_parts[id(a)] for a in by_age if not moves(a)]
+    near_the_end = lore_parts([a for a in lore.used if moves(a)]) + [memory_parts[id(a)] for a in by_age if moves(a)]
     # what's kept for them: all they may take, used or not (see the notes at the top). Lore: its budget, or what
     # its books hold if less; memories: their budget, as they're on (they grow as the chat does)
     reserved = max(most_tokens(list(books), budget=lore_budget, char=char, user=user, pronouns=pronouns),
@@ -363,20 +394,24 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
             sent -= 1
     examples = _examples(dialogues[:sent], char) if sent else None
     room -= examples.tokens if examples else 0
-    blocks['examples'] = [*lore_parts(BEFORE_EXAMPLES), *([examples] if examples else []),
-                          *lore_parts(AFTER_EXAMPLES)]
+    blocks['examples'] = [*lore_parts(at(BEFORE_EXAMPLES)), *([examples] if examples else []),
+                          *lore_parts(at(AFTER_EXAMPLES))]
     start = first_kept(costs, room)
     kept = messages[start:]
     slots: dict[int, list[PromptPart]] = defaultdict(list)  # lore at a depth, by the message it goes before
-    for a in sorted((a for a in lore.used if a.entry.position == AT_DEPTH), key=lambda a: a.entry.order):
+    for a in sorted((a for a in lore.used if a.entry.position == AT_DEPTH), key=lambda a: placed(a)[2:]):
         slots[max(0, len(kept) - max(0, a.entry.depth))].append(PromptPart(
             role=LORE_ROLES.get(a.entry.role or 0, 'system'), content=a.content, kind='lore',
             source=_lore_label(a)))
     history: list[PromptPart] = []
     for index, message in enumerate(kept):
         history += slots.get(index, [])
+        if index == len(kept) - 1:
+            history += near_the_end
         history.append(PromptPart(role=message.role, content=message.content, kind='message',
                                   source=speaker(message)))
+    if not kept:
+        history += near_the_end
     history += slots.get(len(kept), [])
     first = next((part for part in history if part.role != 'system'), None)
     if first is not None and first.role == 'assistant':
@@ -396,10 +431,11 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
         messages_total=len(messages), messages_left_out=start,
         reserved=reserved, lore_budget=lore_budget, lore_tokens=lore.tokens, lore_priority=settings.lore.priority,
         books=[b.name for b in books], missing_books=list(missing_books),
-        lore=[_lore_use(a, examples=bool(examples)) for a in lore.activations], lore_notes=lore.notes,
+        lore=[_lore_use(a, examples=bool(examples), late=moves(a)) for a in lore.activations],
+        lore_notes=lore.notes, lore_placement=settings.lore.placement,
         memory_budget=memory_budget, memory_tokens=remembered.tokens,
         memory_count=len(memories.entries) if memories else 0,
-        memories=[_lore_use(a) for a in remembered.activations],
+        memories=[_lore_use(a, late=moves(a)) for a in remembered.activations],
         meaning_note=meaning.note if meaning else '',
         examples_total=len(dialogues), examples_sent=sent, examples_tokens=examples.tokens if examples else 0,
         preset=preset.name if preset else '', modules=[m.name for m in modules],
@@ -442,9 +478,12 @@ def _lore_label(a: Activation) -> str:
     return f'Lore: {a.book.name} › {a.entry.title}'
 
 
-def _lore_use(a: Activation, *, examples: bool = False) -> LoreUse:
+def _lore_use(a: Activation, *, examples: bool = False, late: bool = False) -> LoreUse:
+    """`late`: placed just before the last message (Settings › Lore books)."""
     entry = a.entry
-    if entry.position == AT_DEPTH:
+    if late:
+        placement = 'just before the last message'
+    elif entry.position == AT_DEPTH:
         role = LORE_ROLES.get(entry.role or 0, 'system')
         where = 'after the last message' if entry.depth <= 0 else \
             f'{entry.depth} message{"s" if entry.depth > 1 else ""} from the end'

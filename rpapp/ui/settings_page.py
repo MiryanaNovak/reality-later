@@ -37,6 +37,10 @@ if TYPE_CHECKING:
     from ..updates import Updates
     from ..vectors import Vectorizer
 
+LORE_PLACEMENT = {
+    'background': 'With the background, before the chat',
+    'end': 'Just before the last message',
+}
 LORE_PRIORITY = {
     'relevance': 'The most related to the chat first',
     'order': 'The highest Order first (as SillyTavern)',
@@ -112,6 +116,12 @@ class SettingsSection:
                              'brought in by other entries. Among equals: the closest in meaning, then the higher '
                              'Order') \
                 .mark('lore-priority')
+            form.select(lore, 'placement', 'Lore and memories that come and go', LORE_PLACEMENT,
+                        hint='Those always included stay with the background. Just before the last message, the '
+                             'chat before it stays the same from one reply to the next: providers that cache '
+                             'prompts reuse it, which is cheaper and quicker. But the AI pays more attention to '
+                             'what\'s near the end') \
+                .mark('lore-placement')
             chaining = form.switch(lore, 'recursive', 'Entries can trigger other entries')
             ui.label('The text of the entries found is searched for keywords too: the Council\'s entry can bring '
                      'in Lord Seravold\'s.').classes('text-sm muted -mt-3 ml-12')

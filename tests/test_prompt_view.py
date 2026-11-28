@@ -13,8 +13,8 @@ from rpapp.settings import Settings
 from rpapp.ui.prompt_view import SHARES, pie_svg, shares_of, show_prompt
 from rpapp.ui.theme import SHARE_COLORS
 
-ALL = ['instructions', 'modules', 'character', 'persona', 'examples', 'lore', 'memories', 'messages', 'final',
-       'final-modules', 'hidden']
+ALL = ['instructions', 'modules', 'character', 'persona', 'examples', 'lore', 'memories', 'messages', 'lore-chat',
+       'final', 'final-modules', 'hidden']
 
 
 def everything() -> Prompt:
@@ -36,12 +36,14 @@ def test_the_kinds_of_parts_in_the_order_sent():
     prompt = everything()
     shares = shares_of(prompt)
     assert [s.key for s in shares] == ALL
-    assert list(SHARES) == ALL + ['other'] and set(SHARE_COLORS) == set(SHARES)  # (each has its colors)
+    assert [k for k in SHARES if k != 'memories-chat'] == ALL + ['other']  # (memories here: before the chat)
+    assert set(SHARE_COLORS) == set(SHARES)  # (each has its colors)
     assert sum(s.tokens for s in shares) == prompt.report.tokens  # (every part counted, once)
     by_key = {s.key: [p.source for _, p in s.parts] for s in shares}
     assert by_key['modules'] == ['Instructions of the module "Combat"']  # (Romance: off by default)
     assert by_key['final-modules'] == ['Final instructions of the module "Combat"']
-    assert by_key['lore'] == ['Lore: Eldoria › Forest', 'Lore: Eldoria › Mood']  # (also the one among messages)
+    assert by_key['lore'] == ['Lore: Eldoria › Forest']
+    assert by_key['lore-chat'] == ['Lore: Eldoria › Mood']  # (at a depth: among the messages)
     assert by_key['messages'][0] == 'Placeholder: some models need the chat to start with you'
 
     # The first saved prompts didn't say what their parts were: the chat's are messages, the rest "other".

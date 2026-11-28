@@ -81,6 +81,9 @@ class LoreSettings(BaseModel):
     recursion_levels: int = Field(1, ge=1, le=9)   # how many times over: 1, only those named in entries found
     chained_close: bool = True                     # those brought in: only if close in meaning to the chat (vectors)
     priority: Literal['relevance', 'order'] = 'relevance'  # who goes first when they don't all fit (lore.rank)
+    # Where the lore entries and memories that come and go are placed (prompts.py): with the background, before the
+    # chat; or just before its last message, so that the chat stays cached from one reply to the next.
+    placement: Literal['background', 'end'] = 'background'
     budget_percent: int = Field(25, ge=1, le=100)  # share of the prompt's space lore may take
 
 

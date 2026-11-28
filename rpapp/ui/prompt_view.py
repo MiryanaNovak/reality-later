@@ -41,6 +41,8 @@ SHARES: dict[str, str] = {
     'lore': 'Lore',
     'memories': 'Memories',
     'messages': 'Messages',
+    'lore-chat': 'Lore among the messages',  # (at a depth, or just before the last message: Settings › Lore books)
+    'memories-chat': 'Memories among the messages',
     'final': 'Final instructions',
     'final-modules': 'Final instructions of modules',
     'hidden': 'Hidden instruction',
@@ -52,10 +54,17 @@ BY_KIND = {'instructions': 'instructions', 'scenario': 'character', 'persona': '
 OF_MODULES = {'instructions': 'modules', 'final': 'final-modules'}
 
 
-def share_of(part: PromptPart) -> str:
-    """Which kind of part this is, in SHARES."""
+def share_of(part: PromptPart, *, in_chat: bool = False) -> str:
+    """Which kind of part this is, in SHARES. `in_chat`: it comes after the start of the chat."""
     share = BY_KIND.get(part.kind) or ('messages' if not part.kind and part.role != 'system' else 'other')
+    if share in ('lore', 'memories') and in_chat:
+        return f'{share}-chat'
     return OF_MODULES.get(share, share) if part.of_module else share
+
+
+def chat_start(prompt: Prompt) -> int:
+    """Where the chat starts in the prompt (its first message, or the placeholder before it)."""
+    return next((i for i, part in enumerate(prompt.parts) if part.kind in ('message', 'start')), len(prompt.parts))
 
 
 @dataclass
@@ -76,8 +85,9 @@ class Share:
 def shares_of(prompt: Prompt) -> list[Share]:
     """The parts of the prompt by kind, in the order they're sent: by where each kind's first part is."""
     found: dict[str, Share] = {}
+    start = chat_start(prompt)
     for index, part in enumerate(prompt.parts):
-        key = share_of(part)
+        key = share_of(part, in_chat=index > start)
         found.setdefault(key, Share(key)).parts.append((index, part))
     return list(found.values())
 
@@ -293,15 +303,25 @@ def _sections(prompt: Prompt, shares: list[Share], sections: dict[str, _Section]
             caption += f' · {r.examples_sent} of {r.examples_total} sent'
             draw = lambda s=share: _examples(s, r)  # noqa: E731
         elif share.key == 'lore' and r is not None:
-            used = [u for u in r.lore if u.status == 'used']
-            caption = 'No lore books in this chat' if not r.books else \
-                f'{plural(len(used), "entry")}, {amount(share)}' if used else 'No entry came in'
-            draw = lambda s=share: _lore(r, s)  # noqa: E731
+            used = sum(u.status == 'used' for u in r.lore)
+            among = used - len(share.parts)  # (the others: among the messages)
+            caption = 'No lore books in this chat' if not r.books else 'No entry came in' if not used else \
+                f'{plural(len(share.parts), "entry")}, {amount(share)}' if share.parts else \
+                f'None here: {among} among the messages'
+            draw = lambda s=share, n=among: _lore(r, s, among=n)  # noqa: E731
+        elif share.key == 'lore-chat' and r is not None:
+            caption = f'{plural(len(share.parts), "entry")}, {amount(share)}'
+            draw = lambda s=share: _placed_late(r, r.lore, s, 'lore')  # noqa: E731
         elif share.key == 'memories' and r is not None:
-            used = [u for u in r.memories if u.status == 'used']
-            caption = f'{len(used)} used, {amount(share)}' if used else \
-                'None came in' if r.memory_count else 'No memories yet'
-            draw = lambda s=share: _memories(r, s)  # noqa: E731
+            used = sum(u.status == 'used' for u in r.memories)
+            among = used - len(share.parts)
+            caption = 'No memories yet' if not r.memory_count else 'None came in' if not used else \
+                f'{len(share.parts)} used, {amount(share)}' if share.parts else \
+                f'None here: {among} among the messages'
+            draw = lambda s=share, n=among: _memories(r, s, among=n)  # noqa: E731
+        elif share.key == 'memories-chat' and r is not None:
+            caption = f'{len(share.parts)} used, {amount(share)}'
+            draw = lambda s=share: _placed_late(r, r.memories, s, 'memory')  # noqa: E731
         elif share.key == 'messages':
             count = sum(part.kind == 'message' for _, part in share.parts)
             caption = f'{plural(count, "message")}, {amount(share)}'
@@ -358,7 +378,13 @@ def _entry(texts: dict[str, list[tuple[int, PromptPart]]], source: str, reason: 
         ui.label(found[1].content).classes('prompt-text').mark(f'prompt-part-{found[0]}')
 
 
-def _lore(r: PromptReport, share: Share) -> None:
+LATE = ('Those that come and go are placed just before the last message, so that the chat before it stays the '
+        'same from one reply to the next (Settings › Lore books).')
+
+
+def _lore(r: PromptReport, share: Share, *, among: int = 0) -> None:
+    """The lore before the chat, and what was left out (and why). `among`: how many more went in among the
+    messages (they have a section of their own)."""
     texts = _texts(share)
     if r.books:
         ui.label(f'From {", ".join(r.books)}. Budget {r.lore_budget:,} tokens.').classes('text-sm muted')
@@ -370,21 +396,17 @@ def _lore(r: PromptReport, share: Share) -> None:
         first = 'the highest Order first' if r.lore_priority == 'order' else 'the most related to the chat first'
         ui.label(f'In the order they went in for the budget: {first} (Settings › Lore books).') \
             .classes('text-sm muted').mark('lore-priority-note')
+    _among(among, 'entry', 'entries', 'Lore among the messages')
     for use in r.lore:
-        with ui.column().classes('w-full gap-1').mark('lore-use'):
-            ui.label(f'{use.book} › {use.entry}').classes('text-sm text-weight-medium')
-            why = _why(use)
-            if use.status == 'used':
-                _entry(texts, f'Lore: {use.book} › {use.entry}', f'{why}. Placed {use.placement}', use.tokens)
-            else:
-                reason = LORE_STATUS[use.status] + (f': {use.note}' if use.note else '')
-                ui.label(f'{why}. {reason}.').classes('text-sm text-negative')
+        if use.status != 'used' or texts.get(_source(use, 'lore')):  # (the others: among the messages)
+            _use(use, texts, 'lore')
     for note in r.lore_notes:
         ui.label(note).classes('text-sm muted mt-1')
     _meaning_note(r)
 
 
-def _memories(r: PromptReport, share: Share) -> None:
+def _memories(r: PromptReport, share: Share, *, among: int = 0) -> None:
+    """The memories before the chat, and those left out (and why). `among`: as for _lore."""
     texts = _texts(share)
     ui.label(f'{plural(r.memory_count, "memory")} in this chat. Budget {r.memory_budget:,} tokens.') \
         .classes('text-sm muted')
@@ -393,27 +415,78 @@ def _memories(r: PromptReport, share: Share) -> None:
     elif not r.memories:
         ui.label('None came into play: none of their keywords is in the last messages.').classes('text-sm muted')
     _meaning_note(r)
+    _among(among, 'memory', 'memories', 'Memories among the messages')
     for use in r.memories:
-        with ui.column().classes('w-full gap-1').mark('memory-use'):
-            ui.label(use.entry).classes('text-sm text-weight-medium')
-            if use.status == 'used':
-                _entry(texts, f'Memory: {use.entry}', _why(use), use.tokens)
-            else:
-                reason = LORE_STATUS[use.status].replace('lore budget', 'memory budget') + \
-                    (f': {use.note}' if use.note and use.status != 'over_budget' else '')
-                ui.label(f'{_why(use)}. {reason}.').classes('text-sm text-negative')
+        if use.status != 'used' or texts.get(_source(use, 'memory')):
+            _use(use, texts, 'memory')
+
+
+def _among(count: int, one: str, many: str, section: str) -> None:
+    if count:
+        ui.label(f'{count} more {one if count == 1 else many} went in among the messages (see {section}).') \
+            .classes('text-sm muted').mark('among-note')
+
+
+def _placed_late(r: PromptReport, uses: list[LoreUse], share: Share, kind: str) -> None:
+    """Lore or memories among the messages: at a depth, or just before the last message."""
+    texts = _texts(share)
+    if r.lore_placement == 'end':
+        ui.label(LATE).classes('text-sm muted').mark('placed-late')
+    for use in uses:
+        if use.status == 'used' and texts.get(_source(use, kind)):
+            _use(use, texts, kind)
+
+
+def _source(use: LoreUse, kind: str) -> str:
+    """The source of its part in the prompt."""
+    return f'Lore: {use.book} › {use.entry}' if kind == 'lore' else f'Memory: {use.entry}'
+
+
+def _use(use: LoreUse, texts: dict[str, list[tuple[int, PromptPart]]], kind: str) -> None:
+    """A lore entry or a memory: why it's a candidate, and its text, or why it's left out."""
+    with ui.column().classes('w-full gap-1').mark('lore-use' if kind == 'lore' else 'memory-use'):
+        ui.label(f'{use.book} › {use.entry}' if kind == 'lore' else use.entry).classes('text-sm text-weight-medium')
+        why = _why(use)
+        if use.status == 'used':
+            placed = f'. Placed {use.placement}' if kind == 'lore' or use.placement.startswith('just') else ''
+            _entry(texts, _source(use, kind), why + placed, use.tokens)
+        else:
+            reason = LORE_STATUS[use.status] if kind == 'lore' else \
+                LORE_STATUS[use.status].replace('lore budget', 'memory budget')
+            ui.label(f'{why}. {reason}{f": {use.note}" if use.note else ""}.').classes('text-sm text-negative')
 
 
 def _messages(prompt: Prompt, share: Share) -> None:
-    """The chat, with where lore entries placed among the messages go (their text: in the lore's section)."""
+    """The chat, with where the lore entries and memories placed among the messages go (their text: in their own
+    sections)."""
     first = share.parts[0][0] if share.parts else len(prompt.parts)
     mine = {index for index, _ in share.parts}
+    here: list[PromptPart] = []  # lore and memories in a row, between two messages
+
+    def say_here() -> None:
+        if not here:
+            return
+        lore = [f'"{p.source.split(" › ")[-1]}"' for p in here if p.kind == 'lore']
+        memories = [f'"{p.source.removeprefix("Memory: ")}"' for p in here if p.kind == 'memory']
+        what = ([f'the lore {"entry" if len(lore) == 1 else "entries"} {_listed(lore)}'] if lore else []) + \
+            ([f'the {"memory" if len(memories) == 1 else "memories"} {_listed(memories)}'] if memories else [])
+        see = (['Lore among the messages'] if lore else []) + (['Memories among the messages'] if memories else [])
+        ui.label(f'Here: {", and ".join(what)} (see {" and ".join(see)}).').classes('text-sm muted') \
+            .mark('lore-here')
+        here.clear()
+
     for index, part in enumerate(prompt.parts):
         if index in mine:
+            say_here()
             _part(index, part)
-        elif index > first and part.kind == 'lore':
-            ui.label(f'Here: the lore entry "{part.source.split(" › ")[-1]}", as {part.role} (see Lore).') \
-                .classes('text-sm muted').mark('lore-here')
+        elif index > first and part.kind in ('lore', 'memory'):
+            here.append(part)
+    say_here()
+
+
+def _listed(names: list[str]) -> str:
+    """'"A"', '"A" and "B"', '"A", "B" and "C"'."""
+    return names[0] if len(names) == 1 else f'{", ".join(names[:-1])} and {names[-1]}'
 
 
 def _hidden(share: Share) -> None:
