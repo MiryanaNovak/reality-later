@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from nicegui import ui
@@ -76,8 +77,16 @@ class DevicesSection:
         devices()
         ui.timer(2, lambda: refresh() if access.devices.version != version['seen'] else None)
 
-    def pairing_tools(self) -> None:
-        """For the "This computer" page: the devices asking to join, and the Pair a device button."""
+    def pair_button(self) -> None:
+        """For the "This computer" page: the Pair a device button (the QR code)."""
+        access = self.access
+        if access is None or not access.enabled:
+            return
+        ui.button('Pair a device', icon='qr_code_2', on_click=lambda: self._pair_dialog(access, lambda: None)) \
+            .props('unelevated').mark('pair-device')
+
+    def join_requests(self) -> None:
+        """For the "This computer" page: the devices asking to join, as they come."""
         access = self.access
         if access is None or not access.enabled:
             return
@@ -91,9 +100,8 @@ class DevicesSection:
             version['seen'] = access.devices.version
             requests.refresh()
 
-        requests()
-        ui.button('Pair a device', icon='qr_code_2', on_click=lambda: self._pair_dialog(access, refresh)) \
-            .props('unelevated').mark('pair-device')
+        with ui.column().classes('w-full gap-2').mark('join-requests'):
+            requests()
         ui.timer(2, lambda: refresh() if access.devices.version != version['seen'] else None)
 
     # -- waiting requests ------------------------------------------------------------------
@@ -253,22 +261,12 @@ ICONS = {'wifi': 'wifi', 'ethernet': 'settings_ethernet', 'network': 'lan', 'vpn
 
 
 def _address_list(choices: list[NetworkAddress], last: str, choose) -> None:
-    """The addresses to choose from, likeliest first (those of containers and virtual machines folded away), each
-    saying what it is; and a field for another one (a Tailscale name...)."""
+    """The addresses to choose from (address_rows), and a field for another one (a Tailscale name...)."""
     ui.label('Which network is the device on? Choose the address it reaches this computer at: the QR code comes '
              'next.').classes('text-sm').mark('pair-question')
-    usual = [c for c in choices if c.kind != 'virtual']
-    other = [c for c in choices if c.kind == 'virtual']
-    with ui.list().props('separator').classes('w-full pair-choices'):
-        for choice in usual:
-            _address_row(choice, last, choose)
-    if other:
-        with ui.expansion(f'Other addresses ({len(other)})', value=not usual).classes('w-full pair-other') \
-                .props('dense').mark('pair-other'):
-            ui.label('Containers\' and virtual machines\': only they can reach these.').classes('text-xs muted')
-            with ui.list().props('separator').classes('w-full'):
-                for choice in other:
-                    _address_row(choice, last, choose)
+    address_rows(choices, lambda c: address_row(
+        c, shown=c.address, last=c.address == last, on_click=lambda c=c: choose(c.address),
+        markers=['pair-choice', f'pair-{c.kind}', f'pair-address-{c.address}']), marker='pair-other')
     with ui.row().classes('w-full items-center no-wrap gap-2'):
         typed = ui.input('Another address', placeholder='e.g. desk.tailnet.ts.net').props('dense outlined') \
             .classes('grow').mark('pair-typed')
@@ -276,18 +274,43 @@ def _address_list(choices: list[NetworkAddress], last: str, choose) -> None:
         typed.on('keydown.enter', lambda: choose(typed.value or ''))
 
 
-def _address_row(choice: NetworkAddress, last: str, choose) -> None:
-    with ui.item(on_click=lambda c=choice: choose(c.address)).classes('pair-choice px-2') \
-            .props('clickable').mark('pair-choice', f'pair-{choice.kind}', f'pair-address-{choice.address}'):
+def address_rows(choices: Sequence[NetworkAddress], row: Callable[[NetworkAddress], None], *, marker: str) -> None:
+    """This computer's addresses, likeliest first, each drawn by `row`; those of containers and virtual machines
+    folded away under "Other addresses" (`marker`), open if there are no others."""
+    usual = [c for c in choices if c.kind != 'virtual']
+    other = [c for c in choices if c.kind == 'virtual']
+    with ui.list().props('separator').classes('w-full address-choices'):
+        for choice in usual:
+            row(choice)
+    if other:
+        with ui.expansion(f'Other addresses ({len(other)})', value=not usual).classes('w-full address-other') \
+                .props('dense').mark(marker):
+            ui.label('Containers\' and virtual machines\': only they can reach these.').classes('text-xs muted')
+            with ui.list().props('separator').classes('w-full'):
+                for choice in other:
+                    row(choice)
+
+
+def address_row(choice: NetworkAddress, *, shown: str, markers: Sequence[str], last: bool = False,
+                on_click: Callable[[], Any] | None = None, copy: str = '') -> None:
+    """One address: what it is (Wi-Fi · wlp2s0), `shown` (the address, or the link with it), who reaches it; marked
+    if it was `last` chosen; chosen by a click (`on_click`), or copied (`copy`: its button)."""
+    with ui.item(on_click=on_click).classes('address-choice px-2').props('clickable' if on_click else '') \
+            .mark(*markers):
         with ui.item_section().props('avatar'):
             ui.icon(ICONS[choice.kind]).classes('text-primary' if choice.kind != 'virtual' else 'muted')
         with ui.item_section().classes('min-w-0'):
             with ui.row().classes('items-center gap-2'):
                 ui.label(choice.title).classes('text-weight-medium')
-                if choice.address == last:
+                if last:
                     ui.badge('Used last time').props('outline color=primary').mark('pair-last')
-            ui.label(choice.address).classes('pair-link text-sm break-all')
+            ui.label(shown).classes('pair-link text-sm break-all')
             ui.label(choice.note).classes('text-xs muted')
+        if copy:
+            with ui.item_section().props('side'):
+                ui.button(icon='content_copy', on_click=lambda: ui.notify('Copied')) \
+                    .props('flat round dense aria-label="Copy the address"').mark('address-copy') \
+                    .on('click', js_handler=f'() => window.rpCopy({json.dumps(copy)})')
 
 
 def watch_requests(access: Access | None) -> None:

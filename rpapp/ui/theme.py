@@ -515,6 +515,13 @@ HEAD = f'''
     background: var(--page); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%;
   }}
   .step-title {{ font-weight: 600; margin-top: 4px; }}
+  /* One of the ways onto another device (computer_page.py): a QR code, or the address */
+  .option-box {{ border: 1px solid var(--line); border-radius: 12px; padding: 14px; width: 100%; }}
+  .option-box .step-title {{ margin-top: 0; }}
+  /* An address of this computer (devices_page.address_row): a narrow icon column, so that it fits on a phone */
+  .address-choice .q-item__section--avatar {{ min-width: 34px; padding-right: 10px; }}
+  .address-choice .q-item__section--side {{ padding-left: 6px; }}
+  @media (max-width: 599px) {{ .option-box {{ padding: 12px 10px; }} }}
   .shared-text {{ white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }}
   .browser-steps {{ margin: 0; padding-left: 1.2em; }}
   .browser-steps li {{ margin: 3px 0; }}

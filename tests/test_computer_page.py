@@ -27,6 +27,11 @@ def text(user, marker: str) -> str:
     return label.text
 
 
+CHOICES = [NetworkAddress('192.168.1.20', 'wifi', 'Wi-Fi', 'wlp2s0'),
+           NetworkAddress('100.101.1.2', 'vpn', 'VPN (Tailscale)', 'tailscale0'),
+           NetworkAddress('172.17.0.1', 'virtual', 'Docker', 'docker0')]
+
+
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
     """The app as started with the defaults (HTTPS, its own certificate), seen from the computer."""
@@ -35,6 +40,7 @@ def setup(tmp_path, monkeypatch):
     info = launcher.ServerInfo(config, https_setup(config), tmp_path / 'data')
     access = Access(DeviceRegistry(tmp_path / 'data'), scheme='https')
     monkeypatch.setattr(launcher, 'network_addresses', lambda listen: ['192.168.1.20', '100.101.1.2'])
+    monkeypatch.setattr(launcher, 'network_choices', lambda listen: CHOICES)
     monkeypatch.setattr('rpapp.access.network_addresses', lambda listen: ['192.168.1.20'])
     monkeypatch.setattr('rpapp.access.network_choices',
                         lambda listen: [NetworkAddress('192.168.1.20', 'wifi', 'Wi-Fi', 'wlp2s0')])
@@ -53,11 +59,23 @@ async def test_what_it_says(setup):
         await user.should_see('This browser tab is only a window onto it', retries=5)
         with user.scope(marker='local-address'):
             await user.should_see('http://localhost:8091')
-        with user.scope(marker='network-address'):
+        with user.scope(marker='option-qr'):
+            await user.should_see('Option 1 · Pair with a QR code')
+            await user.should_see(marker='pair-device')
+        with user.scope(marker='option-address'):
+            await user.should_see('Option 2 · Open its address')
+        with user.scope(marker='network-address-192.168.1.20'):  # (each address: what it is, its link to copy)
+            await user.should_see('Wi-Fi · wlp2s0')
             await user.should_see('https://192.168.1.20:8090')
-        await user.should_see(marker='other-addresses')
-        await user.should_see('Pair it, the first time')
-        await user.should_see(marker='pair-device')
+            await user.should_see('For a device on the same Wi-Fi, or the same router.')
+            await user.should_see(marker='address-copy')
+        with user.scope(marker='network-address-100.101.1.2'):
+            await user.should_see('https://100.101.1.2:8090')
+        [other] = [e for e in user.client.layout.descendants() if 'other-addresses' in e._markers]
+        assert other.value is False  # (Docker's: folded away)
+        with user.scope(marker='other-addresses'):
+            await user.should_see('https://172.17.0.1:8090')
+        await user.should_see('The browser\'s warning, the first time')  # (apart: either way)
         await user.should_see(marker='https-warning')
         assert text(user, 'fingerprint') == info.certificate.fingerprint
         assert text(user, 'settings-path') == str(tmp_path / 'config.toml')
@@ -155,15 +173,17 @@ async def test_plain_http_and_no_pairing(tmp_path, monkeypatch):
     config = load_config(tmp_path)
     info = launcher.ServerInfo(config, https_setup(config), tmp_path / 'data')
     monkeypatch.setattr(launcher, 'network_addresses', lambda listen: ['192.168.1.20'])
+    monkeypatch.setattr(launcher, 'network_choices', lambda listen: CHOICES[:1])
     here(monkeypatch)
     access = Access(DeviceRegistry(tmp_path / 'data'), enabled=False)
     async with user_simulation(build_root(info.data_dir, access=access, server=info)) as user:
         await user.open('/computer')
         with user.scope(marker='local-address'):
             await user.should_see('http://localhost:8090')  # the main address is plain HTTP already
-        with user.scope(marker='network-address'):
+        with user.scope(marker='network-address-192.168.1.20'):
             await user.should_see('http://192.168.1.20:8090')
         await user.should_see(marker='pairing-off-note')
+        await user.should_not_see(marker='option-qr')  # (no options: just the addresses)
         await user.should_see(marker='no-https')
         await user.should_not_see(marker='https-warning')
         await user.should_not_see(marker='pair-device')

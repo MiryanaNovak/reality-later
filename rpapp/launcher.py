@@ -34,7 +34,7 @@ from typing import Any
 import uvicorn
 
 from . import APP_NAME, desktop, windowless
-from .access import network_addresses, url_for
+from .access import NetworkAddress, network_addresses, network_choices, url_for
 from .certificates import Certificate
 from .config import Config, HttpsSetup
 from .instance import Instance, Running, answers
@@ -82,6 +82,11 @@ class ServerInfo:
         """The addresses other devices open, likeliest first."""
         return [url_for(self.scheme, host, self.config.server.port)
                 for host in network_addresses(self.config.server.address)]
+
+    def network_links(self) -> list[tuple[NetworkAddress, str]]:
+        """The same, with what each address is (Wi-Fi, Ethernet, a VPN...: access.network_choices)."""
+        return [(choice, url_for(self.scheme, choice.address, self.config.server.port))
+                for choice in network_choices(self.config.server.address)]
 
 
 # -- this computer's own address ---------------------------------------------------------------

@@ -20,9 +20,9 @@ from pathlib import Path
 from nicegui import Client, app, background_tasks, run, ui
 
 from .. import APP_NAME, desktop
-from ..access import Access, is_local
+from ..access import Access, NetworkAddress, is_local
 from ..launcher import ServerInfo
-from .devices_page import DevicesSection
+from .devices_page import DevicesSection, address_row, address_rows
 from .widgets import confirm, page_bar, panel
 
 # When the example file can't be found (a packaged app without it)
@@ -118,44 +118,56 @@ class ComputerPage:
                     .props('unelevated').mark('open-app')
 
     def _other_devices(self) -> None:
+        """Two ways onto another device (with pairing): a QR code to scan, or the address to open, each of this
+        computer's saying what it is (Wi-Fi, Ethernet, a VPN...). The browser's warning, either way: below."""
         server = self.server.config.server
-        urls = self.server.network_urls()
+        links = self.server.network_links()
         with panel('On your phone, tablet or another computer'):
-            if not urls:
+            if not links:
                 ui.label(f'Other devices can\'t reach the app: it only listens on this computer '
                          f'(address = "{server.address}" in the settings file). To use it from your phone, set '
                          'address = "0.0.0.0" there, then quit the app and start it again.') \
                     .classes('text-sm').mark('no-network')
                 return
-            ui.label('Connect the device to the same Wi-Fi or network as this computer. Then:').classes('text-sm')
-
-            if server.pairing:
-                ui.label('1. Pair it, the first time').classes('step-title')
-                ui.label('So that only your devices can use the app, each one is paired once. Click Pair a '
-                         'device, choose the network the device is on (usually Wi-Fi), and scan the code it shows '
-                         'with the device\'s camera: that opens the app on the device, paired.').classes('text-sm')
-                self.devices.pairing_tools()
-                ui.label('A device that can\'t scan a code (a laptop, a TV…) can open the address below '
-                         'instead. It then shows a code, and asks to be allowed, here.').classes('text-sm muted')
-                ui.label('2. Its address').classes('step-title')
-            else:
+            if not server.pairing:
                 ui.label('Pairing is off (pairing = false in the settings file): any device on your network can '
                          'use the app.').classes('text-sm muted').mark('pairing-off-note')
-            ui.label('Open this on the device, and bookmark it (or add it to its home screen):').classes('text-sm')
-            _address(urls[0], marker='network-address')
-            if len(urls) > 1:
-                with ui.row().classes('items-baseline gap-x-2 gap-y-0').mark('other-addresses'):
-                    ui.label('If it doesn\'t answer there, depending on the network:').classes('text-xs muted')
-                    for other in urls[1:4]:
-                        ui.label(other).classes('text-xs muted file-path')
-
-            if self.server.certificate:
-                ui.label(f'{"3. " if server.pairing else ""}The browser\'s warning, the first time') \
-                    .classes('step-title')
-                self._warning()
-            elif not self.server.https:
+                ui.label('Connect the device to the same Wi-Fi or network as this computer, and open on it the '
+                         'address of that network. Bookmark it (or add it to its home screen).').classes('text-sm')
+                self._addresses(links)
+            else:
+                ui.label('Connect the device to the same Wi-Fi or network as this computer, then use one of these '
+                         'two ways. Once is enough: bookmark the app on the device afterwards (or add it to its '
+                         'home screen).').classes('text-sm')
+                with ui.column().classes('option-box gap-2').mark('option-qr'):
+                    ui.label('Option 1 · Pair with a QR code').classes('step-title')
+                    ui.label('The quickest, for a phone or a tablet. Click Pair a device, choose the network the '
+                             'device is on (usually Wi-Fi), and scan the code with its camera: the app opens on '
+                             'it, paired.').classes('text-sm')
+                    self.devices.pair_button()
+                with ui.column().classes('option-box gap-2').mark('option-address'):
+                    ui.label('Option 2 · Open its address').classes('step-title')
+                    ui.label('For a device that can\'t scan a code (a laptop, a TV…). Open on it the address of the '
+                             'network it\'s on. It then shows a code, and asks to join: allow it here, where its '
+                             'request appears.').classes('text-sm')
+                    self._addresses(links)
+                    self.devices.join_requests()
+            if not self.server.https:
                 ui.label('Connections from other devices aren\'t encrypted (https = false in the settings file): '
                          'others on the same network could read them.').classes('text-sm muted').mark('no-https')
+        if self.server.certificate:
+            with panel('The browser\'s warning, the first time',
+                       'On the other device, whichever way you open the app there'):
+                self._warning()
+
+    def _addresses(self, links: list[tuple[NetworkAddress, str]]) -> None:
+        """This computer's addresses on its networks, as links to open, likeliest first, each saying what it is,
+        with its copy button; those of containers and virtual machines folded away."""
+        urls = {choice.address: url for choice, url in links}
+        with ui.column().classes('w-full gap-0').mark('network-addresses'):
+            address_rows([choice for choice, _ in links], lambda c: address_row(
+                c, shown=urls[c.address], copy=urls[c.address],
+                markers=['network-address', f'network-address-{c.address}']), marker='other-addresses')
 
     def _warning(self) -> None:
         certificate = self.server.certificate
