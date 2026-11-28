@@ -132,8 +132,8 @@ class ComputerPage:
             if server.pairing:
                 ui.label('1. Pair it, the first time').classes('step-title')
                 ui.label('So that only your devices can use the app, each one is paired once. Click Pair a '
-                         'device, and scan the code it shows with the device\'s camera: that opens the app on the '
-                         'device, paired.').classes('text-sm')
+                         'device, choose the network the device is on (usually Wi-Fi), and scan the code it shows '
+                         'with the device\'s camera: that opens the app on the device, paired.').classes('text-sm')
                 self.devices.pairing_tools()
                 ui.label('A device that can\'t scan a code (a laptop, a TV…) can open the address below '
                          'instead. It then shows a code, and asks to be allowed, here.').classes('text-sm muted')

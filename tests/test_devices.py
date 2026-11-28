@@ -281,8 +281,14 @@ class SyncBridge(httpx.BaseTransport):
 
 # --- Settings › Devices -------------------------------------------------------------------------
 
+CARDS = [('lo', '127.0.0.1'), ('enp3s0', '192.168.1.10'), ('docker0', '172.17.0.1'), ('wlp2s0', '192.168.1.20'),
+         ('tailscale0', '100.101.1.2')]
+
+
 @pytest.fixture
 async def devices_page(tmp_path, monkeypatch):
+    monkeypatch.setattr('rpapp.access._cards', lambda: CARDS)
+    monkeypatch.setattr('rpapp.access.socket.gethostname', lambda: 'desk')
     access = Access(DeviceRegistry(tmp_path), port=8090)
     monkeypatch.setattr('rpapp.ui.devices_page._who', lambda access: Who(local=True))  # as on the computer
     async with user_simulation(build_root(tmp_path, access=access)) as user:
@@ -296,9 +302,12 @@ async def test_pairing_from_settings(devices_page):
     await user.should_see(marker='devices-local')
     await user.should_see(marker='no-devices')
     user.find(marker='pair-device').click()
+    await user.should_see(marker='pair-question')
+    await user.should_not_see(marker='pair-qr')  # (an address first)
+    user.find(marker='pair-address-192.168.1.20').click()
     await user.should_see(marker='pair-qr')
     [link] = access.devices.links.values()
-    await user.should_see(f'/pair?code={link.code}')
+    await user.should_see(f'http://192.168.1.20:8090/pair?code={link.code}')
     access.devices.use_link(link.code, user_agent=PHONE, address='192.168.1.33')  # the phone opens it
     await user.should_see('Paired: Chrome on Android', retries=40)
     [device] = access.devices.devices

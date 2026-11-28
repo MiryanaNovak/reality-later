@@ -1,8 +1,9 @@
 """Settings › Devices: pair devices, allow the ones asking, see and remove paired ones.
 
 On the computer the app runs on:
-- "Pair a device" shows a QR code (and its link) for another device to open: it's
-  signed in at once. The link works once, for a few minutes.
+- "Pair a device" asks first which address the device reaches this computer at (each one saying what
+  it is: Wi-Fi, Ethernet, a VPN...; Wi-Fi first), then shows a QR code (and its link) for it to open:
+  it's signed in at once. The link works once, for a few minutes.
 - Devices asking to join (they show a code like 7KQ-2MX) are listed with Allow and Deny.
   Any page of the app also pops up a notice when one asks.
 On a paired device: which one it is, and Sign out.
@@ -12,10 +13,11 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from typing import Any
 
 from nicegui import ui
 
-from ..access import Access, Who
+from ..access import Access, NetworkAddress, Who
 from ..devices import Device, JoinRequest
 from ..paths import command
 from .widgets import Dialog, confirm, folding_panel, time_ago
@@ -163,15 +165,45 @@ class DevicesSection:
     # -- pairing with a QR code ------------------------------------------------------------
 
     def _pair_dialog(self, access: Access, refresh) -> None:
-        addresses = access.addresses() or ['localhost']
+        """First the address the device reaches this computer at, chosen in a list saying what each one is
+        (Wi-Fi, Ethernet, a VPN...); then the QR code for it. Nothing is chosen ahead: the address used last time
+        is only marked, since a wrong one taken for granted is the easiest mistake to make."""
+        choices = access.choices() or [NetworkAddress('localhost', 'name', 'This computer only')]
+        last = access.devices.pair_address
         link = access.devices.new_link()
-        state = {'address': addresses[0], 'done': False}
+        state: dict[str, Any] = {'address': '', 'done': False}
 
         with ui.context.client.layout, Dialog() as dialog, ui.card().classes('dialog-card').mark('pair-dialog'):
             with ui.row().classes('w-full items-center no-wrap'):
                 ui.label('Pair a device').classes('panel-title')
                 ui.space()
                 ui.button(icon='close', on_click=dialog.close).props('flat round dense aria-label="Close"')
+
+            def choose(address: str) -> None:
+                address = address.strip()
+                if not address:
+                    return
+                state['address'] = address
+                access.devices.chose_address(address)
+                body.refresh()
+
+            def change() -> None:
+                state['address'] = ''
+                body.refresh()
+
+            @ui.refreshable
+            def body() -> None:
+                if not state['address']:
+                    _address_list(choices, last, choose)
+                    return
+                chosen = next((c for c in choices if c.address == state['address']), None)
+                with ui.row().classes('w-full items-center no-wrap gap-3 pair-chosen').mark('pair-chosen'):
+                    ui.icon(ICONS[chosen.kind] if chosen else 'edit').classes('text-primary')
+                    with ui.column().classes('gap-0 min-w-0 grow'):
+                        ui.label(chosen.title if chosen else 'Typed by you').classes('text-sm text-weight-medium')
+                        ui.label(state['address']).classes('text-sm pair-link break-all')
+                    ui.button('Change', on_click=change).props('flat dense no-caps').mark('pair-change')
+                code()
 
             @ui.refreshable
             def code() -> None:
@@ -200,28 +232,62 @@ class DevicesSection:
                 link = access.devices.new_link()
                 code.refresh()
 
-            def choose(value: str | None) -> None:
-                if value:
-                    state['address'] = value.strip()
-                    code.refresh()
-
-            ui.select(addresses, value=addresses[0], label='The device reaches this computer at',
-                      new_value_mode='add-unique', on_change=lambda e: choose(e.value)) \
-                .props('use-input hide-dropdown-icon=false input-debounce=0 dense').classes('w-full') \
-                .mark('pair-address')
-            ui.label('Its address on your network, usually the first one. Type another (say, a Tailscale name) '
-                     'if needed.').classes('text-xs muted -mt-2')
-            code()
+            body()
 
         def watch() -> None:
             if link.used_by and not state['done']:
                 state['done'] = True
-                code.refresh()
+                if state['address']:
+                    code.refresh()
+                else:
+                    body.refresh()
                 refresh()
 
         timer = ui.timer(1, watch)
         dialog.on_value_change(lambda e: (timer.cancel(), dialog.delete()) if not e.value else None)
         dialog.open()
+
+
+ICONS = {'wifi': 'wifi', 'ethernet': 'settings_ethernet', 'network': 'lan', 'vpn': 'vpn_lock', 'internet': 'public',
+         'name': 'computer', 'virtual': 'layers'}
+
+
+def _address_list(choices: list[NetworkAddress], last: str, choose) -> None:
+    """The addresses to choose from, likeliest first (those of containers and virtual machines folded away), each
+    saying what it is; and a field for another one (a Tailscale name...)."""
+    ui.label('Which network is the device on? Choose the address it reaches this computer at: the QR code comes '
+             'next.').classes('text-sm').mark('pair-question')
+    usual = [c for c in choices if c.kind != 'virtual']
+    other = [c for c in choices if c.kind == 'virtual']
+    with ui.list().props('separator').classes('w-full pair-choices'):
+        for choice in usual:
+            _address_row(choice, last, choose)
+    if other:
+        with ui.expansion(f'Other addresses ({len(other)})', value=not usual).classes('w-full pair-other') \
+                .props('dense').mark('pair-other'):
+            ui.label('Containers\' and virtual machines\': only they can reach these.').classes('text-xs muted')
+            with ui.list().props('separator').classes('w-full'):
+                for choice in other:
+                    _address_row(choice, last, choose)
+    with ui.row().classes('w-full items-center no-wrap gap-2'):
+        typed = ui.input('Another address', placeholder='e.g. desk.tailnet.ts.net').props('dense outlined') \
+            .classes('grow').mark('pair-typed')
+        ui.button('Use', on_click=lambda: choose(typed.value or '')).props('flat no-caps').mark('pair-use-typed')
+        typed.on('keydown.enter', lambda: choose(typed.value or ''))
+
+
+def _address_row(choice: NetworkAddress, last: str, choose) -> None:
+    with ui.item(on_click=lambda c=choice: choose(c.address)).classes('pair-choice px-2') \
+            .props('clickable').mark('pair-choice', f'pair-{choice.kind}', f'pair-address-{choice.address}'):
+        with ui.item_section().props('avatar'):
+            ui.icon(ICONS[choice.kind]).classes('text-primary' if choice.kind != 'virtual' else 'muted')
+        with ui.item_section().classes('min-w-0'):
+            with ui.row().classes('items-center gap-2'):
+                ui.label(choice.title).classes('text-weight-medium')
+                if choice.address == last:
+                    ui.badge('Used last time').props('outline color=primary').mark('pair-last')
+            ui.label(choice.address).classes('pair-link text-sm break-all')
+            ui.label(choice.note).classes('text-xs muted')
 
 
 def watch_requests(access: Access | None) -> None:

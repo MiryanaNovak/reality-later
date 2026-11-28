@@ -27,16 +27,21 @@ the network filter (config.py), when `pairing = true` in config.toml.
 """
 from __future__ import annotations
 
+import functools
 import ipaddress
 import json
 import logging
+import re
 import socket
+import subprocess
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html import escape
 from http.cookies import SimpleCookie
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 from urllib.parse import quote
 
 from starlette.requests import Request
@@ -118,6 +123,10 @@ class Access:
     def addresses(self) -> list[str]:
         """Addresses other devices can reach the app at, likeliest first (see network_addresses)."""
         return network_addresses(self.listen)
+
+    def choices(self) -> list[NetworkAddress]:
+        """The same, with what each one is (Wi-Fi, Ethernet, a VPN...: see network_choices)."""
+        return network_choices(self.listen)
 
     def link_url(self, code: str, address: str) -> str:
         return f'{url_for(self.scheme, address, self.port)}/pair?code={code}'
@@ -323,15 +332,68 @@ class SecurityHeaders:
 VIRTUAL_CARDS = ('docker', 'br-', 'veth', 'virbr', 'vmnet', 'vbox', 'virtualbox', 'vmware', 'lxcbr', 'lxdbr', 'cni',
                  'flannel', 'podman', 'vethernet', 'hyper-v')
 _HOME = [ipaddress.ip_network(n) for n in ('192.168.0.0/16', '10.0.0.0/8', '172.16.0.0/12', '100.64.0.0/10')]
+_TAILSCALE = ipaddress.ip_network('100.64.0.0/10')  # (shared address space: Tailscale's, nearly always)
+_DOCKER = ipaddress.ip_network('172.17.0.0/16')     # (Docker's default network)
+
+# What a network card is, by its name: Linux's (wlp2s0, enp3s0, wg0...), Windows' ("Wi-Fi", "Ethernet 2"...),
+# macOS' (en0..., told apart by networksetup: _mac_ports)
+_VPNS = (('tailscale', 'Tailscale'), ('wireguard', 'WireGuard'), ('zerotier', 'ZeroTier'), ('openvpn', 'OpenVPN'),
+         ('nordlynx', 'NordVPN'), ('proton', 'Proton VPN'), ('mullvad', 'Mullvad'), ('netbird', 'NetBird'),
+         ('nebula', 'Nebula'), ('hamachi', 'Hamachi'), ('radmin', 'Radmin VPN'), ('cloudflare', 'Cloudflare WARP'),
+         ('warp', 'Cloudflare WARP'), ('vpn', ''), ('tunnel', ''))
+_VPN_PREFIXES = (('wg', 'WireGuard'), ('zt', 'ZeroTier'), ('utun', ''), ('tun', ''), ('tap', ''), ('ppp', ''),
+                 ('ipsec', ''), ('gpd', ''))
+_VIRTUAL_NAMES = (('vethernet', 'Hyper-V or WSL'), ('hyper-v', 'Hyper-V'), ('docker', 'Docker'),
+                  ('br-', 'Docker'), ('veth', 'Docker'), ('podman', 'Podman'), ('virbr', 'Virtual machines'),
+                  ('vmnet', 'VMware'), ('vmware', 'VMware'), ('vbox', 'VirtualBox'), ('virtualbox', 'VirtualBox'),
+                  ('lxcbr', 'Containers'), ('lxdbr', 'Containers'), ('cni', 'Containers'), ('flannel', 'Containers'))
+SYS_NET = Path('/sys/class/net')  # (Linux: what the system says of its cards)
+_WIFI_WORDS = ('wi-fi', 'wifi', 'wlan', 'wireless', 'airport')
+_ETHERNET_WORDS = ('ethernet', 'local area connection', 'thunderbolt bridge')
+_ETHERNET_PREFIXES = ('eth', 'en', 'em', 'lan')
+
+Kind = Literal['wifi', 'ethernet', 'network', 'vpn', 'internet', 'name', 'virtual']
+_ORDER = ['wifi', 'ethernet', 'network', 'vpn', 'internet', 'name', 'virtual']  # likeliest first, for a phone
+NOTES: dict[str, str] = {
+    'wifi': 'For a device on the same Wi-Fi, or the same router.',
+    'ethernet': 'For a device on the same home network: the same router, by Wi-Fi or cable.',
+    'network': 'A local network of this computer.',
+    'vpn': 'For your devices on the same VPN.',
+    'internet': 'A public address: devices elsewhere reach it only if your router lets them in. Rarely the one.',
+    'name': 'This computer\'s name on the network: many devices on it find it, not all.',
+    'virtual': 'Only containers or virtual machines on this computer reach it: not for a phone.',
+}
+
+
+@dataclass(frozen=True)
+class NetworkAddress:
+    """An address of this computer, and what it is (see network_choices)."""
+    address: str     # '192.168.1.20', 'fd00::20', 'desk.local'
+    kind: Kind
+    label: str       # 'Wi-Fi', 'Ethernet', 'VPN (Tailscale)', 'Docker', ...
+    card: str = ''   # its network card's name: 'wlp2s0', 'Wi-Fi 2' ('' if it's the label already, or for a name)
+
+    @property
+    def note(self) -> str:
+        return NOTES[self.kind]
+
+    @property
+    def title(self) -> str:
+        """'Wi-Fi · wlp2s0'."""
+        return f'{self.label} · {self.card}' if self.card else self.label
 
 
 def network_addresses(listen: str = '0.0.0.0') -> list[str]:
-    """This computer's addresses other devices may reach the app at, listening on `listen`; likeliest first.
+    """This computer's addresses other devices may reach the app at, listening on `listen`; likeliest first (see
+    network_choices)."""
+    return [choice.address for choice in network_choices(listen)]
 
-    Home network addresses (192.168..., then 10..., 172.16...) come first, then VPN ones like Tailscale's
-    (100.64...), then the rest; virtual machines' and containers' last; IPv6 after IPv4, and the computer's
-    .local name (which not every device resolves) at the end. Listening on one address: just that one.
-    Listening on this computer only (127.0.0.1): none.
+
+def network_choices(listen: str = '0.0.0.0') -> list[NetworkAddress]:
+    """This computer's addresses other devices may reach the app at, listening on `listen`, with what each is;
+    likeliest first, for a phone: Wi-Fi, then Ethernet, other local networks, VPNs (Tailscale...), public addresses;
+    IPv4 before IPv6; then the computer's .local name (not every device finds it); those of containers and virtual
+    machines last. Listening on one address: just that one. On this computer only (127.0.0.1): none.
     """
     try:
         listening = ipaddress.ip_address(listen)
@@ -339,19 +401,106 @@ def network_addresses(listen: str = '0.0.0.0') -> list[str]:
         return []
     if listening.is_loopback:
         return []
+    cards = _cards()
     if not listening.is_unspecified:
-        return [listen]
+        card = next((name for name, value in cards if value.split('%')[0] == str(listening)), '')
+        return [_described(card, listening)]
     ranked = []
-    for card, value in _cards():
-        ip = ipaddress.ip_address(value)
+    for card, value in cards:
+        try:
+            ip = ipaddress.ip_address(value.split('%')[0])
+        except ValueError:
+            continue
         if ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.version > listening.version:
             continue  # "0.0.0.0" is IPv4 only; "::" both
+        choice = _described(card, ip)
         home = next((i for i, net in enumerate(_HOME) if ip.version == 4 and ip in net), len(_HOME))
-        virtual = any(word in card.lower() for word in VIRTUAL_CARDS)
-        ranked.append(((virtual, ip.version, home, not ip.is_private, str(ip)), str(ip)))
-    found = list(dict.fromkeys(value for _, value in sorted(ranked)))
+        ranked.append(((choice.kind == 'virtual', ip.version, _ORDER.index(choice.kind), home, int(ip)), choice))
+    found = list({choice.address: choice for _, choice in sorted(ranked, key=lambda r: r[0])}.values())
     host = socket.gethostname()
-    return found + ([f'{host}.local'] if host and host != 'localhost' and not host.endswith('.local') else [])
+    if host and host != 'localhost' and not host.endswith('.local'):
+        name = NetworkAddress(f'{host}.local', 'name', 'This computer\'s name')
+        cut = next((i for i, c in enumerate(found) if c.kind == 'virtual'), len(found))
+        found.insert(cut, name)
+    return found
+
+
+def _described(card: str, ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> NetworkAddress:
+    """What the address of this card is: by the card's name (and, on Linux, what the system says of it), else by
+    the address itself."""
+    name = card.lower()
+    kind, label = _card_kind(card)
+    if kind is None:
+        if ip.version == 4 and ip in _TAILSCALE:
+            kind, label = 'vpn', 'VPN (Tailscale?)'
+        elif ip.version == 4 and ip in _DOCKER:
+            kind, label = 'virtual', 'Docker?'
+        else:
+            kind, label = 'network', 'Network'
+    if ip.version == 4 and ip.is_global and kind not in ('vpn', 'virtual'):
+        kind, label = 'internet', f'Public address ({label})' if label not in ('Network', '') else 'Public address'
+    shown = '' if not card or name == label.lower() or name in label.lower() else card
+    return NetworkAddress(str(ip), kind, label, shown)
+
+
+def _card_kind(card: str) -> tuple[Kind | None, str]:
+    """(kind, label) of a network card by its name, or (None, '') if it can't be told."""
+    name = card.lower()
+    if not name:
+        return None, ''
+    for word, label in _VIRTUAL_NAMES:
+        if word in name:
+            return 'virtual', label
+    for word, product in _VPNS:
+        if word in name:
+            return 'vpn', f'VPN ({product})' if product else 'VPN'
+    for prefix, product in _VPN_PREFIXES:
+        if name.startswith(prefix):
+            return 'vpn', f'VPN ({product})' if product else 'VPN'
+    system = _linux_kind(card) or _mac_ports().get(card)
+    if system:
+        return system
+    if any(word in name for word in _WIFI_WORDS) or name.startswith('wl'):
+        return 'wifi', 'Wi-Fi'
+    if any(word in name for word in _ETHERNET_WORDS) or name.startswith(_ETHERNET_PREFIXES):
+        return 'ethernet', 'Ethernet'
+    return None, ''
+
+
+def _linux_kind(card: str) -> tuple[Kind, str] | None:
+    """On Linux, what the system says of a card: wireless (Wi-Fi), a tunnel (a VPN's)."""
+    base = SYS_NET / card
+    try:
+        if (base / 'wireless').exists() or (base / 'phy80211').exists():
+            return 'wifi', 'Wi-Fi'
+        if (base / 'tun_flags').exists():
+            return 'vpn', 'VPN'
+    except OSError:
+        pass
+    return None
+
+
+@functools.lru_cache(maxsize=1)
+def _mac_ports() -> dict[str, tuple[Kind, str]]:
+    """On macOS, what its cards are (en0 can be Wi-Fi or Ethernet): from networksetup's list of hardware ports."""
+    if sys.platform != 'darwin':
+        return {}
+    try:
+        out = subprocess.run(['networksetup', '-listallhardwareports'], capture_output=True, text=True, timeout=3,
+                             check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    ports: dict[str, tuple[Kind, str]] = {}
+    for block in out.split('\n\n'):
+        port = re.search(r'Hardware Port: (.+)', block)
+        device = re.search(r'Device: (\S+)', block)
+        if port and device:
+            text = port.group(1).lower()
+            if 'wi-fi' in text or 'airport' in text:
+                ports[device.group(1)] = ('wifi', 'Wi-Fi')
+            elif 'ethernet' in text or 'lan' in text:
+                ports[device.group(1)] = ('ethernet', 'Ethernet')
+    return ports
 
 
 def _cards() -> list[tuple[str, str]]:

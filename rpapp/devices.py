@@ -87,6 +87,7 @@ class DeviceRegistry:
     def __init__(self, data_dir: str | Path) -> None:
         self.path = Path(data_dir) / 'devices.json'
         self.ever_paired = False  # a device was paired once (even if removed since): set by _load
+        self.pair_address = ''    # the address last chosen for a pairing QR code (only to say so: set by _load)
         self.devices: list[Device] = self._load()
         self.links: dict[str, PairingLink] = {}
         self.requests: dict[str, JoinRequest] = {}
@@ -103,12 +104,13 @@ class DeviceRegistry:
             raise ValueError(f'{self.path} can\'t be read: {e}') from e
         devices = [Device.model_validate(d) for d in data.get('devices', [])]
         self.ever_paired = bool(data.get('ever_paired')) or bool(devices)
+        self.pair_address = str(data.get('pair_address') or '')
         return devices
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         text = json.dumps({'devices': [d.model_dump(mode='json') for d in self.devices],
-                           'ever_paired': self.ever_paired}, indent=2) + '\n'
+                           'ever_paired': self.ever_paired, 'pair_address': self.pair_address}, indent=2) + '\n'
         fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=self.path.name, suffix='.tmp')
         try:
             if hasattr(os, 'fchmod'):
@@ -123,6 +125,13 @@ class DeviceRegistry:
     def _changed(self, *, save: bool = True) -> None:
         self.version += 1
         if save:
+            self._save()
+
+    def chose_address(self, address: str) -> None:
+        """The address chosen for a pairing QR code: the next one says it was used last time (it doesn't choose
+        it: an address wrongly chosen ahead is the easiest mistake to make)."""
+        if address != self.pair_address:
+            self.pair_address = address
             self._save()
 
     # -- devices ----------------------------------------------------------------------

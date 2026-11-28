@@ -8,7 +8,7 @@ from nicegui import ui
 from nicegui.testing import user_simulation
 
 from rpapp import desktop, launcher
-from rpapp.access import Access, Who
+from rpapp.access import Access, NetworkAddress, Who
 from rpapp.config import https_setup, load_config
 from rpapp.devices import DeviceRegistry
 from rpapp.ui.app import build_root
@@ -36,6 +36,8 @@ def setup(tmp_path, monkeypatch):
     access = Access(DeviceRegistry(tmp_path / 'data'), scheme='https')
     monkeypatch.setattr(launcher, 'network_addresses', lambda listen: ['192.168.1.20', '100.101.1.2'])
     monkeypatch.setattr('rpapp.access.network_addresses', lambda listen: ['192.168.1.20'])
+    monkeypatch.setattr('rpapp.access.network_choices',
+                        lambda listen: [NetworkAddress('192.168.1.20', 'wifi', 'Wi-Fi', 'wlp2s0')])
     calls = []
     monkeypatch.setattr(desktop, 'open_in_editor', lambda path: calls.append(('edit', path)))
     monkeypatch.setattr(desktop, 'show_in_folder', lambda path: calls.append(('show', path)))
@@ -72,6 +74,8 @@ async def test_pairing_from_it(setup):
                                              'Gecko/20100101 Firefox/131.0')
         await user.should_see(marker=f'request-{request.code}', retries=40)  # a device asking to join
         user.find(marker='pair-device').click()
+        await user.should_see(marker='pair-question')  # (the address first)
+        user.find(marker='pair-address-192.168.1.20').click()
         await user.should_see(marker='pair-qr')
         await user.should_see('https://192.168.1.20:8090/pair?code=')
 

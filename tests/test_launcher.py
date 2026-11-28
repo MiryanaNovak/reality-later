@@ -246,8 +246,8 @@ def test_network_addresses_likeliest_first(monkeypatch):
         ('lo', '127.0.0.1'), ('docker0', '172.17.0.1'), ('tailscale0', '100.101.1.2'), ('eth0', '10.0.0.5'),
         ('wlan0', '192.168.1.20'), ('wlan0', 'fe80::1'), ('wlan0', 'fd00::20'), ('vEthernet (WSL)', '172.28.0.1')])
     monkeypatch.setattr(access.socket, 'gethostname', lambda: 'desk')
-    assert access.network_addresses('0.0.0.0') == ['192.168.1.20', '10.0.0.5', '100.101.1.2', '172.17.0.1',
-                                                   '172.28.0.1', 'desk.local']
+    assert access.network_addresses('0.0.0.0') == ['192.168.1.20', '10.0.0.5', '100.101.1.2', 'desk.local',
+                                                   '172.17.0.1', '172.28.0.1']  # (Wi-Fi first: see test_devices)
     assert access.network_addresses('::')[:4] == ['192.168.1.20', '10.0.0.5', '100.101.1.2', 'fd00::20']
     assert access.network_addresses('192.168.1.20') == ['192.168.1.20']
     assert access.network_addresses('127.0.0.1') == [] and access.network_addresses('localhost') == []
