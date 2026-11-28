@@ -12,6 +12,7 @@
       },
       "lore": {"scan_depth": 2, "budget_percent": 25, "recursive": true, ...},
       "memory": {"enabled": true, "connection": null, "instructions": "", ...},
+      "format": {"connection": null, "rules": ""},
       "appearance": {"accent": "jade"},
       "privacy": {"blur_away": true}
     }
@@ -99,6 +100,14 @@ class MemorySettings(BaseModel):
     max_tokens: int | None = Field(None, ge=1)          # None = memory.DEFAULT_MAX_TOKENS
 
 
+class FormatSettings(BaseModel):
+    """Your message format, and reformatting characters' texts to follow it (see reformat.py)."""
+    model_config = ConfigDict(extra='ignore', validate_assignment=True)
+
+    connection: ConnectionRef | None = None  # the model that reformats (None = the chat connection)
+    rules: str = ''                          # '' = reformat.DEFAULT_RULES
+
+
 class VectorSettings(BaseModel):
     """Vector search (see vectors.py): memories and lore entries picked by meaning too, not only by keywords."""
     model_config = ConfigDict(extra='ignore', validate_assignment=True)
@@ -155,6 +164,7 @@ class Settings(StoredModel):
     chat: ChatSettings = Field(default_factory=ChatSettings)
     lore: LoreSettings = Field(default_factory=LoreSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    format: FormatSettings = Field(default_factory=FormatSettings)
     vectors: VectorSettings = Field(default_factory=VectorSettings)
     sharing: SharingSettings = Field(default_factory=SharingSettings)
     appearance: AppearanceSettings = Field(default_factory=AppearanceSettings)

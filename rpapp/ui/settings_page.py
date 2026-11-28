@@ -23,6 +23,7 @@ from ..embeddings import SOURCES, DownloadError, EmbeddingModel, catalog, downlo
     uninstall
 from ..memory import ANSWER_FORMAT, DEFAULT_INSTRUCTIONS, DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
 from ..prompts import DEFAULT_CONTEXT
+from ..reformat import DEFAULT_RULES, INSTRUCTIONS
 from ..presets import PromptPreset
 from ..settings import ConnectionRef, MemorySettings, PresetRef, Settings, SettingsStore
 from ..storage import JsonStore
@@ -146,6 +147,9 @@ class SettingsSection:
         with folding_panel('Memory', 'What the AI remembers of old messages, in each chat'):
             self._memory(settings.memory, connections, form)
 
+        with folding_panel('Message format', 'How messages are written: narration, dialogue, thoughts...'):
+            self._format(settings, connections, form)
+
         if self.vectors is not None:
             with folding_panel('Vector search', 'Memories and lore entries picked by meaning too'):
                 self._vector_search(settings, form)
@@ -182,7 +186,7 @@ class SettingsSection:
     def _refresh_names(self, settings: Settings, connections: dict[str, Connection]) -> None:
         """Keep the remembered names of the chosen connections up to date while they exist."""
         changed = False
-        for section in (settings.chat, settings.memory):
+        for section in (settings.chat, settings.memory, settings.format):
             ref = section.connection
             if ref and ref.id in connections and connections[ref.id].name != ref.name:
                 section.connection = ConnectionRef(id=ref.id, name=connections[ref.id].name)
@@ -577,6 +581,47 @@ class SettingsSection:
         ui.label('With them, the AI is given the scenario, your persona\'s description, the lore book entries the '
                  'messages bring in (as a chat reply would get them), the memories so far, and the messages to '
                  'remember.').classes('text-sm muted').mark('memory-material')
+
+    # -- the message format ------------------------------------------------------------------------------
+
+    def _format(self, settings: Settings, connections: dict[str, Connection], form: Form) -> None:
+        fmt = settings.format
+        ui.label('The marks messages use, for narration, dialogue, thoughts... Write {{format}} in a prompt\'s '
+                 'instructions to send these rules with every reply (Prompts). Characters written in another way '
+                 'can be reformatted to follow them: Reformat, in their First messages and Example dialogues.') \
+            .classes('text-sm muted -mt-2')
+
+        def set_rules(value: str | None) -> None:
+            value = value or ''
+            fmt.rules = '' if value.strip() == DEFAULT_RULES.strip() else value
+            state.refresh()
+
+        editor = ui.textarea('Your message format') \
+            .props('autogrow stack-label input-style="min-height: 9rem"').mark('format-rules')
+        form.bind(editor, lambda: fmt.rules or DEFAULT_RULES, set_rules)
+
+        @ui.refreshable
+        def state() -> None:
+            with ui.row().classes('w-full items-center gap-2 -mt-2 text-sm muted'):
+                ui.space()
+                if not fmt.rules:
+                    ui.label('The default format.').mark('format-default')
+                else:
+                    ui.label('Your own format.')
+                    ui.button('Reset to default', icon='restart_alt',
+                              on_click=lambda: editor.set_value(DEFAULT_RULES)) \
+                        .props('flat dense no-caps').mark('format-reset')
+
+        state()
+        self._connection_choice(fmt, connections, form, label='Reformat connection',
+                                none_label='Same as the chat\'s connection', marker='format-connection-missing',
+                                hint='A cheap model does it well: it only moves the marks. The chat\'s: the '
+                                     'character\'s own, or the one above')
+        ui.label('Reformatting sends each text on its own, with your format in these instructions. The answer is '
+                 'checked: it\'s used only if its words are the text\'s, and you see each one before it\'s '
+                 'applied.').classes('text-sm muted mt-2')
+        ui.label(INSTRUCTIONS.replace('{rules}', '(your message format)')).classes('prompt-text') \
+            .mark('format-instructions')
 
     def _memory_instructions(self, memory: MemorySettings, form: Form) -> None:
         """The instructions, showing the default ones until you change them ('' is saved for the default)."""

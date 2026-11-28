@@ -30,12 +30,13 @@ import hashlib
 import json
 import logging
 import re
+import weakref
 from collections import Counter
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from nicegui import events, ui
+from nicegui import Client, events, ui
 
 from ..cards import (IMPORT_MAX_BYTES, Card, card_data, card_png, card_png_size, megabytes, read_card, save_card,
                      store_pictures)
@@ -47,6 +48,7 @@ from ..folders import FolderStore
 from ..lorebooks import LoreBook
 from ..personas import Persona
 from ..publishing.announcements import MAX_CARD_TAGS, MAX_FILE_BYTES
+from ..reformat import KINDS, Kind, default_rules, to_reformat
 from ..safe_html import description_html
 from ..storage import JsonStore
 from .collection_page import safe_file_name
@@ -55,6 +57,7 @@ from .list_view import Link, Row, initials, plural
 from .chat_settings import ChatChoices, character_panel, new_chat_settings
 from .folders_page import folder_links
 from .profile_page import ProfileSection
+from .reformat_view import review, undo
 from .widgets import (Dialog, MarkdownView, MenuItems, audience_legend, browser_languages, confirm, file_picker,
                       not_found, page_bar, panel)
 
@@ -106,6 +109,8 @@ class CharactersSection(ProfileSection[Character]):
         self.conversation_list: Callable[[Character], Any] | None = None
         self.folders = FolderStore(store.folder.parent, 'characters', exists=store.exists)
         self._counts: Counter[str] = Counter()
+        # On each page open on an editor: what redraws its first messages and its example dialogues
+        self._redraws: weakref.WeakKeyDictionary[Client, dict[str, Callable[[], None]]] = weakref.WeakKeyDictionary()
 
     # -- importing a character card --------------------------------------------------------
 
@@ -131,6 +136,8 @@ class CharactersSection(ProfileSection[Character]):
     def _imported(self, card: Card) -> tuple[Character, str]:
         """The card saved (save_card), and what to say about it."""
         imported = save_card(card, self.store, self.lore_books)
+        imported.character.reformat_offer = True  # (its editor offers to reformat its texts: _reformat_offer)
+        self.store.save(imported.character)
         said = f'Imported "{imported.character.title}" ({card.version} card)'
         if imported.book is not None:
             said += (f', linked to your lore book "{imported.book.name}", which has the same entries'
@@ -342,6 +349,75 @@ class CharactersSection(ProfileSection[Character]):
                         'Title, Picture, Tags, Summary, Description')
         self._size_warning(character)
         self._shared_note(character)
+        self._redraws[ui.context.client] = {}  # (filled by the sections below: _reformat_row)
+        self._reformat_offer(character)
+
+    # -- reformatting its first messages and example dialogues (reformat.py, reformat_view.py) ------------
+
+    def _reformat_offer(self, character: Character) -> None:
+        """Imported from a card: an offer to reformat its texts to your message format, if they need it (until it's
+        done or declined)."""
+        if not character.reformat_offer or self.chat_choices is None:
+            return
+        settings = self.chat_choices.settings()
+        need = [k for k in KINDS if to_reformat(getattr(character, k), settings)]
+        if not need:
+            character.reformat_offer = False
+            self.store.save(character)
+            return
+
+        def done() -> None:
+            character.reformat_offer = False
+            self.store.save(character)
+            box.delete()
+
+        def start() -> None:
+            redraws = self._redraws.get(ui.context.client, {})
+            review(character, need, choices=self.chat_choices,
+                   on_apply=lambda kinds: [redraws[k]() for k in kinds if k in redraws])
+            done()  # (last: the notice goes, with the button that was clicked)
+
+        what = ' and '.join({'first_messages': 'first messages', 'example_dialogues': 'example dialogues'}[k]
+                            for k in need)
+        said = f'Some of its {what} don\'t follow your message format' if default_rules(settings) else \
+            f'Its {what} may not follow your message format'
+        with ui.column().classes('panel gap-2').mark('reformat-offer') as box:
+            ui.label(f'{said} (Settings › Message format). Reformat them? Only the marks change, and you see each '
+                     'one before it\'s applied.').classes('text-sm')
+            with ui.row().classes('gap-2'):
+                ui.button('Reformat them', icon='auto_fix_high', on_click=start).props('unelevated') \
+                    .mark('reformat-offer-yes')
+                ui.button('Not now', on_click=done).props('flat').mark('reformat-offer-no')
+
+    def _reformat_row(self, character: Character, kind: Kind, redraw: Callable[[], None]) -> None:
+        """Below a list: Reformat (to your message format), and Undo once it was."""
+        if self.chat_choices is None:
+            return
+        self._redraws.setdefault(ui.context.client, {})[kind] = lambda: (redraw(), row.refresh())
+
+        def start() -> None:
+            review(character, [kind], choices=self.chat_choices, on_apply=lambda _: (redraw(), row.refresh()))
+
+        def take_back() -> None:
+            back, left = undo(character, kind)
+            redraw()
+            row.refresh()
+            said = f'{plural(back, "text")} put back as before.' if back else 'Nothing to put back.'
+            if left:
+                said += f' {plural(left, "text")} changed since, left as {"it is" if left == 1 else "they are"}.'
+            ui.notify(said, type='positive' if back else 'info')
+
+        @ui.refreshable
+        def row() -> None:
+            with ui.row().classes('w-full items-center gap-2'):
+                ui.button('Reformat', icon='auto_fix_high', on_click=start).props('outline') \
+                    .tooltip('Rewrite them to follow your message format (Settings › Message format)') \
+                    .mark(f'reformat-{kind}')
+                if any(r.field == kind for r in character.reformatted):
+                    ui.button('Undo reformatting', icon='undo', on_click=take_back).props('flat') \
+                        .mark(f'reformat-undo-{kind}')
+
+        row()
 
     def identity_fields(self, character: Character, form: Form) -> None:
         def put(values: list[str] | None) -> None:
@@ -383,9 +459,10 @@ class CharactersSection(ProfileSection[Character]):
                        about='How {{char}} opens a chat: the first message, written as the character. It '
                              'becomes part of the chat, which the AI reads like the rest. With several, '
                              f'you can switch between them at the start of a chat. {MACROS_HINT}'):
-            self._text_list(character, form, 'first_messages', item='Message', marker='message', minimum=1,
-                            placeholder='*She looks up as you step into the glade.* ...',
-                            add_label='Add a first message')
+            redraw = self._text_list(character, form, 'first_messages', item='Message', marker='message', minimum=1,
+                                     placeholder='*She looks up as you step into the glade.* ...',
+                                     add_label='Add a first message')
+            self._reformat_row(character, 'first_messages', redraw)
 
         with self.part('example-dialogues', 'Example dialogues', short='How {{char}} speaks and acts',
                        audience='ai',
@@ -393,10 +470,12 @@ class CharactersSection(ProfileSection[Character]):
                              '"{{user}}: …" and "{{char}}: …". The AI picks up their style, and knows they '
                              'aren\'t part of the story. By default, they\'re sent while the whole chat fits; as '
                              'it grows, they make room for it, the last ones first (Settings › Chat).'):
-            self._text_list(character, form, 'example_dialogues', item='Example', marker='example', minimum=0,
-                            placeholder='{{user}}: Who are you?\n{{char}}: *She tilts her head.* "The one who keeps '
-                                        'this forest safe. And you are bleeding on my moss."',
-                            add_label='Add an example dialogue', min_height='5rem')
+            redraw = self._text_list(character, form, 'example_dialogues', item='Example', marker='example',
+                                     minimum=0,
+                                     placeholder='{{user}}: Who are you?\n{{char}}: *She tilts her head.* "The one who '
+                                                 'keeps this forest safe. And you are bleeding on my moss."',
+                                     add_label='Add an example dialogue', min_height='5rem')
+            self._reformat_row(character, 'example_dialogues', redraw)
 
     def last_panels(self, character: Character, form: Form) -> None:
         if self.chat_choices is None:
@@ -528,8 +607,9 @@ class CharactersSection(ProfileSection[Character]):
         return self.card_size(character), pictures
 
     def _text_list(self, character: Character, form: Form, attr: str, *, item: str, marker: str, minimum: int,
-                   placeholder: str, add_label: str, min_height: str = '7rem') -> None:
-        """An editable list of texts (first messages, example dialogues): add, move up, delete.
+                   placeholder: str, add_label: str, min_height: str = '7rem') -> Callable[[], None]:
+        """An editable list of texts (first messages, example dialogues): add, move up, delete. Returns what to
+        call once they changed elsewhere (saves, and redraws them).
 
         `item` names one ('Message'), `marker` marks them ('message' -> message-0, delete-message),
         `minimum` is how many must stay.
@@ -592,6 +672,7 @@ class CharactersSection(ProfileSection[Character]):
             ui.button(add_label, icon='add', on_click=add).props('outline').mark(f'add-{marker}')
 
         entries()
+        return changed
 
 
 def inserted(text: str, at: int, piece: str) -> tuple[str, int]:

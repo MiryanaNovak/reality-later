@@ -23,9 +23,17 @@ class FakeModel:
         self.memory_calls: list[list[Message]] = []
         self.memory_gate: asyncio.Event | None = None
         self.sessions: list[str] = []         # connections.SESSION at each call, memory calls too
+        self.reformat_calls: list[list[Message]] = []
+        self.reformatted: dict[str, str] = {}  # reformat calls answer these, by the text sent (else it, unchanged)
+        self.reformat_error = ''              # if set, reformat calls fail with it
 
     async def generate(self, messages: Sequence[Message]) -> Reply:
         self.sessions.append(SESSION.get())
+        if messages[0].content.startswith('You reformat roleplay texts.'):  # a reformat call (reformat.py)
+            self.reformat_calls.append(list(messages))
+            if self.reformat_error:
+                raise ModelError(self.reformat_error)
+            return Reply(text=self.reformatted.get(messages[-1].content, messages[-1].content))
         if 'Answer with a JSON array of changes' in messages[0].content:  # a memory call
             self.memory_calls.append(list(messages))
             if self.memory_gate is not None:

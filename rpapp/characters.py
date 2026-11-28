@@ -28,14 +28,22 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .descriptions import pictures_in
 from .profiles import Profile, ProfileStore
 from .publishing.announcements import normalize_tags
 from .settings import ConnectionRef, PromptChoice
+
+
+class Reformatted(BaseModel):
+    """A text as it was before it was reformatted (reformat.py), to undo it."""
+    field: Literal['first_messages', 'example_dialogues']
+    index: int
+    before: str
+    after: str  # (undone only while it's still this)
 
 
 class Character(Profile):
@@ -58,6 +66,11 @@ class Character(Profile):
     # its own still (chat_setup.py). Not in the cards exported: they're this app's, and this computer's.
     connection: ConnectionRef | None = None
     prompt: PromptChoice | None = None
+    # Reformatting its first messages and example dialogues to your message format (reformat.py): the texts as
+    # they were before the last time, to undo it; and, imported from a card, whether to offer it on its editor
+    # (until it's done or declined). Not in the cards exported either.
+    reformatted: list[Reformatted] = Field(default_factory=list)
+    reformat_offer: bool = False
 
     @model_validator(mode='before')
     @classmethod

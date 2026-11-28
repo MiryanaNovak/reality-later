@@ -102,6 +102,7 @@ from .lorebooks import AT_DEPTH, LoreBook
 from .macros import fill
 from .personas import GENDERS, Persona
 from .presets import CONTINUE_INSTRUCTION, EXTEND_INSTRUCTION
+from .reformat import rules_of
 from .settings import PresetRef, Settings
 from .storage import JsonStore, StoredModel
 from .tokens import MESSAGE_OVERHEAD, estimate
@@ -283,8 +284,10 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
     user = (persona.name or persona.title) if persona else conversation.persona.title
     pronouns = persona.pronoun_forms if persona else None  # (for {{sub}}, {{obj}}...: macros.py)
 
+    rules = rules_of(settings)  # (what {{format}} stands for: reformat.py)
+
     def filled(text: str) -> str:
-        return fill(text, char=char, user=user, pronouns=pronouns).strip()
+        return fill(text, char=char, user=user, pronouns=pronouns, format_rules=rules).strip()
 
     def speaker(message: ChatMessage) -> str:
         return {'user': user, 'assistant': char}.get(message.role, 'System')

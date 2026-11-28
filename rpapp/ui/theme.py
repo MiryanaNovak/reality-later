@@ -532,6 +532,10 @@ HEAD = f'''
   .legend-row .figure {{ font-variant-numeric: tabular-nums; text-align: right; }}
   .legend-row .legend-name {{ overflow-wrap: anywhere; line-height: 1.3; }}
   .share-swatch {{ width: 12px; height: 12px; border-radius: 3px; flex: none; }}
+  /* A text reformatted (reformat_view.py): before and after, side by side where there's room */
+  .reformat-text {{ border-top: 1px solid var(--line); padding-top: 12px; }}
+  .reformat-compare {{ display: grid; grid-template-columns: 1fr; gap: 10px; width: 100%; }}
+  @media (min-width: 640px) {{ .reformat-compare {{ grid-template-columns: 1fr 1fr; }} }}
   .prompt-parts {{ overflow-y: auto; }}
   .prompt-role {{ font-size: .75rem; font-weight: 600; color: var(--q-primary); }}
   .prompt-text {{

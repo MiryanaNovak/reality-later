@@ -30,7 +30,8 @@ from .opened import Opened
 from .widgets import Audience, audience_legend, confirm, folding_panel, not_found, panel
 
 MACROS_HINT = 'Write {{char}} for the character\'s name and {{user}} for yours; {{sub}}, {{obj}}, {{poss}}, ' \
-              '{{poss_p}} and {{ref}} for your persona\'s pronouns (she, her, her, hers, herself).'
+              '{{poss_p}} and {{ref}} for your persona\'s pronouns (she, her, her, hers, herself); {{format}} for ' \
+              'your message format (Settings › Message format).'
 
 
 class PresetsSection:
