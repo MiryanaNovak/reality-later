@@ -11,12 +11,13 @@ from test_prompts import cast, chat
 
 from nicegui.elements.upload_files import SmallFileUpload
 from rpapp.characters import CharacterStore, new_character
-from rpapp.connections import ModelError, Reply, connection_store
+from rpapp.connections import ModelError, OpenRouterConnection, Reply, connection_store
 from rpapp.presets import PromptPreset
 from rpapp.prompts import build_prompt
-from rpapp.reformat import DEFAULT_RULES, INSTRUCTIONS, _unwrapped, check, follows, format_connection, reformat, \
-    to_reformat
+from rpapp.reformat import DEFAULT_RULES, INSTRUCTIONS, _unwrapped, check, follows, format_connection, max_tokens, \
+    parts, reformat, to_reformat
 from rpapp.settings import ConnectionRef, Settings, SettingsStore
+from rpapp.tokens import estimate
 from rpapp.ui.app import build_root
 
 PLAIN = 'She looks up as you step into the glade. "You\'re hurt," she says. Who is this?'
@@ -91,6 +92,70 @@ async def test_a_text_reformatted():
     assert (failed.status, failed.note) == ('failed', '401: no key')
     empty = await reformat(PLAIN, 'example_dialogues', connection=Canned('  '), rules='x')
     assert (empty.status, empty.note) == ('failed', 'the model gave an empty answer')
+
+
+def test_long_texts_go_in_parts():
+    text = '\n\n'.join(f'{{{{char}}}}: Line {i}. ' + 'word ' * 29 + 'word' for i in range(30))
+    pieces = parts(text)
+    assert len(pieces) == 3 and ''.join(piece + gap for piece, gap in pieces) == text  # (put back: the text)
+    assert all(estimate(piece) <= 500 for piece, _ in pieces) and pieces[-1][1] == ''
+    assert parts('One.\n\n\nTwo.\n \nThree.', size=1) == [('One.', '\n\n\n'), ('Two.', '\n \n'), ('Three.', '')]
+    assert parts('A paragraph far too long. ' * 200) == [(('A paragraph far too long. ' * 200).strip(), '')]
+    assert max_tokens('word ' * 70) == 100 * 4 + 1024  # (room for the answer, and for thinking)
+
+
+class Parts(Canned):
+    """Reformats each line: *narration*, except the one it's told to change."""
+
+    def __init__(self, change: str = '') -> None:
+        super().__init__()
+        self.change = change
+
+    async def generate(self, messages, params=None):
+        self.sent.append((messages, params))
+        text = messages[-1].content
+        if self.change and self.change in text:
+            text = text.replace(self.change, 'something else')
+        return Reply(text='\n\n'.join(f'*{line}*' for line in text.split('\n\n')))
+
+
+async def test_a_long_text_in_parts():
+    text = '\n\n'.join(f'She waits, line {i}. ' + 'word ' * 29 + 'word' for i in range(30))
+    conn = Parts()
+    outcome = await reformat(text, 'first_messages', connection=conn, rules='x')
+    assert len(conn.sent) == 3 and outcome.status == 'changed'
+    assert outcome.text == '\n\n'.join(f'*{line}*' for line in text.split('\n\n'))  # (put back together)
+    refused = await reformat(text, 'first_messages', connection=Parts(change='line 25.'), rules='x')
+    assert refused.status == 'refused'
+    assert refused.note == 'in part 3 of 3, it changed the words: "line 25" became "something else"'
+
+
+async def test_thinking_off_on_openrouter(monkeypatch):
+    efforts = []
+
+    async def generate(self, messages, params=None, **_):
+        efforts.append(self.reasoning_effort)
+        if self.reasoning_effort == 'none' and mandatory:
+            raise ModelError('400: Reasoning is mandatory for this endpoint and cannot be disabled.', status=400)
+        if self.reasoning_effort == 'minimal' and mandatory == 'always':
+            raise ModelError('400: Invalid reasoning effort.', status=400)
+        return Reply(text=STYLED)
+
+    monkeypatch.setattr(OpenRouterConnection, 'generate', generate)
+    conn = OpenRouterConnection(name='GLM', api_key='k', model='z-ai/glm', reasoning_effort='high')
+    for mandatory, tried in ((False, ['none']), (True, ['none', 'minimal']), ('always', ['none', 'minimal', None])):
+        efforts.clear()
+        outcome = await reformat(PLAIN, 'first_messages', connection=conn, rules='x')
+        assert (outcome.status, efforts) == ('changed', tried)
+    assert conn.reasoning_effort == 'high'  # (the connection itself: as it was)
+
+    async def thinking_only(self, messages, params=None, **_):
+        return Reply(text='', reasoning='Let me go through each line...', finish_reason='length')
+
+    monkeypatch.setattr(OpenRouterConnection, 'generate', thinking_only)
+    outcome = await reformat(PLAIN, 'example_dialogues', connection=conn, rules='x')
+    assert (outcome.status, outcome.note) == (
+        'failed', 'the model spent all its room thinking, and wrote no answer: try one that thinks less')
 
 
 def test_which_connection(tmp_path):

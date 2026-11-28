@@ -9,7 +9,11 @@ How
 ---
 - Each text is sent on its own (they're small jobs: a cheap model does them well) to the reformat connection,
   or the chat's (format_connection()), with INSTRUCTIONS around your rules (DEFAULT_RULES until you change them).
-  The instructions are fixed: they're what makes the answer checkable.
+  The instructions are fixed: they're what makes the answer checkable. A long text goes in parts, cut at blank
+  lines (parts()): all of them must come back right.
+- Thinking is turned off, on OpenRouter: it takes time and, worse, the room of the answer (a model can think
+  through a long text line by line, and have none left to write it). Models that must think refuse that: they're
+  asked to think as little as they can, and given room for it (max_tokens()).
 - The answer is checked (check()): with the formatting marks taken out, its words must be the text's, in the
   same order (capitals aside), and its placeholders ({{char}}, {{user}}...) and <START> lines the same.
   Otherwise it isn't used, and the review says what changed: cheap models like to "improve" the prose,
@@ -22,12 +26,13 @@ How
 """
 from __future__ import annotations
 
+import asyncio
 import difflib
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from .connections import GenerationParams, Message, ModelError
+from .connections import GenerationParams, Message, ModelError, OpenRouterConnection
 from .tokens import estimate
 
 if TYPE_CHECKING:
@@ -67,6 +72,7 @@ Kind = Literal['first_messages', 'example_dialogues']
 
 TEMPERATURE = 0.2   # low: the same marks, consistently
 AT_ONCE = 4         # texts sent at the same time
+PART_TOKENS = 500   # a long text goes in parts of about this many tokens: a cheap model does them better
 
 Status = Literal['same', 'changed', 'refused', 'failed']
 
@@ -192,18 +198,80 @@ def format_connection(settings: Settings, character: Character | None,
 
 
 async def reformat(text: str, kind: Kind, *, connection: Connection, rules: str) -> Outcome:
-    """One text, reformatted by the model and checked."""
+    """One text, reformatted by the model and checked: in parts, if it's long (parts()), each checked, all of
+    them needed."""
+    pieces = parts(text)
+    limit = asyncio.Semaphore(AT_ONCE)
+
+    async def one(piece: str) -> Outcome:
+        async with limit:
+            return await _reformat_part(piece, kind, connection=connection, rules=rules)
+
+    outcomes = await asyncio.gather(*(one(piece) for piece, _ in pieces))
+    for n, outcome in enumerate(outcomes, 1):
+        if outcome.status in ('failed', 'refused'):
+            where = f'in part {n} of {len(pieces)}, ' if len(pieces) > 1 else ''
+            return Outcome(outcome.status, text=outcome.text, note=where + outcome.note)
+    answer = ''.join(o.text + gap for o, (_, gap) in zip(outcomes, pieces))
+    if all(o.status == 'same' for o in outcomes):
+        return Outcome('same', text=text)
+    return Outcome('changed', text=answer)
+
+
+async def _reformat_part(text: str, kind: Kind, *, connection: Connection, rules: str) -> Outcome:
     connection = connection.model_copy(deep=True)
     connection.params.stop = []  # (stop sequences are for chat replies)
-    params = GenerationParams(temperature=TEMPERATURE, max_tokens=max(256, estimate(text) * 2 + 100))
+    params = GenerationParams(temperature=TEMPERATURE, max_tokens=max_tokens(text))
     messages = [Message(role='system', content=instructions(rules, kind)), Message(role='user', content=text)]
-    try:
-        reply = await connection.generate(messages, params)
-    except ModelError as e:
-        return Outcome('failed', note=str(e))
+    # Thinking only takes time, and the room of the answer (max_tokens counts both): off. Models that must think
+    # refuse that: then as little as they can, then as they like.
+    efforts = ['none', 'minimal', None] if isinstance(connection, OpenRouterConnection) else [None]
+    for effort in efforts:
+        if isinstance(connection, OpenRouterConnection):
+            connection.reasoning_effort = effort
+        try:
+            reply = await connection.generate(messages, params)
+            break
+        except ModelError as e:
+            if e.status != 400 or effort == efforts[-1]:
+                return Outcome('failed', note=str(e))
     answer = _unwrapped(reply.text, text)
     if not answer.strip():
-        return Outcome('failed', note='the model gave an empty answer')
+        return Outcome('failed', note='the model spent all its room thinking, and wrote no answer: try one that '
+                                      'thinks less' if reply.finish_reason == 'length' else
+                                      'the model gave an empty answer')
     if problem := check(text, answer):
         return Outcome('refused', text=answer, note=problem)
-    return Outcome('same' if answer.strip() == text.strip() else 'changed', text=answer)
+    return Outcome('same' if _lines(answer) == _lines(text) else 'changed', text=answer.strip())
+
+
+def _lines(text: str) -> list[str]:
+    """The text's lines, without the spaces at their ends (which don't make it another text)."""
+    return [line.rstrip() for line in text.strip().splitlines()]
+
+
+def max_tokens(text: str) -> int:
+    """Room for the answer (the text, with its marks), and for thinking, for models that can't do without."""
+    return estimate(text) * 4 + 1024
+
+
+_GAP = re.compile(r'\n[ \t]*\n\s*')  # a blank line (or more) between paragraphs
+
+
+def parts(text: str, size: int = PART_TOKENS) -> list[tuple[str, str]]:
+    """A long text in parts of about `size` tokens at most (a paragraph longer than that: a part of its own),
+    cut at blank lines; each with what came after it (the blank lines, '' after the last): put back together, it's
+    the text."""
+    pieces = _GAP.split(text.strip())
+    gaps = _GAP.findall(text.strip()) + ['']
+    out: list[tuple[str, str]] = []
+    current, current_gap = '', ''
+    for piece, gap in zip(pieces, gaps):
+        if current and estimate(current + current_gap + piece) > size:
+            out.append((current, current_gap))
+            current = piece
+        else:
+            current = current + current_gap + piece if current else piece
+        current_gap = gap
+    out.append((current, ''))
+    return out
