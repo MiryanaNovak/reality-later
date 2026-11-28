@@ -1,24 +1,33 @@
-"""Which lore book entries go into a prompt: SillyTavern's "World Info" activation.
+"""Which lore book entries go into a prompt: SillyTavern's "World Info" activation, choosing by relevance.
 
 For every reply, the entries of the books in play (the character's and the
 persona's) are checked against the end of the chat:
 
-- an entry goes in when one of its keywords appears in the last few messages
+- an entry is a candidate when one of its keywords appears in the last few messages
   ("scan depth"), or always when it's marked constant;
 - keywords follow the entry's settings, or the global ones in Settings: case
   sensitivity, whole words (key_matches: with plural endings, and any ending
   after a *); a keyword written /like this/i is a regular expression;
 - optional secondary keywords filter further (and any / and all / not any / not all);
-- with recursion on, the text of the entries that went in is scanned too, so one
-  entry can bring in another (unless the entries say otherwise);
-- the entries share a budget of tokens: when more match than fit, the higher
-  Order wins;
-- with vector search on (vectors.py), an entry also goes in when it's close enough in meaning to
-  the last messages (the same scan depth): after the keyword matches, the closest first, up to a
-  number (Closeness), in the same budget. Unless it's set to come in only by keyword; and one set
-  to come in only by meaning ignores its keywords (LoreEntry.strategy).
+- with vector search on (vectors.py), an entry is also a candidate when it's close enough in meaning to
+  the last messages (the same scan depth), without a keyword: the closest first, up to a number
+  (Closeness). Unless it's set to come in only by keyword; and one set to come in only by meaning
+  ignores its keywords (LoreEntry.strategy);
+- chaining (Settings › Lore books): the text of the candidates is searched for keywords too, so one entry
+  can bring in another (unless the entries say otherwise), for so many levels (1 by default: only
+  entries named in those found in the chat). With vector search on for lore books, an entry brought in
+  that way must also be close enough in meaning to the chat, as one found by meaning alone must
+  ("unrelated" otherwise, and it brings in nothing in turn).
 
-Same rules as SillyTavern 1.19 (public/scripts/world-info.js), with the
+The candidates then share a budget of tokens. By default, the most related to the chat go first (rank()):
+those always included; then those whose keyword is in the last message, then in the one before, and so on;
+then those found in the scenario or your persona's description; then by meaning; then those brought in by
+another entry, level by level. Among equals: the closest in meaning to the chat (with vector search),
+then the higher Order. An entry brought in by another goes in only if that one did. The budget is a
+limit, not a target: what isn't a candidate stays out, room left or not. With "Order first" (as
+SillyTavern), the higher Order goes first instead, level by level.
+
+Same rules as SillyTavern 1.19 (public/scripts/world-info.js) for finding the candidates, with the
 messages scanned as "Name: text" like SillyTavern does by default. But keywords
 are found differently: as whole words by default, plurals included, and a * at
 the end allows any ending; keywords of 3 letters or fewer are whole words even
@@ -51,8 +60,11 @@ _REGEX_KEY = re.compile(r'^/([\s\S]+?)/([gimsuy]*)$')
 @dataclass
 class Source:
     """Text an entry's keywords are looked for in."""
-    label: str  # for the prompt view: 'the chat', 'the scenario', 'entry "The forest"'
+    label: str                # for the prompt view: 'the last message', 'the scenario', 'entry "The forest"'
     text: str
+    age: int | None = None    # a message: how many come after it (0: the last one)
+    level: int = -1           # an entry's text: that entry's level (see Activation)
+    key: tuple[str, int] | None = None  # an entry's text: which entry (book id, uid)
 
 
 @dataclass
@@ -61,9 +73,15 @@ class Activation:
     book: LoreBook
     entry: LoreEntry
     content: str           # macros filled in
-    reason: str            # 'always included', 'keyword "forest" in the chat', ...
-    status: str = 'used'   # 'used', 'over_budget' or 'skipped'
+    reason: str            # 'always included', 'keyword "forest" in the last message', ...
+    status: str = 'used'   # 'used', 'over_budget', 'skipped' or 'unrelated' (brought in, but not close in meaning)
     note: str = ''         # why it was skipped
+    level: int = 0         # 0: found in the chat or the texts (or always included); 1+: brought in by an entry of
+    #                        the level before (`by`)
+    by: tuple[str, int] | None = None  # (book id, uid) of the entry that brought it in
+    age: int | None = None             # found by keyword in a message: how many come after it
+    meaning: bool = False              # found by meaning alone
+    closeness: float | None = None     # to the last messages (with vector search), from 0 to 1
 
     @property
     def tokens(self) -> int:
@@ -111,7 +129,8 @@ def activate(books: list[LoreBook], *, chat: list[tuple[str, str]], settings: Lo
              char: str, user: str, texts: dict[str, str] | None = None,
              closeness: Closeness | None = None, scan_all: bool = False,
              pronouns: Sequence[str] | None = None) -> LoreResult:
-    """The entries to put in the prompt.
+    """The entries to put in the prompt: the candidates (see the notes at the top), then those that fit the budget,
+    in the order of rank(). The result lists them all in that order, with why each is in or out.
 
     `chat` is the conversation as (speaker name, text), oldest first. `texts` are the other texts
     some entries can scan too: 'scenario' (the character's), 'persona' (its description).
@@ -130,59 +149,109 @@ def activate(books: list[LoreBook], *, chat: list[tuple[str, str]], settings: Lo
     candidates = [(book, entry) for book in books for entry in _by_priority(book.entries.values())
                   if not entry.disable and (not entry.triggers or 'normal' in entry.triggers)]
     candidates.sort(key=lambda be: -be[1].order)  # stable: within one order, books and entries keep their order
+    levels = min(settings.recursion_levels, MAX_PASSES - 1) if settings.recursive else 0
     done: set[tuple[str, int]] = set()
-    recursion: list[Source] = []
-    left = budget
+    chained: list[Source] = []  # the text of the candidates, for those they bring in
+    found: list[Activation] = []
 
-    for pass_no in range(MAX_PASSES):
-        found = []
+    def closeness_of(book: LoreBook, entry: LoreEntry) -> float | None:
+        return closeness.score(book.id, entry.uid, _depth(entry, chat, settings, scan_all)) if closeness else None
+
+    # (with chaining on, a last pass only looks: to say what chaining further would bring)
+    for pass_no in range(levels + (2 if settings.recursive else 1)):
+        looking = pass_no > levels
+        new: list[Activation] = []
         near: list[tuple[float, LoreBook, LoreEntry]] = []  # close in meaning, without a keyword (the chat's pass)
         for book, entry in candidates:
             key = (book.id, entry.uid)
             if key in done or not _may_trigger(entry, pass_no):
                 continue
             if entry.constant:
-                reason = 'always included'
+                if looking:
+                    continue
+                where, reason = None, 'always included'
             else:
-                sources = _sources(entry, chat, settings, texts, scan_all) + (recursion if pass_no else [])
-                reason = '' if entry.onlyBy == 'meaning' else _match(entry, sources, settings, char=char, user=user,
-                                                                     pronouns=pronouns)
+                sources = _sources(entry, chat, settings, texts, scan_all) + (chained if pass_no else [])
+                where, reason = (None, '') if entry.onlyBy == 'meaning' else _match(
+                    entry, sources, settings, char=char, user=user, pronouns=pronouns)
                 if not reason:
                     if closeness and pass_no == 0 and entry.onlyBy != 'keywords':
-                        score = closeness.score(book.id, entry.uid, _depth(entry, chat, settings, scan_all))
+                        score = closeness_of(book, entry)
                         if score is not None and score >= closeness.threshold:
                             near.append((score, book, entry))
                     continue
             done.add(key)
-            found.append(Activation(book, entry, fill(entry.content, char=char, user=user, pronouns=pronouns).strip(),
-                                    reason))
+            new.append(Activation(book, entry, fill(entry.content, char=char, user=user, pronouns=pronouns).strip(),
+                                  reason, level=where.level + 1 if where and where.key else 0,
+                                  by=where.key if where else None, age=where.age if where else None,
+                                  closeness=closeness_of(book, entry)))
+        if looking:
+            if n := sum(1 for a in new if a.by):
+                result.notes.append(f'{n} more {"entry is" if n == 1 else "entries are"} named in entries brought in '
+                                    f'by others: chaining stops after {levels} level{"s" if levels > 1 else ""} '
+                                    f'(Settings › Lore books).')
+            break
         if closeness and near:  # after the keyword matches: the closest first, so many at most
             near.sort(key=lambda n: -n[0])
             for score, book, entry in near[:closeness.limit]:
                 done.add((book.id, entry.uid))
-                found.append(Activation(book, entry, fill(entry.content, char=char, user=user,
-                                                          pronouns=pronouns).strip(),
-                                        f'close in meaning to the chat ({score:.2f})'))
-        if not found:
+                new.append(Activation(book, entry, fill(entry.content, char=char, user=user,
+                                                        pronouns=pronouns).strip(),
+                                      f'close in meaning to the chat ({score:.2f})', meaning=True, closeness=score))
+        if not new:
             break
-
-        overflow = False
-        for a in found:
+        for a in new:
             if a.entry.position == OUTLET:
                 a.status, a.note = 'skipped', 'outlet entries are placed by a macro, which isn\'t supported yet'
             elif not a.content:
                 a.status, a.note = 'skipped', 'it has no text'
-            elif a.entry.ignoreBudget or a.tokens <= left:
-                if not a.entry.ignoreBudget:
-                    left -= a.tokens
-                if not a.entry.preventRecursion:
-                    recursion.append(Source(f'entry "{a.entry.title}"', a.content))
-            else:
-                a.status, overflow = 'over_budget', True
-            result.activations.append(a)
-        if not settings.recursive or overflow:  # SillyTavern stops scanning once the budget is full
-            break
+            elif a.by and settings.chained_close and closeness and a.closeness is not None \
+                    and a.closeness < closeness.threshold:
+                a.status, a.note = 'unrelated', (f'it\'s not close enough in meaning to the chat ({a.closeness:.2f}, '
+                                                 f'{closeness.threshold:.2f} needed)')
+            if a.status == 'used' and not a.entry.preventRecursion:
+                chained.append(Source(f'entry "{a.entry.title}"', a.content, level=a.level,
+                                      key=(a.book.id, a.entry.uid)))
+        found += new
+
+    # The budget: in the order of rank, each one that fits (and whose entry that brought it in did)
+    order = {book.id: i for i, book in enumerate(books)}
+    found.sort(key=lambda a: rank(a, settings, order))
+    went_in: set[tuple[str, int]] = set()
+    left = budget
+    for a in found:
+        if a.status != 'used':
+            pass
+        elif a.by and a.by not in went_in:
+            a.status, a.note = 'skipped', 'the entry that brought it in isn\'t in'
+        elif a.entry.ignoreBudget or a.tokens <= left:
+            if not a.entry.ignoreBudget:
+                left -= a.tokens
+            went_in.add((a.book.id, a.entry.uid))
+        else:
+            a.status = 'over_budget'
+    result.activations = found
     return result
+
+
+def rank(a: Activation, settings: LoreSettings, books: dict[str, int]) -> tuple:
+    """Where an entry comes when the candidates share the budget: the lower, the sooner (see the notes at the
+    top). `books`: each book's place among those in play."""
+    then = (-a.entry.order, books.get(a.book.id, 0), a.entry.displayIndex if a.entry.displayIndex is not None
+            else a.entry.uid, a.entry.uid)
+    if settings.priority == 'order':  # (as SillyTavern: level by level, those by meaning after the keywords')
+        return (a.level, a.meaning, *then)
+    if a.by:
+        kind, step = 4, a.level              # brought in by another entry, level by level
+    elif a.entry.constant:
+        kind, step = 0, 0                    # always included
+    elif a.age is not None:
+        kind, step = 1, a.age                # keyword in the chat: the last message first
+    elif a.meaning:
+        kind, step = 3, 0                    # by meaning
+    else:
+        kind, step = 2, 0                    # keyword in the scenario, or your persona's description
+    return (kind, step, -(a.closeness or 0.0), *then)
 
 
 def most_tokens(books: list[LoreBook], *, budget: int, char: str, user: str,
@@ -231,10 +300,15 @@ def _depth(entry: LoreEntry, chat: list[tuple[str, str]], settings: LoreSettings
 
 def _sources(entry: LoreEntry, chat: list[tuple[str, str]], settings: LoreSettings,
              texts: dict[str, str], scan_all: bool = False) -> list[Source]:
+    """What the entry's keywords are looked for in: the messages it scans, the last one first, then the texts it
+    looks in."""
     depth = _depth(entry, chat, settings, scan_all)
     sources = []
     if depth > 0 and chat:
-        sources.append(Source('the chat', '\n'.join(f'{name}: {text}' for name, text in chat[-depth:])))
+        for age, (name, text) in enumerate(reversed(chat[-depth:])):
+            label = 'the last message' if age == 0 else \
+                f'the chat, {age} message{"s" if age > 1 else ""} before the last'
+            sources.append(Source(label, f'{name}: {text}', age=age))
     # SillyTavern cards keep the character's description, personality and scenario apart; here, the
     # scenario holds all three (the description is only for you), so entries looking in any of them look there.
     looked = set()
@@ -249,10 +323,11 @@ def _sources(entry: LoreEntry, chat: list[tuple[str, str]], settings: LoreSettin
 
 
 def _match(entry: LoreEntry, sources: list[Source], settings: LoreSettings, *, char: str, user: str,
-           pronouns: Sequence[str] | None = None) -> str:
-    """Why the entry triggers ('keyword "x" in the chat'), or '' if it doesn't."""
+           pronouns: Sequence[str] | None = None) -> tuple[Source | None, str]:
+    """Where the entry's keyword is (the first source that has it), and why it triggers ('keyword "x" in the last
+    message'); (None, '') if it doesn't."""
     if not sources:
-        return ''
+        return None, ''
     case = entry.caseSensitive if entry.caseSensitive is not None else settings.case_sensitive
     whole = entry.matchWholeWords if entry.matchWholeWords is not None else settings.whole_words
     everything = '\n'.join(s.text for s in sources)
@@ -263,7 +338,7 @@ def _match(entry: LoreEntry, sources: list[Source], settings: LoreSettings, *, c
     keys = [k for k in (fill(k, char=char, user=user, pronouns=pronouns).strip() for k in entry.key) if k]
     primary = next((k for k in keys if found(k, everything)), None)
     if primary is None:
-        return ''
+        return None, ''
 
     secondary = [k for k in (fill(k, char=char, user=user, pronouns=pronouns).strip() for k in entry.keysecondary)
                  if k]
@@ -273,10 +348,10 @@ def _match(entry: LoreEntry, sources: list[Source], settings: LoreSettings, *, c
         ok = (any(hits) if logic == AND_ANY else all(hits) if logic == AND_ALL
               else not any(hits) if logic == NOT_ANY else not all(hits) if logic == NOT_ALL else False)
         if not ok:
-            return ''
+            return None, ''
 
-    where = next((s.label for s in sources if found(primary, s.text)), 'the scanned text')
-    return f'keyword "{primary}" in {where}'
+    where = next((s for s in sources if found(primary, s.text)), None)
+    return where, f'keyword "{primary}" in {where.label if where else "the scanned text"}'
 
 
 SHORT_KEY = 3  # keywords this short (in letters) are always whole words: inside words, "K" is in "know"

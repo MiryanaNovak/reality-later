@@ -21,14 +21,14 @@ from html import escape
 from nicegui import ui
 
 from ..conversations import ChatMessage
-from ..prompts import MARGIN, Prompt, PromptPart, PromptReport
+from ..prompts import MARGIN, LoreUse, Prompt, PromptPart, PromptReport
 from ..tokens import MESSAGE_OVERHEAD, estimate
 from .list_view import plural
 from .opened import Opened
 from .widgets import Dialog
 
 ROLE_LABELS = {'system': 'Instructions (system)', 'user': 'You (user)', 'assistant': 'Character (assistant)'}
-LORE_STATUS = {'over_budget': 'Left out: over the lore budget', 'skipped': 'Left out'}
+LORE_STATUS = {'over_budget': 'Left out: over the lore budget', 'skipped': 'Left out', 'unrelated': 'Left out'}
 
 # The kinds of parts a prompt is made of, by the order they come in (prompts.LAYOUT); each has its color in the
 # chart (theme.SHARE_COLORS)
@@ -366,15 +366,19 @@ def _lore(r: PromptReport, share: Share) -> None:
         ui.label('Neither the character nor the persona has lore books.').classes('text-sm muted')
     if r.books and not r.lore:
         ui.label('No entry triggered: none of their keywords is in the last messages.').classes('text-sm muted')
+    elif r.lore:
+        first = 'the highest Order first' if r.lore_priority == 'order' else 'the most related to the chat first'
+        ui.label(f'In the order they went in for the budget: {first} (Settings › Lore books).') \
+            .classes('text-sm muted').mark('lore-priority-note')
     for use in r.lore:
         with ui.column().classes('w-full gap-1').mark('lore-use'):
             ui.label(f'{use.book} › {use.entry}').classes('text-sm text-weight-medium')
+            why = _why(use)
             if use.status == 'used':
-                _entry(texts, f'Lore: {use.book} › {use.entry}', f'{_sentence(use.reason)}. Placed {use.placement}',
-                       use.tokens)
+                _entry(texts, f'Lore: {use.book} › {use.entry}', f'{why}. Placed {use.placement}', use.tokens)
             else:
                 reason = LORE_STATUS[use.status] + (f': {use.note}' if use.note else '')
-                ui.label(f'{_sentence(use.reason)}. {reason}.').classes('text-sm text-negative')
+                ui.label(f'{why}. {reason}.').classes('text-sm text-negative')
     for note in r.lore_notes:
         ui.label(note).classes('text-sm muted mt-1')
     _meaning_note(r)
@@ -393,10 +397,11 @@ def _memories(r: PromptReport, share: Share) -> None:
         with ui.column().classes('w-full gap-1').mark('memory-use'):
             ui.label(use.entry).classes('text-sm text-weight-medium')
             if use.status == 'used':
-                _entry(texts, f'Memory: {use.entry}', _sentence(use.reason), use.tokens)
+                _entry(texts, f'Memory: {use.entry}', _why(use), use.tokens)
             else:
-                reason = LORE_STATUS[use.status].replace('lore budget', 'memory budget')
-                ui.label(f'{_sentence(use.reason)}. {reason}.').classes('text-sm text-negative')
+                reason = LORE_STATUS[use.status].replace('lore budget', 'memory budget') + \
+                    (f': {use.note}' if use.note and use.status != 'over_budget' else '')
+                ui.label(f'{_why(use)}. {reason}.').classes('text-sm text-negative')
 
 
 def _messages(prompt: Prompt, share: Share) -> None:
@@ -422,6 +427,15 @@ def _sent(prompt: Prompt, sent) -> None:
             .classes('text-sm muted')
     for index, m in enumerate(sent):
         _block(m.role, estimate(m.content) + MESSAGE_OVERHEAD, m.content, f'prompt-message-{index}')
+
+
+def _why(use: LoreUse) -> str:
+    """Why an entry is a candidate: where its keyword is (and its level, if another entry brought it in), and how
+    close in meaning it is to the chat (with vector search)."""
+    why = _sentence(use.reason) + (f' (level {use.level})' if use.level else '')
+    if use.closeness is not None and not use.by_meaning:  # (found by meaning: the reason says it)
+        why += f', close in meaning: {use.closeness:.2f}'
+    return why
 
 
 def _sentence(text: str) -> str:

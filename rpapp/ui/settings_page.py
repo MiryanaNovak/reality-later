@@ -37,6 +37,10 @@ if TYPE_CHECKING:
     from ..updates import Updates
     from ..vectors import Vectorizer
 
+LORE_PRIORITY = {
+    'relevance': 'The most related to the chat first',
+    'order': 'The highest Order first (as SillyTavern)',
+}
 EXAMPLE_DIALOGUES = {
     'make_room': 'Send them while the whole chat fits',
     'always': 'Always send them',
@@ -102,9 +106,23 @@ class SettingsSection:
                 form.number(lore, 'budget_percent', 'Lore budget (%)', integer=True, min=1, max=100, step=5,
                             optional=False, hint='The most of the prompt\'s space lore entries may take. Kept for '
                                                  'them, used or not (at most what the books hold)')
-            form.switch(lore, 'recursive', 'Entries can trigger other entries')
-            ui.label('The text of the entries that go in is searched for keywords too.') \
-                .classes('text-sm muted -mt-3 ml-12')
+            form.select(lore, 'priority', 'When they don\'t all fit', LORE_PRIORITY,
+                        hint='Most related: those whose keyword is in the last message go first, then the one '
+                             'before, and so on; then those found in the scenario; then by meaning; then those '
+                             'brought in by other entries. Among equals: the closest in meaning, then the higher '
+                             'Order') \
+                .mark('lore-priority')
+            chaining = form.switch(lore, 'recursive', 'Entries can trigger other entries')
+            ui.label('The text of the entries found is searched for keywords too: the Council\'s entry can bring '
+                     'in Lord Seravold\'s.').classes('text-sm muted -mt-3 ml-12')
+            with ui.column().classes('w-full gap-3 pl-12 chaining').bind_visibility_from(chaining, 'value'):
+                form.number(lore, 'recursion_levels', 'Levels', integer=True, min=1, max=9, optional=False,
+                            hint='1: only entries named in those found in the chat. 2: also those named in '
+                                 'these, and so on').classes('max-w-xs').mark('recursion-levels')
+                form.switch(lore, 'chained_close', 'Only if close in meaning to the chat').mark('chained-close')
+                ui.label('An entry brought in by another must be as close in meaning to the last messages as one '
+                         'found by meaning alone. Needs vector search for lore books (below).') \
+                    .classes('text-sm muted -mt-3 ml-12')
             form.switch(lore, 'whole_words', 'Match whole words')
             ui.label('On: "dragon" finds "dragons" and "dragon\'s", not "dragonfly". End a keyword with * to '
                      'allow any ending: "duel*" finds "dueling". Off: keywords are found even inside words '
@@ -257,8 +275,10 @@ class SettingsSection:
         models = catalog()
         ui.label('An entry then also comes into the prompt when it\'s close in meaning to the last messages, even '
                  'without its keywords: a memory about Brann the ferryman comes back when the chat talks about "the '
-                 'old man at the river crossing". Keywords work as before. It runs on this computer, with a model '
-                 'you download once.').classes('text-sm muted -mt-2')
+                 'old man at the river crossing". Keywords work as before. For lore books, it also keeps out the '
+                 'entries brought in by others that aren\'t close to the chat, and puts the closest first when they '
+                 'don\'t all fit (Lore books, above). It runs on this computer, with a model you download once.') \
+            .classes('text-sm muted -mt-2')
         form.switch(vs, 'memories', 'For memories').mark('vectors-memories')
         form.switch(vs, 'lore', 'For lore books').mark('vectors-lore')
         choice = form.select(vs, 'model', 'Model', {key: m.label for key, m in models.items()},

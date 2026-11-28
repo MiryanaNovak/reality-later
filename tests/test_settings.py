@@ -33,7 +33,7 @@ def test_defaults_file_and_lookup(tmp_path):
                  'example_dialogues': 'make_room', 'return_key_desktop': 'send',
                  'return_key_mobile': 'new_line'},  # (the instructions now live in prompts: presets.py)
         'lore': {'scan_depth': 2, 'case_sensitive': False, 'whole_words': True, 'recursive': True,
-                 'budget_percent': 25},
+                 'recursion_levels': 1, 'chained_close': True, 'priority': 'relevance', 'budget_percent': 25},
         'memory': {'enabled': True, 'connection': None, 'instructions': '', 'budget_percent': 15,
                    'temperature': None, 'max_tokens': None},
         'vectors': {'memories': False, 'lore': False, 'model': 'all-minilm-l6-v2', 'source': 'huggingface',
@@ -146,6 +146,10 @@ async def test_return_key_settings(setup):
     assert (chat.return_key_desktop, chat.return_key_mobile) == ('new_line', 'send')
 
 
+def the_chaining(user):
+    return next(e for e in user.client.layout.descendants() if 'chaining' in e.classes)
+
+
 async def test_lore_settings(setup):
     user, store, _ = setup
     await user.open('/settings')
@@ -154,11 +158,16 @@ async def test_lore_settings(setup):
     numbers['Messages to scan'].set_value(4)
     numbers['Lore budget (%)'].set_value(40)
     switches = {e.text: e for e in user.find(ui.switch).elements}
+    numbers['Levels'].set_value(2)
+    switches['Only if close in meaning to the chat'].set_value(False)
+    by_label(user, ui.select)['When they don\'t all fit'].set_value('order')
     switches['Entries can trigger other entries'].set_value(False)
     switches['Match whole words'].set_value(False)
     lore = store.load().lore
     assert (lore.scan_depth, lore.budget_percent, lore.recursive, lore.whole_words, lore.case_sensitive) == \
         (4, 40, False, False, False)
+    assert (lore.recursion_levels, lore.chained_close, lore.priority) == (2, False, 'order')
+    assert not the_chaining(user).visible  # (chaining off: its levels and closeness hidden)
 
 
 async def test_context_size_shown(setup):

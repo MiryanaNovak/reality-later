@@ -156,11 +156,14 @@ class LoreUse(BaseModel):
     book: str
     entry: str
     uid: int
-    reason: str                  # 'keyword "forest" in the chat'
-    status: Literal['used', 'over_budget', 'skipped'] = 'used'
+    reason: str                  # 'keyword "forest" in the last message'
+    status: Literal['used', 'over_budget', 'skipped', 'unrelated'] = 'used'
     placement: str = ''          # 'with the background', 'in the chat, 2 messages from the end'
     note: str = ''               # why it was skipped
     tokens: int = 0
+    level: int = 0               # 0: found in the chat or the texts; 1+: brought in by another entry (lore.py)
+    by_meaning: bool = False     # found by meaning alone
+    closeness: float | None = None  # to the last messages, with vector search (0 to 1)
 
 
 class PromptReport(BaseModel):
@@ -176,6 +179,7 @@ class PromptReport(BaseModel):
     reserved: int = 0            # the room kept for lore and memories, used or not (see the notes at the top)
     lore_budget: int = 0
     lore_tokens: int = 0
+    lore_priority: str = 'relevance'  # who went first when they didn't all fit (Settings › Lore books)
     books: list[str] = Field(default_factory=list)          # names of the lore books in play
     missing_books: list[str] = Field(default_factory=list)  # remembered names of deleted ones
     lore: list[LoreUse] = Field(default_factory=list)
@@ -390,7 +394,7 @@ def build_prompt(conversation: Conversation, *, character: Character | None, per
         context_size=context, context_known=context_known, reply_tokens=reply, reply_known=reply_known,
         available=available, tokens=sum(p.tokens for p in parts),
         messages_total=len(messages), messages_left_out=start,
-        reserved=reserved, lore_budget=lore_budget, lore_tokens=lore.tokens,
+        reserved=reserved, lore_budget=lore_budget, lore_tokens=lore.tokens, lore_priority=settings.lore.priority,
         books=[b.name for b in books], missing_books=list(missing_books),
         lore=[_lore_use(a, examples=bool(examples)) for a in lore.activations], lore_notes=lore.notes,
         memory_budget=memory_budget, memory_tokens=remembered.tokens,
@@ -453,7 +457,9 @@ def _lore_use(a: Activation, *, examples: bool = False) -> LoreUse:
         note = BACKGROUND_NOTES.get(entry.position)
         placement = 'with the background' + (f' ({note})' if note else '')
     return LoreUse(book=a.book.name, entry=entry.title, uid=entry.uid, reason=a.reason, status=a.status,
-                   placement=placement if a.status == 'used' else '', note=a.note, tokens=a.tokens)
+                   placement=placement if a.status == 'used' else '', note=a.note, tokens=a.tokens,
+                   level=a.level, by_meaning=a.meaning,
+                   closeness=round(a.closeness, 2) if a.closeness is not None else None)
 
 
 def lore_books_for(character: Character | None, persona: Persona | None,

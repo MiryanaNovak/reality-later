@@ -90,7 +90,7 @@ def test_keywords_scan_depth_and_names():
              Self={'key': ['seraphina'], 'content': 'Seraphina is a guardian.'})
     used, result = run(b, 'We met in the glade.', 'Hello.', 'Is this forest dangerous?')
     assert used == ['Forest', 'Self']  # the glade is 3 messages back; names are scanned too ("Seraphina: ...")
-    assert result.activations[0].reason == 'keyword "forest" in the chat'
+    assert result.activations[0].reason == 'keyword "forest" in the last message'
 
     used, _ = run(b, 'We met in the glade.', 'Hello.', 'Is this forest dangerous?',
                   settings=LoreSettings(scan_depth=3))

@@ -214,7 +214,7 @@ def test_keywords_first_then_the_closest_up_to_the_limit():
     result = activate([book], chat=[('Mira', 'The boat.'), ('Sera', 'Yes.')], settings=LoreSettings(), budget=10_000,
                       char='Sera', user='Mira', closeness=Closeness(scores, threshold=0.6, limit=2))
     assert [(a.entry.comment, a.reason) for a in result.activations] == [
-        ('Keyword', 'keyword "boat" in the chat'),
+        ('Keyword', 'keyword "boat" in the chat, 1 message before the last'),
         ('Closest', 'close in meaning to the chat (0.90)'),
         ('Closer', 'close in meaning to the chat (0.70)')]  # 'Close' (0.61) is past the limit; 'Far' too far
 
@@ -242,7 +242,8 @@ def test_each_entry_says_how_it_may_come_in():
 
     # "boat" is in the chat: the meaning-only entry ignores it
     close = Closeness({(book.id, uid): [0.9] for uid in (both.uid, keywords.uid, meaning.uid)}, 0.5, 5)
-    assert picked(close)[0] == [('Both', 'keyword "boat" in the chat'), ('Keywords only', 'keyword "boat" in the chat'),
+    assert picked(close)[0] == [('Both', 'keyword "boat" in the last message'),
+                                ('Keywords only', 'keyword "boat" in the last message'),
                                 ('Meaning only', 'close in meaning to the chat')]
     chat = [('Mira', 'The river.')]  # no keyword: by meaning, but not the keywords-only one
     assert picked(close)[0] == [('Both', 'close in meaning to the chat'), ('Meaning only', 'close in meaning to the chat')]

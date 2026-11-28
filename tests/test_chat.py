@@ -457,10 +457,10 @@ async def test_prompt_view_shows_lore_and_what_is_sent(tmp_path, fake_model):
         user.find(marker='section-lore').elements.pop().set_value(True)
         with user.scope(marker='prompt-lore'):
             await user.should_see('Eldoria › The forest')
-            await user.should_see('Keyword "forest" in the chat. Placed with the background')
+            await user.should_see('Keyword "forest" in the last message. Placed with the background')
             await user.should_see('Shadowfangs roam the old forest.')  # (its text, with it)
-            await user.should_see('Keyword "shadowfang" in entry "The forest". Placed in the chat, after the last '
-                                  'message, as system')
+            await user.should_see('Keyword "shadowfang" in entry "The forest" (level 1). Placed in the chat, after '
+                                  'the last message, as system')
         user.find(marker='section-messages').elements.pop().set_value(True)
         with user.scope(marker='section-messages'):
             await user.should_see('Here: the lore entry "Shadowfangs", as system (see Lore).')

@@ -244,7 +244,7 @@ async def test_memories_after_old_messages_leave_the_prompt(tmp_path, fake_model
         assert memories.changes().summary == ''  # (more messages left the prompt since: nothing new in them)
         prompt = conversations.prompts.get(conversation.id, conversations.load(conversation.id).messages[-2].id)
         assert any(p.kind == 'memory' and 'set his wrist' in p.content for p in prompt.parts)
-        assert prompt.report.memories[0].reason == 'keyword "Brann" in the chat'
+        assert prompt.report.memories[0].reason == 'keyword "Brann" in the last message'
 
 
 async def test_memory_calls_know_what_the_lore_books_say(tmp_path, fake_model):
